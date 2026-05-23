@@ -457,6 +457,45 @@ Sanity-checked: produces `a53108ff303038304d30353137504dffffff30312e354b3131ffff
 ### Still pending (for next session)
 
 - [ ] Run `tools/forge_signal_v2.py` against bike (key on, Suzuki Connect closed). Expected: cluster clears "Searching for network" and shows arrow icon 8.
+
+## 2026-05-23 — Cloud API architecture mapped from static source
+
+### What we did
+
+Searched the decompiled JADX source (6751 Java files) for HTTPS URLs, Retrofit interfaces, OkHttp clients, and BLE callback registrations.
+
+### What we found
+
+**Suzuki Connect's cloud API is shockingly minimal:**
+
+- Base URL: `https://projects.mapmyindia.com/` (Mappls-hosted, not a Suzuki-owned domain)
+- Only TWO endpoints, both license-related:
+  - `GET /autolicverify/{BTID}/expiry/date/` → `ExpirationInfoResponse`
+  - `POST /autolicverify/...updatePlan` → `PlanUpdateResponse`
+- OAuth-style token auth (`TokenResponse.access_token`, stored in SharedPreferences `AppPrefs`)
+- Retrofit interfaces at `com.suzuki.interfaces.f` (GET) and `com.suzuki.interfaces.g` (POST)
+- Annotations stripped by ProGuard, but interface signatures + callbacks (`InterfaceC1072d`, `InterfaceC1075g`, `retrofit2.P`, `retrofit2.converter.gson.a`) are intact
+
+**This is a big finding**: **there is NO cloud API for fuel/odometer/trip/last-location** in Suzuki Connect. All search variants confirmed it — no Suzuki-owned API domain, no telemetry-related Retrofit endpoints, only the license-verification API.
+
+**Therefore the fuel/odo/trip data MUST come from BLE** (no other channel exists). This contradicts our earlier hypothesis P1 ("data cached from main-phone sessions via Suzuki cloud") — there's simply no cloud API to cache from.
+
+### What this means for the open question
+
+Remaining hypotheses are now narrowed to:
+- **(P2 reinforced)**: bike pushes telemetry over BLE during specific events we haven't captured. The notify-callback handler that parses these must exist in the app — we just haven't found it (no class extends `BleNotifyCallback`, suggesting it's set up inline via a lambda or anonymous class). Once found, we can map exactly which incoming message types carry telemetry.
+- **(P3 weakened)**: stale local cache. Possible but doesn't explain how Arjun's app got values in the first place. Something must have populated them.
+
+### Architecture confirmed
+
+- **Storage**: Realm Mobile Database. POJO classes at `com.suzuki.pojo.*` are Realm models with obfuscated field names (single letters).
+- **App-state singleton**: `com.suzuki.pojo.e` holds ~80 static fields for live session state (boolean flags + ints + strings).
+- **BLE wrapper**: FastBle (`com.clj.fastble.*`).
+- **Suzuki uses FastBle's `BleGattCallback` (callback.a) and `BleWriteCallback` (callback.b)** — but no extension of `BleNotifyCallback`. The notify subscription is inline somewhere (TBD).
+
+### Next thing to find
+
+Locate the FastBle `.notify(...)` invocation in Suzuki source — specifically, find what method calls `BleManager.notify(bleDevice, serviceUuid, charUuid, callback)` to register for `0xFFF2` notifications. The callback inside that call is what parses the incoming bytes and writes them to Realm. That code is the key to mapping which incoming message types carry fuel/odo/trip vs heartbeat.
 - [ ] Find which fields in A0.java's template (`p0`/`m0`/`n0`/`q0`/`o0`) are TIME, DISTANCE, UNITS, ARROW. Each is likely a small string that gets concatenated into the 30-byte frame.
 - [ ] Run `tools/forge_network.py` (built by subagent during this session) once bike is on next time, to test the OLD hypothesis (a533 pos 21/22). May fail — see above — but worth one test.
 - [ ] Capture an actual ride to get turn-arrow message variations.

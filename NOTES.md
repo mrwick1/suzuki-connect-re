@@ -2,6 +2,44 @@
 
 > Living spec for the BLE protocol between the Suzuki Connect Android app and the Suzuki Gixxer SF 150 (2023). Grown milestone-by-milestone.
 
+## Cloud API architecture (M1 — confirmed from decompiled source)
+
+**Suzuki Connect's cloud API is minimal and Mappls-hosted:**
+
+- **Base URL**: `https://projects.mapmyindia.com/`
+- **HTTP client**: Retrofit (annotations stripped by ProGuard but interface signatures + callbacks intact)
+- **Only TWO endpoints exist** in the entire app (both in `com.suzuki.interfaces.f` and `com.suzuki.interfaces.g`):
+  - `GET /autolicverify/{BTID}/expiry/date/` — returns `ExpirationInfoResponse` (subscription expiry info)
+  - `POST /autolicverify/...updatePlan` — returns `PlanUpdateResponse` (plan changes)
+- **Auth**: OAuth-style. Gets `TokenResponse` with `access_token` + `expires_in`; stored in SharedPreferences `AppPrefs.ACCESS_TOKEN`. Sent as `authorization` header.
+
+**There is NO cloud API for fuel/odometer/trip/last-location data.** The decompiled source has only the two license-management endpoints above. So **fuel/odo/trip data must come from BLE** (not cloud).
+
+### Local storage
+
+- **Suzuki Connect uses Realm Mobile Database** (`io.realm.*`) for local persistence.
+- Realm model classes are in `com.suzuki.pojo.*` (28 files, A-Z + numbered). Field names are heavily obfuscated single letters (`a`, `b`, `c`, `a0`, `b0`, ...) — without runtime trace it's hard to map field-name → semantic meaning.
+- App-state singleton at `com.suzuki.pojo.e` holds ~80 static fields for current session state (boolean flags + ints + strings).
+
+### BLE callback architecture
+
+- Suzuki uses **FastBle library** (`com.clj.fastble.*`).
+- Suzuki's callback classes only extend two FastBle callback types:
+  - `callback.a` (`BleGattCallback` — connection state) — `C0853p0`, `C0855q0`, `services/d`
+  - `callback.b` (`BleWriteCallback` — write confirmation) — `services/a`, `services/b`
+- **No class explicitly extends `BleNotifyCallback`** — the notify subscription is set up somewhere we haven't found yet (possibly via lambda / anonymous inner class to a `.notify(...)` call we missed). Once found, it will be the code that parses incoming `0xA5...0x7F` bytes from the bike and writes them to Realm.
+
+### Data flow (confirmed direction)
+
+```
+Bike --[BLE notify]--> phone (FastBle) --[??? handler ???]--> Realm DB --> Activity/Fragment UI
+                                                                ^
+                              fuel/odo/trip values stored here, read by FuelConsumptionActivity,
+                              TripDetailsActivity, etc.
+```
+
+The "???" is the FastBle notify subscription + parser that we haven't located yet. This is the next thing to find to fully close the data-flow question.
+
 ## App identity (M1)
 
 - Package name: `suzuki.com.suzuki`
