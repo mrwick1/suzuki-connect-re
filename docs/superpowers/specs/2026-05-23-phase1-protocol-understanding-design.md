@@ -14,11 +14,12 @@ The project is split into three phases. **This spec covers Phase 1 only.** Phase
 
 ## Goals (Phase 1)
 
-Understand the Suzuki Connect BLE protocol well enough to:
+Understand the Suzuki Connect BLE surface well enough to:
 1. Decode any captured navigation session into a human-readable transcript.
 2. Construct a valid navigation message from scratch and have the bike's display accept and render it.
 3. Document the protocol in a way another developer could implement an encoder from.
 4. Know whether the cluster display is a fixed-icon engine or accepts arbitrary graphics (input to Phase 3 scoping).
+5. Discover and categorize the bike's full BLE surface — including characteristics the official Suzuki Connect app never uses — to map hidden telemetry and diagnostic capabilities (also input to Phase 3 scoping).
 
 ## Non-Goals (Phase 1)
 
@@ -26,6 +27,7 @@ Understand the Suzuki Connect BLE protocol well enough to:
 - No HTTPS/cloud API reverse engineering beyond what BLE protocol comprehension requires. Phase 2 territory.
 - No bike firmware modification, no physical bike opening, no bypassing of bike-side auth that locks third parties out. Phase 3+ territory if ever.
 - No active fuzzing of the cluster display. Passive observation only in Phase 1.
+- **No write-probing of unknown characteristics.** Reads and notify-subscriptions on unknown endpoints are fine (safe). Writes with guessed payloads to unknown characteristics are *forbidden in Phase 1* — they can disable ABS, cut fuel, brick the cluster, or throw the bike into limp mode. Write exploration of unknown surface is deferred to a dedicated future phase with explicit risk acceptance and a recovery plan.
 
 ## Workflow & Cadence
 
@@ -98,12 +100,13 @@ Each milestone has a concrete deliverable that gates progress.
 - Install Suzuki Connect on spare device, log in, pair with bike.
 - **Deliverable**: README's "Setup verified" checklist ticked. Sample `adb shell` and `frida-ps -U` outputs pasted in setup log.
 
-### M1 — APK pull, decompile, identify BLE entry points
+### M1 — APK pull, decompile, identify BLE entry points + full bike GATT enumeration
 - `adb shell pm path com.suzuki.connect` (or actual package name once known) → `adb pull` the APK(s). Handle split APKs if present.
 - JADX → open APK → search for `BluetoothGatt`, `BluetoothLeScanner`, `ScanCallback`, `UUID.fromString(`.
 - Identify the class(es) that own BLE communication.
-- **Deliverable**: A `NOTES.md` section listing: package name, version, BLE-owning class(es), every UUID found (service + characteristic), a one-line note per characteristic guessed from variable names.
-- **Estimated**: 1–2 sessions. Faster if names survive obfuscation, slower if R8 stripped them.
+- **Walk the bike's GATT tree directly**, independent of the app. Using `bleak` (Python) or `gatttool` / `nRF Connect` (Android), connect to the bike, enumerate every Service and every Characteristic the bike advertises. For each characteristic record: UUID, properties (read/write/write-without-response/notify/indicate), and (for readable ones) the value returned by a single read.
+- **Deliverable**: A `NOTES.md` section listing: package name, version, BLE-owning class(es), every UUID the app references, **AND** every UUID the bike advertises. Tag each bike-advertised characteristic as `app-used` or `unused`. For `unused` readable characteristics, include the sample read value. One-line guess per characteristic on its likely purpose, based on variable names (app-used) or value shape (unused).
+- **Estimated**: 2–3 sessions. The bike-side GATT walk is mechanical but should not be skipped — `unused` characteristics are the M7 input.
 
 ### M2 — Capture a navigation session
 - Enable HCI snoop log on the spare Android: Settings → Dev Options → Enable Bluetooth HCI snoop log → toggle Bluetooth off/on.
@@ -141,14 +144,22 @@ Each milestone has a concrete deliverable that gates progress.
 - Trigger every UI feature in Suzuki Connect (start/end trip, settings changes, any action that changes the bike display).
 - Capture + hook each. Document.
 - Passive observation only — no fuzzing of unknown commands.
-- **Deliverable**: A "known commands" section in `NOTES.md` covering everything beyond nav, with notes on whether the display is a fixed-icon engine or accepts richer data. This input scopes Phase 3.
+- **Deliverable**: A "known commands" section in `NOTES.md` covering everything beyond nav, with notes on whether the display is a fixed-icon engine or accepts richer data. This input scopes Phase 3's cluster-display branch.
 - **Estimated**: 2–3 sessions.
 
-**Total Phase 1 estimate**: 8–15 sessions of 1–2 hours each.
+### M7 — Passive telemetry & diagnostic surface mapping
+- Operates on the `unused` characteristics catalogued in M1's bike-side GATT walk.
+- For each notify-capable unused characteristic, subscribe and log the stream. Reads are also fine. **Writes are forbidden in this milestone.**
+- Stimulate the bike across a range of states and log timestamps: ignition on (engine off), engine idle, engine warmed, throttle blip, riding at varying speeds, braking, gear changes, low fuel (if achievable safely), known fault triggered (e.g., side-stand down while in gear).
+- Correlate streamed values to bike state by feel and by timestamp.
+- **Deliverable**: A "Telemetry & diagnostic surface" section in `NOTES.md`. For each unused characteristic: category (engine / ECU diagnostic / fuel / chassis / unknown), inferred unit, update frequency, and correlation evidence. Anything that looks like RPM, throttle position, fuel level, fault codes, battery voltage, odometer-at-resolution, or service-mode data should be called out specifically. This input scopes Phase 3's telemetry-dashboard branch.
+- **Estimated**: 2–3 sessions. Can run in parallel with M6 since M6 probes the write-side (app → bike) and M7 probes the read-side (bike → phone, on app-ignored channels).
+
+**Total Phase 1 estimate**: 10–18 sessions of 1–2 hours each.
 
 ## Exit Gates (Phase 1 → Phase 2)
 
-All four must pass.
+All five must pass.
 
 ### Gate 1: Decode any captured navigation session into human-readable text.
 **Test**: Take a pcap captured by Arjun riding to a new destination he has not tested before. Run it through the decoder. Get output like:
@@ -171,6 +182,9 @@ If bike-side auth blocks third-party clients, this gate requires a sub-milestone
 ### Gate 4: We know whether the display is fixed-icon or arbitrary-graphics.
 **Test**: M6's output. Even an outcome of "we observed N command types and cannot fully decode them" satisfies this gate, as long as the boundary between "we have categorized" and "we have not" is clear.
 
+### Gate 5: The bike's full BLE surface is enumerated and categorized.
+**Test**: `NOTES.md` lists every Service and Characteristic the bike advertises. Each characteristic is tagged `app-used` or `unused`. For `unused` characteristics, M7 has classified each one into: engine telemetry / ECU diagnostic / fuel / chassis / unknown — and called out anything looking like RPM, throttle position, fuel level, fault codes, battery voltage, or odometer data specifically. An outcome of "we found N unused characteristics and could not infer K of them" satisfies this gate as long as the unknowns are explicitly listed (not silently skipped).
+
 ## Phase 2 & 3 Outlook (not designed here)
 
 ### Phase 2 — Google Maps replacement
@@ -189,14 +203,20 @@ What Phase 1 must enable for Phase 2 not to be rewritten:
 - The M5 encoder takes structured input (turn type, distance, street name). The notification → structured step is fully Phase 2's job. **Phase 1 design is unaffected by this Phase 2 choice.**
 - Gate 2 proves third-party writes work. If it fails on auth, Phase 1.5 may be required.
 
-### Phase 3 — Custom display graphics
-Scope depends on M6:
+### Phase 3 — Beyond the official app
+Two independent branches, scoped by Phase 1 outputs. Could be pursued separately or in parallel.
 
-- **If display is fixed-icon engine**: Phase 3 is creative protocol abuse — combining known commands to surface non-nav content (clock, weather, music, etc.) within the constraints of the icon set + text fields.
-- **If display accepts framebuffer/bitmap data**: Phase 3 is much larger — a tiny graphics engine for a low-color-depth embedded display.
-- **Most likely**: hybrid. Phase 3 design happens when M6 data is in.
+**Branch A — Custom cluster-display graphics** (scoped by M6):
+- *If display is a fixed-icon engine*: creative protocol abuse — combining known commands to surface non-nav content (clock, weather, music, etc.) within the constraints of the icon set + text fields.
+- *If display accepts framebuffer / bitmap data*: a tiny graphics engine for a low-color-depth embedded display.
+- *Most likely*: hybrid. Designed when M6 data is in.
 
-Active fuzzing of unknown display commands is deferred to a dedicated Phase 3 sub-phase with an explicit risk-acceptance step and a recovery plan (nearest Suzuki dealer for worst-case reflash).
+**Branch B — Telemetry dashboard** (scoped by M7):
+- If M7 reveals rich live telemetry (RPM, throttle, fuel rate, gear, fault codes, etc.), Phase 3-B builds a custom Android dashboard that displays the bike's real-time state. Think Torque Pro for OBD-II, but for the Suzuki BLE surface. Potentially with logging for post-ride analysis (lap timer, fuel-economy curves, throttle traces).
+- This branch is probably more achievable than Branch A because it uses read/notify only (no risky writes) and the consumer is a phone app, not the bike's locked-down cluster.
+- Scoping depends entirely on M7's haul. If M7 finds nothing interesting, this branch is dropped.
+
+Active fuzzing of unknown display commands or unknown writable characteristics is deferred to a dedicated Phase 3 sub-phase (separate from A and B above) with an explicit risk-acceptance step and a recovery plan (nearest Suzuki dealer for worst-case reflash).
 
 ## Risks & Open Questions
 
