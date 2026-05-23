@@ -129,26 +129,37 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 
 2. **Variable checksum on identical visible content**: Of the 36 `a536` ("ARJUN") messages, all have identical visible payloads, BUT two distinct trailing checksums (`46 f7 7f` and `52 03 7f`) — split by capture timeline (early vs late). Pure-payload CRC would give a single answer. This means the checksum involves **hidden state** — most likely a session counter or per-session HMAC key established at pairing. **This is the hardest problem for Gate 2**: we cannot construct valid messages unless we can reproduce the checksum, which requires understanding the hidden state. Resolved in M4.
 
-## Where do the app's fuel/odo/trip values come from? (CONFIRMED)
+## Where do the app's fuel/odo/trip values come from? (OPEN — verification in progress)
 
-The Suzuki Connect app surfaces fuel level, odometer, trip A/B, last bike location, etc. **These values are NOT exchanged over BLE in this protocol** — confirmed at the protocol level (not by absence of a sample, but by absence of any data-read mechanism). See `DISCOVERIES.md` "2026-05-23 — Exhaustive capture re-analysis" for the full opcode-level evidence.
+**What is observed (facts)**:
+- Suzuki Connect app surfaces: fuel level, odometer, trip A/B, last bike location, etc.
+- These values display even when the bike is OFF and only the phone is on.
+- In the M0 18-min BLE capture (5 reconnections, 7300 ATT packets, exhaustive per-byte analysis):
+  - Zero `Read Request` operations (opcode 0x0a) by phone on any characteristic.
+  - Bike's 163 notifies are byte-identical except for a sequence byte and checksum — no telemetry encoded in any other position.
+  - Phone's writes consist of: display refresh (`a531`), heartbeat (`a533`), user identity (`a536`). No telemetry-shaped payloads echoed.
+- The Gixxer SF 150 has **no embedded SIM** (Arjun's physical inspection; consistent with Suzuki's product page describing connectivity as "Bluetooth-enabled digital console" only — no mention of cellular or telematics module).
 
-Specifically, across **5 separate BLE connection events** (each with fresh service discovery) over an 18-min capture totaling 7300 ATT packets:
+**What is NOT known (open)**:
+- Whether the bike pushes telemetry over BLE during lifecycle events we did not trigger (engine start/stop, ignition cycle while paired, trip end button, manual sync gesture, app foreground/background transitions).
+- Whether the values shown in the app are stale (set at a prior moment, never updated).
+- Whether the values come from Suzuki's cloud (populated by the user's main phone uploading over its own internet, against the same Suzuki account the spare phone is logged into).
+- The exact meaning of "last sync time" displayed in the app.
 
-- **Zero Read Requests (opcode 0x0a)** — the phone never directly reads any characteristic value.
-- The only application data exchanged is: phone heartbeat (`a533`), user identity push (`a536`), display refresh (`a531`), bike heartbeat (`a537`).
-- No bulk telemetry burst on any reconnect.
+**Three remaining hypotheses (unverified)**:
 
-**Therefore**: fuel/odo/trip/last-location come from **Suzuki's cloud API via HTTPS**, populated by the bike's cellular TCU (Telematics Control Unit) uploading telemetry independently of any paired phone. The "last sync time" displayed in the app refers to a cloud refresh or paired-connection check-in, not a BLE data fetch.
+- **(P1) Cloud-cached from main-phone sessions.** Spare phone logged into Arjun's existing Suzuki account → cloud serves cached values originally uploaded by the main phone during its sessions with the bike. Plausible. To verify: log out / fresh install / check whether values disappear; check "last sync time" recency.
+- **(P2) BLE pushes telemetry during specific events we did not capture.** The 18-min M0 session did not cleanly trigger many lifecycle events. To verify: laptop-as-Central listener subscribed to `0xFFF2`, with Arjun triggering each event one at a time.
+- **(P3) Values are stale / set once and never refreshed.** App displays values from initial setup or last service center, never updated. To verify: ride bike (consume measurable fuel), reconnect, observe whether value changes.
 
-This is the industry-standard architecture for connected vehicles (Tesla, BMW ConnectedRide, Honda RoadSync all work this way). "Last bike location" working when the phone isn't paired or when the bike is off is direct evidence the bike phones home over its own cellular link.
+**Previously claimed but RETRACTED**: "Data comes from Suzuki cloud via embedded SIM on the bike." This was wrong — the bike has no SIM. See `DISCOVERIES.md` for the walk-back.
 
-### Implications for Phase 3 Branch B (telemetry dashboard)
+### Implications for Phase 3 Branch B (telemetry dashboard) — REVISED
 
-- **"Telemetry dashboard via BLE subscription" is DEAD.** The bike does not expose live telemetry over BLE in this protocol.
-- **"Telemetry dashboard via Suzuki cloud API" is the viable path.** Requires HTTPS interception (mitmproxy + Frida SSL pinning bypass) to RE the cloud API, document endpoints + auth, then build a dashboard.
-- This is arguably more powerful than BLE-only — the cloud likely has historical data (trip history, fault code archives, fuel economy trends) that real-time BLE could not provide.
-- Project shape changes: less "subscribe to live BLE notify stream," more "RE a REST API." Likely a sub-phase between Phase 1 and Phase 2.
+- Status: open. Depends on which of P1/P2/P3 is true.
+- If P2 (BLE-on-event): a BLE-based dashboard becomes possible if we can identify and replay the right events. Could give live data when paired.
+- If P1 (cloud-cached from main phone): a dashboard would require RE'ing Suzuki cloud API and using the user's credentials. Provides whatever the cloud has, not real-time.
+- If P3 (stale): no live telemetry exists anywhere. Dashboard isn't possible at all without major architecture work.
 
 ## App-side BLE call chain (M3)
 

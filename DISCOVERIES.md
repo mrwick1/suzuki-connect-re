@@ -124,23 +124,65 @@ Both criticisms were correct.
 - **40 Error Responses are all "Attribute Not Found"** — normal discovery noise from the phone sweeping handle ranges that don't exist on the bike. Not evidence of failed auth or anything interesting.
 - The bike's vendor service is at `0xFFF0` with characteristics `0xFFF1` (write) and `0xFFF2` (notify) — same as the GATT walk confirmed, no hidden additional services.
 
-### Wrong assumption was actually right, but for the right reasons this time
+### Observed (not hypothesis): no telemetry in this BLE capture
 
-**Updated assumption (now confirmed, not hypothesis)**: Fuel/odo/trip/last-location data does NOT come over BLE in this protocol. Confirmed at the protocol level — not by absence of one data point, but by absence of any data-read mechanism across 5 connection events and 7300 packets.
+Across 5 connection events / 7300 ATT packets in the 18-min M0 session:
+- Zero `Read Request` operations (opcode 0x0a) from phone to bike.
+- Zero non-heartbeat notifications from bike to phone (per-byte analysis of all 163 notifies confirms only positions 25 [sequence] and 28 [checksum] vary; all other 28 bytes are constant).
+- Per-byte analysis of all 3470 writes confirms: ASCII time/distance/units (`a531`), incrementing phone counter (`a533`), user identity (`a536`). No telemetry-shaped data echoed from bike.
 
-**Therefore**: Suzuki Connect's fuel/odo/trip/last-location values come from **Suzuki's cloud API** (HTTPS), populated by the bike's cellular TCU uploading telemetry independently. The "last sync time" in the app refers to a cloud refresh or paired-connection check-in, not a BLE data fetch.
+This is rigorous evidence that **this specific capture does not contain bike telemetry exchange**. It does NOT prove the BLE protocol can never carry telemetry — only that no telemetry crossed in these 18 minutes.
 
-### Implication for Phase 3 Branch B
+### Wrong claim made then walked back: "data comes from Suzuki cloud via embedded SIM"
 
-- "Telemetry dashboard via BLE subscription" = **definitively dead.** Bike does not expose live telemetry over BLE in this protocol.
-- "Telemetry dashboard via Suzuki cloud API" = **viable, separate sub-project.** Requires HTTPS interception (mitmproxy + Frida SSL pinning bypass) to RE the cloud API. Substantially more powerful than BLE-only would have been (cloud probably has historical trip data, fault code archives, etc.).
-- Decision deferred to end of Phase 1: do we add a "Phase 1.5: HTTPS API RE" or fold it into Phase 2 prep?
+**What I claimed**: Fuel/odo/trip/last-location must come from Suzuki cloud via HTTPS, populated by the bike's cellular TCU uploading independently of the phone. Cited "industry-standard architecture (Tesla, BMW, Honda)."
 
-### Lessons learned
+**What's actually true**:
+- Arjun confirmed: the Gixxer SF 150 has NO physical SIM card. He's inspected the bike.
+- Web search of Suzuki India's product page for Gixxer SF describes connectivity as "Bluetooth-enabled digital console" with mobile app integration. No mention of embedded SIM, telematics, or cellular.
 
-1. **Don't sample when the user asks for analysis.** Spot-checks miss things and create false confidence. Exhaustive dumps + opcode-level breakdowns are cheap (one tshark invocation).
-2. **Absence of one channel ≠ absence everywhere.** When data exists in the app, find ALL channels it could come from (BLE + cellular + cloud + local cache) before concluding capabilities.
-3. **"Doing analysis" ≠ "doing complete analysis."** Be explicit about what was checked and what wasn't. If sampling, say so.
+**Therefore the cellular-TCU theory is wrong.** The bike cannot upload data to Suzuki cloud independently. If telemetry reaches Suzuki cloud at all, it must go via the paired phone.
+
+**Lesson**: I extrapolated from "what most connected vehicles do" to "what this specific bike does" without verification. Industry-standard architecture for premium cars does not apply to a Rs. 1.4L Indian motorcycle.
+
+### Updated possibility space for where app's fuel/odo/trip/last-location come from
+
+Now that the cellular-TCU hypothesis is dead, three possibilities remain:
+
+**(P1) Cached data from main-phone sessions, served via Suzuki cloud**
+The spare phone is logged into Arjun's existing Suzuki Connect account. His MAIN phone has been pairing with this bike for months. During main-phone sessions, the bike pushes telemetry to main phone via BLE (in events we haven't captured), main phone uploads to Suzuki cloud. Spare phone, on first login, downloads cached values from cloud — even though spare itself has never received this data over BLE.
+
+*Evidence in support*: explains why app shows values immediately after install on spare phone, even before the bike connected to spare phone. Account-bound cloud cache is a common pattern.
+
+*To verify*: log out of Suzuki Connect on spare phone, observe what disappears. Or: check what "last sync time" displays — if it's older than the spare phone's first pairing today, this is the explanation.
+
+**(P2) Bike DOES push telemetry over BLE during specific lifecycle events we didn't capture**
+The 18-min M0 session was: connect → set destination → drive a bit → set another destination → walk. We did NOT cleanly trigger: engine start, engine stop, ignition cycle while paired, trip end button in app, manual sync gesture, app foreground/background transition.
+
+*Evidence in support*: notify channel has the right shape (notify can carry bulk data), bike's BLE chip definitely has access to ECU state. Just need to trigger the right event.
+
+*To verify*: run a laptop-as-Central listener (Arjun's suggested approach), trigger each lifecycle event sequentially, observe what new messages appear.
+
+**(P3) Values shown in app are stale / never update**
+The fuel/odo/trip values in the app might have been written at a prior point (initial pairing setup, last service center visit, etc.) and just never refresh. The "last sync time" might be a connection check-in, not a data refresh.
+
+*To verify*: ride bike (consume measurable fuel), reconnect spare phone, see if fuel level changes in app. If never updates → confirmed stale.
+
+### Implication for Phase 3 Branch B (telemetry dashboard) — REVISED
+
+Previous claim that this is "dead via BLE, viable via cloud" was based on the wrong SIM assumption. With cellular ruled out:
+
+- If P1 or P2 is true: telemetry IS reaching the phone (or could, on the right event/account). A telemetry dashboard would either pull from Suzuki cloud (P1 path) or subscribe to BLE during specific events (P2 path).
+- If P3 is true: there's no live telemetry anywhere; the app values are decorative.
+- We don't know which is true and must verify before scoping Phase 3-B.
+
+### Lessons reinforced
+
+1. **Don't sample when asked to analyze.** (Earlier lesson, repeated.)
+2. **"Industry-standard architecture" claims are guesses, not facts.** What Tesla does is not what Suzuki does.
+3. **Don't conclude an upstream source when the absence in one channel could mean many things.** "Not in BLE" could mean: not in BLE *now*, not in BLE *at all*, in BLE *during events not yet captured*, or the data never updates.
+4. **Web search is unverified context, not proof.** The Suzuki product page mentioning Bluetooth-only is consistent with no-SIM but doesn't prove it; Arjun's physical inspection does.
+5. **Walk back wrong claims explicitly in this log.** Don't just rewrite the spec — leave a record of the mistake so the next session understands the journey.
 
 ---
 
