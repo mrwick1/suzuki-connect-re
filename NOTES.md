@@ -83,6 +83,87 @@ Captured via direct GATT walk from laptop on M0 with bike key ON, Suzuki Connect
 - **Gate 5 (full BLE surface enumerated)**: M1.6 deliverable already met by this walk. Will be expanded with `app-used` analysis once M1 APK decompile is done.
 - **Gate 2 (send valid third-party message)**: no PKOC, so no public-key handshake to defeat. The auth layer (if any) is whatever Suzuki coded above `setValue()` — should be discoverable in M4.
 
+## Message types and structure (M0 preliminary, M5 will refine)
+
+All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
+
+```
++------+------+-----------------------+------------+----------+
+| 0xA5 | type | ASCII payload + 0xFF | 1-2B csum | 0x7F    |
++------+------+-----------------------+------------+----------+
+                                                   end-of-msg
+```
+
+- All payloads are **exactly 30 bytes** (the protocol pads to fixed frame size with `0xFF`)
+- Header byte: `0xA5`
+- Type byte: an ASCII digit (`'1'`, `'3'`, `'6'`, `'7'`) — i.e., type byte is `0x31`, `0x33`, `0x36`, `0x37`
+- Payload: ASCII text fields, often separated by `0xFF` or null bytes
+- Trailing byte: `0x7F` (end-of-message marker)
+- Byte before `0x7F`: appears to be a checksum that varies with content
+
+### Observed message types
+
+**From phone to bike** (writes on `0xFFF1`):
+
+| Type byte | Count in M0 capture | Rate | Decoded sample | Purpose (hypothesis) |
+|-----------|---------------------|------|----------------|---------------------|
+| `0x31` ('1') | 2988 (~86%) | ~2.7/sec | `.1..0080M0517PM...05.6K01...L.` | **Display update**: current time + distance-to-destination + flags. Pushed continuously to refresh cluster display. |
+| `0x33` ('3') | 446 (~13%) | ~0.4/sec | `.33Y214.050154NN.........` | **Phone heartbeat / keepalive** with incrementing counter (050154, 050155, 050156...) |
+| `0x36` ('6') | 36 (~1%) | episodic | `.6ARJUN.....................` | **User identity** — pushes user name (for display) on connection and at certain events |
+
+**From bike to phone** (notifies on `0xFFF2`):
+
+| Type byte | Count | Rate | Decoded sample | Purpose (hypothesis) |
+|-----------|-------|------|----------------|---------------------|
+| `0x37` ('7') | 163 | every ~5 sec | `.7[22 digit ID]N49..&.` | **Bike heartbeat**: long ID (looks like vehicle ID or session ID) + sequence counter. In the M0 capture this is the ONLY notify type observed. |
+
+### Key implications
+
+- **No encryption**: payloads are plaintext ASCII. M4 likely resolves to "no encryption layer."
+- **Bike cluster is phone-driven**: the bike displays whatever ASCII the phone sends in `a531` messages. The cluster's "smart" display behavior (time, distance, turn arrows) is entirely a function of phone-side rendering pushed over BLE. **Phase 3 Branch A (custom display) is wide open** — we can probably display arbitrary text in the cluster's text regions.
+- **Bike does not push live telemetry over THIS BLE protocol** — the notify stream is pure heartbeat in our 18-min capture. See `## Where do the app's fuel/odo/trip values come from?` below for the corrected understanding.
+
+### Open puzzles
+
+1. **Turn-arrow / nav-instruction encoding**: We expected to see explicit turn-type bytes (TURN_LEFT etc.). We don't — but the bike DOES show turn instructions when we navigate. Hypothesis: turn type + distance is embedded in `a531` payload fields we haven't decoded yet (one of the byte regions we currently read as "distance" might be a compound `<direction><distance>`). To be resolved in M5 with targeted captures.
+
+2. **Variable checksum on identical visible content**: Of the 36 `a536` ("ARJUN") messages, all have identical visible payloads, BUT two distinct trailing checksums (`46 f7 7f` and `52 03 7f`) — split by capture timeline (early vs late). Pure-payload CRC would give a single answer. This means the checksum involves **hidden state** — most likely a session counter or per-session HMAC key established at pairing. **This is the hardest problem for Gate 2**: we cannot construct valid messages unless we can reproduce the checksum, which requires understanding the hidden state. Resolved in M4.
+
+## Where do the app's fuel/odo/trip values come from?
+
+The Suzuki Connect app surfaces fuel level, odometer, trip A/B, last bike location, etc. **These values are NOT visible in our BLE capture** (only nav + heartbeat). So they must come from elsewhere. Three hypotheses, ranked by likelihood:
+
+### Hypothesis A: Pulled from Suzuki's cloud via HTTPS (most likely)
+
+The Gixxer SF 150's Suzuki Connect TCU (Telematics Control Unit) has its own embedded SIM and uploads telemetry to Suzuki's cloud **independently of the phone**, over cellular. The app then reads from cloud via HTTPS, not from the bike via BLE.
+
+**Evidence in support:**
+- This is the industry-standard architecture (Tesla, BMW ConnectedRide, Honda RoadSync — all work this way)
+- "Last bike location" works even when the phone isn't paired or when the bike is off — only possible if the TCU is uploading independently
+- Our BLE capture shows zero telemetry data despite 18 min of session
+- The TCU embedded SIM is what differentiates "Suzuki Connect" models from non-Connect
+
+**To verify**: capture HTTPS traffic from the app via mitmproxy with Frida-based SSL pinning bypass. If fuel/odo/trip screens make API calls to a Suzuki cloud domain → confirmed.
+
+### Hypothesis B: BLE on-demand request/response
+
+Maybe the bike has the data but only pushes it when the app explicitly asks (e.g., when the user opens "Trip Details"). Our short capture never triggered those screens — we only set destinations and let nav run.
+
+**To verify**: a fresh BLE capture session where the user deliberately opens every static-data screen in the app (trip A, trip B, fuel, last location). Look for new message types appearing.
+
+### Hypothesis C: BLE we missed in GATT enumeration
+
+Unlikely — the M0 GATT walk got the full tree (one write char, one notify char, no other vendor services). But the existing notify channel might multiplex more message types than `a537`.
+
+**To verify**: same as B (different app screens), but specifically look for new TYPE bytes on `0xFFF2` notify messages.
+
+### Implications for Phase 3 Branch B (telemetry dashboard)
+
+- **NOT dead as previously stated.** That conclusion was wrong because it assumed "if not in BLE notify, then nowhere." Telemetry is almost certainly available — just via cloud, not BLE.
+- The path forward: MITM Suzuki's cloud API in Phase 2 prep, document the endpoints + auth, build a dashboard that hits that cloud just like the official app does.
+- This is arguably MORE powerful than BLE-only telemetry — the cloud likely has historical data (trip history, average fuel economy curves, fault code archives) that real-time BLE could not provide.
+- It's a different project shape: less "subscribe to live data" and more "RE a REST API."
+
 ## App-side BLE call chain (M3)
 
 (TBD M3 — highest Suzuki-namespaced class that initiates BLE writes; notify handler class)
