@@ -253,12 +253,71 @@ Previously documented (twice) that the M0 capture proved "no telemetry in the bi
 
 ---
 
+## 2026-05-23 — Phase B forge experiment + WITH-SIM capture
+
+### Phase B: full diag with forged messages (no SIM)
+
+Built `tools/bike_full_diag.py` and ran one connection with all 8 test steps:
+1. ARJUN identity ✓ WRITE OK
+2. a533 NETWORK=YES (×2) ✓ both WRITE OK
+3. Captured a531 display replay (time=0517PM, dist=05.6K) ✓ WRITE OK
+4. a531 with modified time "9999" ✓ WRITE OK
+5. a531 with arbitrary text "HELLO BIKE" ✓ WRITE OK
+6. a536 with name "Arch Linux" ✓ WRITE OK
+7. 20s maintenance loop (heartbeat + a531 every 2s) ✓ all WRITES OK
+8. Unknown msg type a534 probe ✓ WRITE OK (no error response, silent accept)
+
+**Bike accepted ALL writes at the protocol level — every write returned OK with no GATT errors.** But the cluster did NOT visibly render any of our content. It stayed in "Searching for network" state throughout.
+
+**Arjun's observation**: "Searching for network" appears in the same display region where nav arrows would appear. So the bike is gating the entire nav-content region behind a network-status check — and our forged YN heartbeat (pos 14 = 'Y') was NOT enough to satisfy that check.
+
+### WITH-SIM ground-truth capture
+
+Arjun installed a SIM card into the spare phone, opened Suzuki Connect, paired with bike. Cluster immediately showed nav arrows (no "Searching for network"). Pulled HCI snoop log: `captures/with-sim-nav-20260523-1840.pcap` (56KB, 1192 packets, 268 writes, 13 notifies). **Backed up to `~/.suzuki-re-backups/` (outside the repo) so we don't lose it.**
+
+### Differential analysis: WITH-SIM vs NO-SIM
+
+Compared per-byte values across `a531`, `a533`, and `a536` messages between WITH-SIM and earlier NO-SIM captures.
+
+**`a533` heartbeat — the discriminating bytes**:
+
+| Position | WITH-SIM (arrows showing) | NO-SIM (searching) | Likely meaning |
+|----------|---------------------------|--------------------|----|
+| 21 | `0x02` (only value) | `0x01` (early) / `0x05` (late) | **Network type byte**: 0x02 = cellular, 0x05 = WiFi-only, 0x01 = none |
+| 22 | `0xc9` (only value) | `0x00` (early) / `0xcb` (late) | **Signal strength**: `0xc9` = -55 dBm signed (strong cellular). `0xcb` = -53 dBm but with type=WiFi means "not real network" to bike. `0x00` = no signal. |
+| 14 | `'N'` always | `'N'` mostly / `'Y'` 2 messages | NOT the gating field. Pos 14 was 'N' in WITH-SIM despite arrows showing. Hypothesis P1 (YN = network) was wrong. |
+
+**`a536` identity — the discriminating byte**:
+
+| Position | WITH-SIM | NO-SIM | Likely meaning |
+|----------|----------|--------|----|
+| 27 | `'R'` only | `'F'` (early) / `'R'` (late) | **Registration state**: `'R'` = Registered (to a network), `'F'` = Fresh/unregistered |
+
+**`a531` display — most positions are content (time/distance/units)** and naturally differ between captures because the captured display content was different.
+
+### Updated hypothesis (UNVERIFIED — to be tested next session)
+
+To get the bike to clear "Searching for network" and show our display content WITHOUT a real SIM, we need to forge:
+- `a533` with **position 21 = 0x02** AND **position 22 = 0xc9** (cellular type + strong signal)
+- `a536` with **position 27 = 'R'** (registered)
+
+If sent in a stream, the bike should believe the phone has cellular network and unlock nav rendering.
+
+**Test plan for next session**: build new tool that sends ARJUN identity (with pos 27 = 'R'), then continuous loop of forged a533 (with pos 21 = 0x02, pos 22 = 0xc9) and a531 display content. Observe if cluster clears "searching" and shows our content.
+
+### What we still DON'T know
+
+- **Turn-arrow encoding**: WITH-SIM capture has 216 a531 messages but only positions 12 (minutes-digit of time) and 28 (checksum) vary. The rest are identical. The captured nav session had a destination set but Arjun didn't actually ride toward it. Without traversing real turns, we don't capture turn-instruction message variations. **Resolved only by capturing an actual ride.**
+- **Whether forging network bytes will actually defeat the gating**: hypothesis-only until next session test.
+- **Where fuel/odo/trip data really comes from**: not BLE (per exhaustive analysis), and not Suzuki cloud via cellular (bike has no SIM). Remaining: maybe Suzuki cloud via the phone (the user's main phone uploads when paired, spare phone reads via cloud), or local cache, or BLE in events we never triggered.
+- **The a533 binary bytes 21-22 dynamics in WITH-SIM**: they were CONSTANT at 0x02 0xc9 across all 44 messages. Need a session with varying signal strength to see how the byte changes.
+
+---
+
 ## Pending validation work (carry into next session)
 
-- [ ] Run Phase B: replay captured `a531` write from laptop, see if bike cluster displays the captured content (proves we can write to bike from third-party Central; tests Gate 2 path)
-- [ ] If Phase B succeeds: try Phase C (modify the time field, recompute checksum with confirmed sum algo, see if cluster shows new time)
-- [ ] If Phase C succeeds: try Phase D (fully custom ASCII text in `a531`, see if cluster shows arbitrary text — Phase 3-A unlock)
-- [ ] Fix `provoke_and_listen.py` to increment the `a533` heartbeat counter properly (matches legitimate phone behavior, may prevent the "Unlikely Error" disconnect)
-- [ ] Comprehensive triggering: longer session with engine state changes, riding (if safe), more diverse triggers, to map any additional notify variation
-- [ ] mitmproxy + Frida SSL pinning bypass — investigate where fuel/odo/trip values come from for the app (still unresolved; bike has no SIM, so it's either BLE-event-we-missed or cloud-via-phone-relay or app-local-cache)
-- [ ] Decode `a531` further to find the turn-arrow encoding (M5)
+- [ ] Build forge-network tool: send a533 with pos 21=0x02 + pos 22=0xc9 + a536 with pos 27='R' in a loop. Test if cluster clears "Searching for network" without SIM.
+- [ ] If forge test succeeds: retry Phase B/C/D — does cluster now render our display content?
+- [ ] mitmproxy + Frida SSL pinning bypass on Suzuki Connect to settle where app's fuel/odo/trip values come from (final unanswered question).
+- [ ] Capture an ACTUAL RIDE with WITH-SIM phone to see turn-arrow message variations (M5).
+- [ ] Fix `provoke_and_listen.py` to increment the a533 counter (positions 11-13) properly so bike doesn't disconnect from "stale counter" detection.
