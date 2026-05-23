@@ -38,33 +38,50 @@
 
 ## BLE GATT tree (M1)
 
+Captured via direct GATT walk from laptop on M0 with bike key ON, Suzuki Connect closed. See `captures/gatt-walk-*.txt` for raw output.
+
 ### Services
 
-| UUID | Name (if standard) | App-used? | Notes |
-|------|--------------------|-----------|-------|
-| (TBD M1 full enumeration) | | | |
+| UUID | Name | App-used? | Notes |
+|------|------|-----------|-------|
+| `00001800-...` | Generic Access Profile (GAP) | partial (standard) | standard discovery |
+| `00001801-...` | Generic Attribute Profile (GATT) | yes (standard) | no characteristics exposed |
+| `0000180a-...` | Device Information | partial | metadata strings |
+| `0000fff0-...` | Vendor specific (Suzuki) | yes | **the actual Suzuki protocol surface** |
 
 ### Characteristics
 
-| Service UUID | Char UUID | Properties | App-used? | Sample read | Inferred purpose |
-|--------------|-----------|------------|-----------|-------------|------------------|
-| (TBD M1 full enumeration) | | | | | |
+| Service | Char UUID | Properties | App-used? | Sample read | Inferred purpose |
+|---------|-----------|------------|-----------|-------------|------------------|
+| 0x1800 | `2a00` Device Name | write,write-without-response | no | (write-only) | rename device — write-only is unusual but bike accepts new name |
+| 0x1800 | `2a01` Appearance | write,write-without-response | no | (write-only) | also write-only — bike lets app set its advertised appearance class |
+| 0x1800 | `2a04` Preferred Connection Params | read | no | `5000a0000000e803` | conn interval min/max, latency, supervision timeout |
+| 0x180a | `2a23` System ID | read | no | `f1da54000039b874` | MAC in BE encoding |
+| 0x180a | `2a24` Model Number | read | no | `5846` = `"XF"` | Suzuki internal model code |
+| 0x180a | `2a25` Serial Number | read | no | PII — see LOCAL_NOTES | matches advertised name |
+| 0x180a | `2a26` Firmware Revision | read | no | `"From Host Controller"` | literal string, not a version |
+| 0x180a | `2a27` Hardware Revision | read | no | `"From Host Controller"` | same |
+| 0x180a | `2a28` Software Revision | read | no | `"0.1.5.8"` | actual version |
+| 0x180a | `2a29` Manufacturer Name | read | no | `"Suzuki"` | |
+| 0x180a | `2a2a` IEEE 11073-20601 Cert | read | no | `\xfe\x00"experimental"` | **odd**: bike firmware is flagged "experimental" |
+| 0x180a | `2a50` PnP ID | read | no | `010d0000001001` | VID source=BT SIG, VID=0x000d, PID=0x0000, ver=0x0110 |
+| **0xfff0** | **`fff1`** | **write** | **YES** | (write-only) | **phone → bike: nav commands, app actions** |
+| **0xfff0** | **`fff2`** | **notify** | **YES** | (notify-only) | **bike → phone: status, telemetry (multiplexed)** |
 
-### Preliminary observations from M0 capture (verify in M1/M2)
+### Key observations
 
-From the M0 pairing+nav HCI snoop, `tshark`'s dissector tentatively identified the bike's active write/notify characteristics by their UUIDs:
+- **The Suzuki protocol surface is exactly one Service (0xFFF0) with one write char (0xFFF1) and one notify char (0xFFF2).** Everything navigation, all status, all auth, and (if exposed) any telemetry/diagnostic data must go through this single channel pair.
+- Wireshark's earlier "PKOC/Aliro/ICCE Digital Key" labels for these handles were a dissector misfire — the actual UUIDs are simple `0xFFF1/0xFFF2` vendor UUIDs, not the PKOC namespace. **There is no Aliro/ICCE digital-key protocol in play**, just a custom Suzuki protocol over a vendor service.
+- The bike's firmware identifies as version `"0.1.5.8"` with an "experimental" cert string — bike is likely running a pre-prod or early-release firmware build.
+- `2a23 System ID` confirms the bike's BLE MAC (in big-endian, with manufacturer ID stub bytes inserted).
 
-- **Handle 0x001e** — Write Request target (phone → bike). Wireshark labels: "Public Key Open Credential (PKOC): ICCE Digital Key".
-- **Handle 0x0020** — Notify source (bike → phone). Wireshark labels: "Public Key Open Credential (PKOC): Aliro".
-- **Handle 0x0021** — CCCD descriptor for handle 0x0020 (where the phone enables notifications).
-- Write payloads observed at 42 bytes consistent length — consistent with public-key crypto material (e.g., ECC-P256 point = 64 bytes, signature = 64 bytes split across messages).
+### Implications for the plan
 
-**If Wireshark's dissector is accurate**, Suzuki Connect uses an automotive digital-key BLE profile based on **Aliro** (Connectivity Standards Alliance contactless access standard) and/or **ICCE** (In-Car Connectivity & Engagement, Chinese digital-key spec) for the auth layer. Implications for Phase 1:
-
-- M4 ("encryption layer") likely finds a public-key challenge-response handshake, not symmetric encryption with a static key.
-- Gate 2 ("third-party send valid message") becomes substantially harder — we may need to either replicate the auth flow with the bike's public key, or replay a session captured from the legitimate app, or document this as a hard wall and relax Gate 2 to a passive proof.
-
-**This is preliminary** — Wireshark's dissector pattern-matches UUIDs against its built-in dictionary; Suzuki may have chosen UUIDs that coincidentally overlap with PKOC's range. M1 will confirm by reading the actual UUIDs and cross-referencing against the published Aliro/ICCE specs.
+- **M4 (encryption layer)**: still TBD. With only one write+notify pair, encryption (if any) wraps the entire message payload — there's no separate "auth channel" we missed. M3 Frida hook on `BluetoothGattCharacteristic.setValue` plus M2 wire capture cross-reference will reveal whether 0xFFF1 writes are encrypted.
+- **M5 (nav protocol decode)**: target characteristic for nav is `0xFFF1`. All writes we see on it during a nav session ARE nav messages (no need to filter handles — there's only one write char).
+- **M7 (telemetry surface) / Phase 3 Branch B**: the bike does NOT expose separate "telemetry" characteristics — there are no `unused` notify chars to subscribe to. Any extra telemetry must be **multiplexed within the single 0xFFF2 notify stream**. M7 therefore becomes "what message types appear on 0xFFF2 that the app doesn't visibly act on?" rather than "subscribe to many unused chars." This makes Phase 3 Branch B (telemetry dashboard) substantially more constrained — only what Suzuki chose to push over notify is visible.
+- **Gate 5 (full BLE surface enumerated)**: M1.6 deliverable already met by this walk. Will be expanded with `app-used` analysis once M1 APK decompile is done.
+- **Gate 2 (send valid third-party message)**: no PKOC, so no public-key handshake to defeat. The auth layer (if any) is whatever Suzuki coded above `setValue()` — should be discoverable in M4.
 
 ## App-side BLE call chain (M3)
 
