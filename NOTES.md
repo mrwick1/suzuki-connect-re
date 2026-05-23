@@ -115,7 +115,44 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 
 | Type byte | Count | Rate | Decoded sample | Purpose (hypothesis) |
 |-----------|-------|------|----------------|---------------------|
-| `0x37` ('7') | 163 | every ~5 sec | `.7[22 digit ID]N49..&.` | **Bike heartbeat**: long ID (looks like vehicle ID or session ID) + sequence counter. In the M0 capture this is the ONLY notify type observed. |
+| `0x37` ('7') | 163 | every ~5 sec | `.7[22 digit ID]N4[X]..[Y].` | **Bike heartbeat + slow telemetry**: long ID (looks like vehicle/session ID), then a `N4X` field where the byte at position 25 (the `X`) encodes **engine coolant temperature in degrees C**. Confirmed in 2026-05-23 trigger test (see DISCOVERIES.md): position 25 fell monotonically while engine off (bike cooling), then rose monotonically immediately after Arjun started the engine, in the 83-89 °C range typical for warm operating temp. In the static M0 capture this byte was constant; the variation only appears in live sessions with state changes. |
+
+### Confirmed `a537` notify frame layout
+
+```
+pos: 0    1     2-22                      23 24 25         26-27  28      29
+     0xA5 0x37  ASCII "00001672904911000984 9"  N  4  TEMP   ff ff  csum   0x7F
+                                            ^ position 21      ^ position 25
+                                            (last digit of      (engine
+                                            embedded ID)        temp °C)
+```
+
+- Position 0: `0xA5` (header)
+- Position 1: `0x37` ('7', message type)
+- Positions 2-22: 21-char ASCII numeric, **constant across all observations** — this is some bike/session identifier (NOT the published serial, which is `SBM110202788`). Could be VIN-derived or internal device ID. Treat as PII; do not log to git.
+- Position 23: `0x4E` ('N', constant)
+- Position 24: `0x34` ('4', constant)
+- Position 25: **engine coolant temperature, decimal-encoded as a single byte where the value is the degrees C** (e.g., 0x58 = 88°C). Decrements when engine off, increments when engine on.
+- Positions 26-27: `0xFF 0xFF` (padding, constant)
+- Position 28: checksum = `sum(payload[1:28]) mod 256` (confirmed algorithm)
+- Position 29: `0x7F` (end-of-message)
+
+### Confirmed: notify is response-driven, not autonomous
+
+The bike does NOT push notifies on its own. It begins streaming `a537` heartbeats only AFTER the Central writes the first `a536` (identity) message. A passive listener that just subscribes and waits will receive nothing. This was tested in the 2026-05-23 experiment: 30+ seconds of pure subscribe-and-wait produced zero notifications; once we sent the captured identity write, notifications started immediately at the 5-sec heartbeat cadence.
+
+### Open: what other notify message types exist?
+
+In all sessions to date (M0 18-min + 2026-05-23 ~3-min experiments), only `a537` notify has been observed. Triggering horn / rev / indicator did NOT produce different notify types. Possibilities:
+- Other types exist but only push during events we haven't triggered (riding, braking hard, fault conditions, trip end, low fuel, etc.)
+- Other types exist but the bike pushes them via the write channel (response to specific phone commands) — needs Frida hooks on phone to see
+- These transient events simply don't push BLE events at all in this firmware
+
+### Confirmed: checksum algorithm
+
+**`checksum_byte = sum(payload[1:28]) mod 256`**
+
+That is, sum the bytes from position 1 (type byte) through position 27 (last body byte before checksum), then mod 256. Verified across multiple message samples including content variations. This is the same algorithm for both writes and notifies.
 
 ### Key implications
 

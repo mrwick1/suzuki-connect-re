@@ -186,9 +186,79 @@ Previous claim that this is "dead via BLE, viable via cloud" was based on the wr
 
 ---
 
+## 2026-05-23 — Laptop-as-Central live experiments
+
+### Setup
+Built two new tools under the no-assumptions rule:
+- `tools/passive_listen.py` — connect to bike, subscribe to notify, listen.
+- `tools/provoke_and_listen.py` — connect, subscribe, send captured `a536` identity + loop captured `a533` heartbeat, listen.
+- `tools/send_custom.py` — write custom payloads to `0xFFF1` (for Phase B replay/forge test, not yet run).
+
+Bike re-keyed and put in pairing mode (after a power cycle to clear BlueZ state).
+
+### Test 0 — Passive listen alone produced ZERO notifications
+
+Ran `passive_listen.py` for 30+ seconds: subscribed to `0xFFF2`, did NOT send any writes. Result: zero notifications received. Contradicted my earlier assumption that the bike pushes heartbeats autonomously to any subscribed Central.
+
+**Therefore (new confirmed fact)**: the bike begins streaming `a537` heartbeats only AFTER the Central writes the first message (identity push). Notify is response-driven, not autonomous.
+
+### Test 1 — Provoke + listen
+
+Ran `provoke_and_listen.py` for 30s: subscribed → sent captured ARJUN identity → looped captured heartbeat every 1s. Received 7 notifications.
+
+First major observation: at +23.34s, ONE notification differed from the baseline:
+- Baseline position 4: `0x30` ('0'), checksum 0x3a
+- That one: position 4: `0x32` ('2'), checksum 0x3c (delta +2)
+
+**Both byte changes are +2.** This confirmed the checksum algorithm: **simple byte sum mod 256** over positions `[1:28]`. Verified mathematically — if checksum is `sum(payload[1:28]) mod 256`, then bumping any payload byte by 2 bumps checksum by 2.
+
+This is a major unlock for Gate 2 — we can now compute valid checksums for forged messages.
+
+### Test 2 — 90-second passive observation (engine state unknown)
+
+Ran with Arjun doing nothing on the bike. Position 25 (after `N4`) drifted monotonically downward across the test: X → W → V → U (one decrement every 20-40 seconds).
+
+### Test 3 — 95-second trigger session (engine OFF for first half, ON for second half)
+
+Arjun deliberately started engine around +45s. Result:
+- Before +45s (engine off): position 25 fell T → S (continuing the cooling trend from Test 2)
+- After +45s (engine on): position 25 climbed S → T → U → V → W → X → Y (warming)
+
+He also did horn presses, throttle revs, indicator on/off during the session. **None of these produced any visible change in any byte position OR any new message type.** The notify stream stayed pure `a537` with position 25 (temperature) as the only varying field.
+
+Session ended at +95s with a `BleakGATTProtocolError: Unlikely Error` from the bike — likely caused by:
+- (a) Bike's BLE disconnect-on-engine-off behavior (he had just killed the engine)
+- (b) Our `a533` heartbeats use a STATIC captured counter (`050154`) instead of incrementing it like the legitimate phone does (`050154 → 050155 → ...`). Bike may tolerate this briefly then drop.
+
+### Confirmed facts from these tests
+
+1. **Position 25 of the `a537` notify encodes engine coolant temperature in degrees C** (observed range 0x53-0x59 = 83-89 °C, decrementing while cool, incrementing while warm).
+2. **Checksum algorithm is `sum(payload[1:28]) mod 256`** — simple byte sum, no hidden state, no HMAC. Gate 2 substantially unblocked.
+3. **Notify is response-driven**, not autonomous. Central must write first.
+4. **Bike's notify stream is sparse**: only the `a537` heartbeat type exists, and most of its bytes are static. Horn/rev/indicator/etc. do NOT produce notify events in this firmware (or they go via a channel we haven't found).
+5. **Bike's BLE disconnects shortly after engine off** (likely auto-disconnect feature).
+
+### Things still NOT known
+
+- Whether OTHER bike events (riding, hard braking, fault conditions, low fuel, trip end) push different notify types or change other byte positions. None of those were triggered in this short experiment.
+- Whether the static `0x33` heartbeat counter is what caused the disconnect, or if engine-off triggered it independently.
+- Whether the bike will accept WRITES from our laptop and display custom content on the cluster (Phase B test — not yet run).
+- Whether fuel level / odometer / trip data is encoded anywhere we haven't decoded.
+
+### Walked-back assumption
+
+Previously documented (twice) that the M0 capture proved "no telemetry in the bike's notify stream." That was technically true for the M0 capture but misleading as a general statement. The M0 capture happened with the bike at a stable engine-warm state (no transitions), so position 25 didn't move. This new test proves position 25 DOES move — it's a real telemetry field; the M0 capture just didn't trigger a change.
+
+**Lesson**: "no variation in our 18-min sample" does not equal "the field is static in the protocol." Need to trigger state changes deliberately to map telemetry.
+
+---
+
 ## Pending validation work (carry into next session)
 
-- [ ] Verify "bike cluster is dumb display" by sending custom text in `a531` and observing cluster (deferred until Gate 2 / proof-of-life works — needs checksum solved first)
-- [ ] mitmproxy + Frida SSL pinning bypass to confirm Suzuki cloud API endpoints (Phase 1.5 or Phase 2 prep)
+- [ ] Run Phase B: replay captured `a531` write from laptop, see if bike cluster displays the captured content (proves we can write to bike from third-party Central; tests Gate 2 path)
+- [ ] If Phase B succeeds: try Phase C (modify the time field, recompute checksum with confirmed sum algo, see if cluster shows new time)
+- [ ] If Phase C succeeds: try Phase D (fully custom ASCII text in `a531`, see if cluster shows arbitrary text — Phase 3-A unlock)
+- [ ] Fix `provoke_and_listen.py` to increment the `a533` heartbeat counter properly (matches legitimate phone behavior, may prevent the "Unlikely Error" disconnect)
+- [ ] Comprehensive triggering: longer session with engine state changes, riding (if safe), more diverse triggers, to map any additional notify variation
+- [ ] mitmproxy + Frida SSL pinning bypass — investigate where fuel/odo/trip values come from for the app (still unresolved; bike has no SIM, so it's either BLE-event-we-missed or cloud-via-phone-relay or app-local-cache)
 - [ ] Decode `a531` further to find the turn-arrow encoding (M5)
-- [ ] Solve the checksum mystery on `a536` (M4)
