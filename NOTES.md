@@ -170,27 +170,73 @@ The template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"` ha
 
 These need to be confirmed by tracing where each field gets set in C.java / A0.java.
 
-### Maneuver-ID → arrow-icon mapping (from `C0897z.java`)
+### Maneuver-ID → arrow-icon mapping
 
-The adapter maps Mappls maneuver IDs to icon resource IDs:
+**Bike's icon set has 55 icons** (extracted from APK resources `res/drawable-nodpi-v4/ic_step_<N>.xml`):
 
-| Mappls maneuver ID | Icon ID | Notes |
-|--------------------|---------|-------|
-| 9, 10 | 8 | (something) |
-| 26, 27, 28 | 15 | (one arrow type) |
-| 29, 30, 31 | 16 | (another arrow type) |
-| 65 | 67 | |
-| 72 + bike state b0=20 | 65 | Roundabout variant |
-| 72 + b0=21 | 66 | Roundabout variant |
-| 72 + b0=22 | 67 | Roundabout variant |
-| 72 + b0=23 | 68 | Roundabout variant |
-| 72 + b0=24 | 69 | Roundabout variant |
-| 72 + b0=25 | 70 | Roundabout variant |
-| 72 + b0=26 | 71 | Roundabout variant |
-| 72 (default) | 71 | |
-| others | same as input | Direct passthrough |
+```
+Available icon IDs: 0, 1, 2, 3, 4, 5, 6, 7, 8,
+                    10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+                    36, 37,
+                    40, 41,
+                    50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+                    60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+                    70, 71, 72, 73, 74, 75
+```
 
-These icon IDs are what the bike's cluster renders for arrows. So forging `bytes[2]` with values like `0x10` (16), `0x43` (67), etc. should produce specific turn arrows on the cluster — once we also forge the signal-status digit so `bytes[2]` isn't overwritten with `'.'`.
+Gaps: no icon at 9, none from 26-35, none from 38-39, none from 42-49. **Sending `bytes[2] = N` where N is a gap value may render nothing or fallback** — to be tested.
+
+### App-side remap table (from `C0897z.java`)
+
+The app's UI adapter remaps some Mappls maneuver IDs into the available icon space:
+
+| Mappls maneuver ID | Icon shown by app | Inferred meaning |
+|--------------------|-------------------|------------------|
+| 9, 10 | icon 8 | Generic / fallback arrow (no straight maneuver = icon 8?) |
+| 26, 27, 28 | icon 15 | One type of turn (likely slight-left variants) |
+| 29, 30, 31 | icon 16 | Another type (likely slight-right variants) |
+| 65 | icon 67 | (specific Mappls type) |
+| 72 + bike-state `e.b0=20` | icon 65 | Roundabout exit 1 |
+| 72 + `e.b0=21` | icon 66 | Roundabout exit 2 |
+| 72 + `e.b0=22` | icon 67 | Roundabout exit 3 |
+| 72 + `e.b0=23` | icon 68 | Roundabout exit 4 |
+| 72 + `e.b0=24` | icon 69 | Roundabout exit 5 |
+| 72 + `e.b0=25` | icon 70 | Roundabout exit 6 |
+| 72 + `e.b0=26` | icon 71 | Roundabout exit 7 |
+| 72 (default) | icon 71 | Roundabout (generic) |
+| any other N | icon N | Direct passthrough |
+
+### What gets sent to the BIKE in `bytes[2]`
+
+From `A0.D()` source (line ~509): `bytes[2] = (byte) i;` where `i` is the maneuver parameter passed in. The caller (`v0.java`) passes `a0.e0` or `a0.f0`, both of which hold Mappls maneuver IDs directly (not the app's remapped icon IDs).
+
+**Therefore the bike receives RAW Mappls maneuver IDs**, and the bike's firmware presumably has its own icon table matching the app's `ic_step_<N>` set. Sending `bytes[2] = 8` → bike shows `ic_step_8`, `bytes[2] = 67` → `ic_step_67`, etc.
+
+### Confirmed real maneuver values from captures
+
+| Capture | `bytes[2]` value | Likely icon | Notes |
+|---------|------------------|-------------|-------|
+| NO-SIM (no signal, degraded mode) | `0x2e` (46) | placeholder `'.'` not a real icon — the code forces this when signal is bad |
+| WITH-SIM (signal good, nav active) | `0x08` (8) | `ic_step_8` | Real maneuver from a live nav session |
+
+### To verify visually (next session)
+
+To see what each icon looks like, install `apktool` (`yay -S apktool`) and run:
+
+```bash
+apktool d -f -o decompiled/apktool-out apk/base.apk
+# Then view: decompiled/apktool-out/res/drawable-nodpi-v4/ic_step_<N>.xml
+```
+
+This will give a readable XML of each vector drawable. Or extract them and render via Android Studio's preview, or convert XML→SVG with a tool.
+
+### Practical forging — known-safe icon IDs
+
+For testing arrow display via `forge_signal_v2.py` or successors, these are SAFE icon IDs to send (all exist in the APK):
+
+`0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 36, 37, 40, 41, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75`
+
+Avoid: `9, 26-35, 38-39, 42-49` — these may render as blank / unknown / fallback on the cluster.
 
 ### Checksum function (confirmed from source)
 
