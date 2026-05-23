@@ -20,6 +20,7 @@ Understand the Suzuki Connect BLE surface well enough to:
 3. Document the protocol in a way another developer could implement an encoder from.
 4. Know whether the cluster display is a fixed-icon engine or accepts arbitrary graphics (input to Phase 3 scoping).
 5. Discover and categorize the bike's full BLE surface — including characteristics the official Suzuki Connect app never uses — to map hidden telemetry and diagnostic capabilities (also input to Phase 3 scoping).
+6. **Determine the complete data architecture** for the Suzuki Connect ecosystem: what data flows over BLE, what flows over the phone's network to Suzuki cloud, whether the bike has independent cellular connectivity, and where each user-visible data point (fuel/odo/trip/last-location/etc.) actually originates. Required so Phase 2 design (Google Maps replacement) knows what data it needs to source from where, and so Phase 3 Branch B (telemetry dashboard) can be scoped to the right channel.
 
 ## Non-Goals (Phase 1)
 
