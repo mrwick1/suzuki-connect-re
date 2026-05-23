@@ -1,0 +1,25 @@
+# Copyrighted / derivative
+apk/
+decompiled/
+
+# Capture data may contain VIN, BLE MAC, Suzuki account ID
+captures/
+tests/fixtures/
+
+# Local PII (bike MAC, phone MAC, account IDs) — kept out of git for shareability
+LOCAL_NOTES.md
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
