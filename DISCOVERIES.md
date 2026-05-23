@@ -314,10 +314,124 @@ If sent in a stream, the bike should believe the phone has cellular network and 
 
 ---
 
-## Pending validation work (carry into next session)
+## 2026-05-23 — M1 APK static analysis (initial 25-min sprint)
 
-- [ ] Build forge-network tool: send a533 with pos 21=0x02 + pos 22=0xc9 + a536 with pos 27='R' in a loop. Test if cluster clears "Searching for network" without SIM.
-- [ ] If forge test succeeds: retry Phase B/C/D — does cluster now render our display content?
-- [ ] mitmproxy + Frida SSL pinning bypass on Suzuki Connect to settle where app's fuel/odo/trip values come from (final unanswered question).
-- [ ] Capture an ACTUAL RIDE with WITH-SIM phone to see turn-arrow message variations (M5).
-- [ ] Fix `provoke_and_listen.py` to increment the a533 counter (positions 11-13) properly so bike doesn't disconnect from "stale counter" detection.
+### What we did
+
+1. Identified app package: `suzuki.com.suzuki` (note unusual reverse-domain pattern)
+2. Pulled all 4 APK splits: base.apk (191 MB), arm64_v8a, en, xxhdpi (~213 MB total)
+3. JADX-decompiled base.apk → 6751 Java files (45 MB) in `decompiled/jadx-out/sources/`
+4. Identified that **Suzuki uses the FastBle library** (`com.clj.fastble.*`) for BLE
+5. Found key Suzuki-namespace BLE classes (most unobfuscated):
+   - `com/suzuki/services/MyBleService.java` — connection orchestrator
+   - `com/suzuki/services/work.java` — BLE write helper (`work.g(byte[])` calls FastBle)
+   - `com/suzuki/services/f.java` — heartbeat timer (runs every 1000ms, calls `work.g`)
+   - `com/suzuki/services/NotificationService.java` — pushes Android notifications to bike cluster
+   - `com/suzuki/broadcaster/CallReceiverBroadcast.java` — pushes call events
+   - `com/suzuki/broadcaster/IncomingSms.java` — pushes SMS events
+   - `com/suzuki/application/fragment/A0.java` — navigation/display refresh message construction (a531)
+   - `com/suzuki/application/fragment/B.java` — `PhoneStateListener` for cellular signal
+   - `com/suzuki/application/fragment/C.java` — main UI fragment, holds BLE state
+   - `com/suzuki/application/SuzukiApplication.java` — contains the checksum function
+
+### Confirmed from source code
+
+**1. Checksum algorithm matches our hypothesis exactly:**
+
+```java
+// In com/suzuki/application/SuzukiApplication.java
+public static byte a(byte[] bArr) {
+    byte b = 0;
+    for (byte b2 = 1; b2 <= 27; b2 = (byte) (b2 + 1)) {
+        b = (byte) (b + bArr[b2]);
+    }
+    return K.g
+        ? (byte) (255 - (b % 256))   // INVERTED variant — gated by K.g flag
+        : (byte) (b % 256);           // STANDARD variant — what we've observed
+}
+```
+
+This confirms `sum(payload[1:28]) mod 256` exactly. **Plus a new finding**: there's a `K.g` flag that switches to a `255 - (sum % 256)` variant. We haven't seen this variant in our captures yet, but if a future capture's checksum doesn't match the simple sum, this is why.
+
+**2. Frame structure constants confirmed:**
+- `bytes[0] = -91` → header `0xA5`
+- `bytes[29] = 127` → terminator `0x7F`
+- Padding bytes `bytes[i] = -1` → `0xFF`
+
+**3. `f.java` produces an "extra" heartbeat variant we haven't captured.** Its template is `"?31Y00021118370000000000000000"` with positions 4-6 and 14-27 forced to `0xFF`, plus position 14=`HomeScreenActivity.i0`, position 15=`HomeScreenActivity.j0`. This DOESN'T match our captured `a533` content — there's clearly another heartbeat construction path producing the `33Y214...050154NN...` messages we captured. Suzuki has multiple a533 variants for different purposes.
+
+### Walked back (again)
+
+**Previously claimed**: positions 14-15 of `a533` are the network status flag ('Y'/'N').
+
+**Actual truth (from source)**: positions 14-15 are **SMS-present (i0) and Call-present (j0) indicators**, not network status. They're set by:
+- `IncomingSms.java:107` sets `i0` (when SMS arrives)
+- `NotificationService.java:440/692` sets `i0` (when notification active)
+- `CallReceiverBroadcast.java:142` sets `j0` (when call received)
+- `C0862u0.java:54/64` sets `j0` (call-cleared timer)
+
+Inverted semantics: `'N'` (0x4E = 78) means **present/active**, `'Y'` (0x59 = 89) means **cleared/none**. So the 1-second 'Y' we saw at t=674s in M0 was probably a brief notification clearing, not a network state.
+
+**Real network status is elsewhere.** B.java reads cellular signal:
+```java
+// com/suzuki/application/fragment/B.java
+int dataNetworkType = telephonyManager.getDataNetworkType();
+c.I = "0";       // default no-signal
+C.e1 = true;     // flag: no signal
+if (dataNetworkType == 20) {  // NETWORK_TYPE_NR (5G)
+    int ssRsrp = cellSignalStrengthNr.getSsRsrp();
+    if (ssRsrp > -90)       { c.I = "3"; C.e1 = false; }  // strong
+    else if (ssRsrp > -105) { c.I = "2"; ... }            // medium
+    // ...
+}
+```
+
+So **`C.I` (the instance field, single ASCII digit "0"/"1"/"2"/"3") holds signal strength** — derived from cellular RSRP. The string value gets embedded into outgoing messages via the `A0.java` construction (one of the `m0`/`n0`/`o0`/`p0`/`q0` template fields). This is the byte we need to forge to defeat "Searching for network."
+
+We previously thought `a533` pos 21=0x02 and pos 22=0xc9 were the network bytes. The reality may be different — `0x02 0xc9` could just be the random binary state of `f.java`'s "extra heartbeat" variant. **Hypothesis to verify**: the actual SIM/network signal is encoded as a single ASCII digit in the a531 (display refresh) `m0`/`n0`/`o0` field — not in a533 at all. To verify by comparing the a531 template fields between WITH-SIM and NO-SIM captures.
+
+### A0.java a531 construction (decoded)
+
+```java
+// In A0.java (the navigation/display fragment), line ~483:
+String str3 = "?110" + this.p0 + this.m0 + this.n0 + "000"
+            + this.q0 + this.o0 + str + str2 + "00000";
+bytes = str3.getBytes("UTF-8");
+bytes[0] = -91;             // 0xA5
+bytes[2] = (byte) i;        // status code: usually 46 ('.'), or saved n1
+bytes[3] = -1;              // 0xFF
+// ... patches for specific TFT-edition bikes ...
+bytes[15] = -1; bytes[16] = -1; bytes[17] = -1;
+for (i4 = 25; i4 <= 27; i4++) bytes[i4] = -1;
+bytes[28] = SuzukiApplication.a(bytes);
+bytes[29] = 127;
+```
+
+Where:
+- `p0`, `m0`, `n0`, `q0`, `o0` are instance string fields (probably time, distance, units, etc. — need to trace each)
+- `str` and `str2` are local vars (likely GPS status + some other state)
+- `i` is set to `46` (= ASCII `'.'`) by default, or `n1` (a stored value) when `str` ∈ {"1", "3", "5"}
+
+This explains why our captured a531 had `pos 2 = 0x2e` (=`.`=46) sometimes and other values (`0x01/0x04/0x08`) other times — those were the `n1` saved values from earlier GPS states.
+
+**There's even a model-specific patch in the code**: if the bike is "e-ACCESS", "Access-TFT Edition", or "Burgman Street-TFT Edition" AND `n0` starts with '0', then `bytes[9] = 32` (= ASCII space). So the same protocol is shared across multiple Suzuki models with minor per-model tweaks.
+
+### Updated walked-back claims & open questions
+
+- **Position 14-15 of a533 are NOT network status** (they're SMS/Call). Earlier "YN means network YES" hypothesis is wrong. Position 14 carries SMS state, position 15 carries Call state, both inverted semantics.
+- **Network signal is encoded as an ASCII digit string in some a531 template field** (probably `m0`, `n0`, or `o0` from A0.java's construction). Not in a533.
+- **The 0x02 0xc9 at a533 positions 21-22 in WITH-SIM** might just be random/uninitialized bytes from the message variant produced by f.java's "Phone Smart status pkt" template (since f.java sets pos 21-22 to 0xFF, but other heartbeat code paths may produce different values). The differential analysis may have caught the wrong correlation.
+- **To definitively map signal-strength byte position**: trace `C.I` through A0.java's template fields, identify which template position holds it, then look at our captures at that position.
+
+### Still pending (for next session)
+
+- [ ] Trace `C.I` through A0.java/C.java templates to find exactly which BYTE POSITION of which message type carries the network-signal digit. Then test forging that.
+- [ ] Find which fields in A0.java's template (`p0`/`m0`/`n0`/`q0`/`o0`) are TIME, DISTANCE, UNITS, ARROW. Each is likely a small string that gets concatenated into the 30-byte frame.
+- [ ] Run `tools/forge_network.py` (built by subagent during this session) once bike is on next time, to test the OLD hypothesis (a533 pos 21/22). May fail — see above — but worth one test.
+- [ ] Capture an actual ride to get turn-arrow message variations.
+- [ ] mitmproxy + Frida SSL bypass to settle fuel/odo/trip data source.
+
+### Pending work from earlier (unchanged)
+
+- [ ] Fix `provoke_and_listen.py` to increment the a533 counter (positions 11-13).
+- [ ] More comprehensive byte-position mapping across all captures.

@@ -4,10 +4,46 @@
 
 ## App identity (M1)
 
-- Package name: (TBD M1.2)
-- Version (versionName / versionCode): (TBD M1.2)
-- APK SHA256: (TBD M1.1)
-- Pulled on: (TBD M1.1)
+- Package name: `suzuki.com.suzuki`
+- APKs: base.apk (191 MB) + split_config.{arm64_v8a, en, xxhdpi}.apk
+- base.apk SHA256: `c7e3466beea3d9512c5b6f79a79377389b1bbc57dfc6986e43efa727e729f5cf`
+- Pulled on: 2026-05-23
+- Decompiled: 6751 Java files in `decompiled/jadx-out/sources/` via JADX
+- **BLE library**: `com.clj.fastble` (FastBle, a popular Android BLE wrapper)
+- Versions (versionName/versionCode): TBD (need apktool or aapt2 — neither installed yet; can extract from JADX-decompiled AndroidManifest later)
+
+### Suzuki-namespace BLE code map
+
+| Class | Responsibility |
+|-------|----------------|
+| `com.suzuki.services.MyBleService` | Connection orchestrator (Service) |
+| `com.suzuki.services.work` | BLE write helper (`work.g(byte[])` → FastBle write) |
+| `com.suzuki.services.f` | TimerTask, 1s heartbeat — calls `work.g` 3× per tick. Produces a heartbeat variant we have NOT seen in captures (different template than the a533 we captured) |
+| `com.suzuki.services.NotificationService` | Pushes Android notifications to bike cluster (separate message type) |
+| `com.suzuki.broadcaster.CallReceiverBroadcast` | Pushes call events |
+| `com.suzuki.broadcaster.IncomingSms` | Pushes SMS events |
+| `com.suzuki.application.fragment.A0` | Navigation / display refresh — constructs the `a531` messages we captured (line ~483) |
+| `com.suzuki.application.fragment.B` | `PhoneStateListener` for cellular signal — reads RSRP, sets `c.I = "0"/"1"/"2"/"3"` for signal-strength digit |
+| `com.suzuki.application.fragment.C` | Main UI fragment, holds BLE service+characteristic refs (`C.d1.f.getCharacteristics().get(0)`) |
+| `com.suzuki.application.SuzukiApplication` | Holds the checksum function `static byte a(byte[])` |
+| `com.suzuki.activity.HomeScreenActivity` | Holds `static byte i0` (SMS-present indicator) + `static byte j0` (Call-present indicator) |
+
+### Checksum function (confirmed from source)
+
+```java
+// SuzukiApplication.a(byte[])
+public static byte a(byte[] bArr) {
+    byte b = 0;
+    for (byte b2 = 1; b2 <= 27; b2++) {
+        b = (byte) (b + bArr[b2]);
+    }
+    return K.g
+        ? (byte) (255 - (b % 256))    // INVERTED variant — gated by K.g flag
+        : (byte) (b % 256);            // STANDARD variant — what we observe
+}
+```
+
+Algorithm matches our hypothesis: `sum(payload[1:28]) mod 256`. Additionally there's an **inverted variant** triggered by a `K.g` boolean flag that produces `255 - (sum % 256)` instead. Not observed in our captures yet.
 
 ## Bike identity
 
