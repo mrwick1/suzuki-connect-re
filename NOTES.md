@@ -317,25 +317,42 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 |-----------|-------|------|----------------|---------------------|
 | `0x37` ('7') | 163 | every ~5 sec | `.7[22 digit ID]N4[X]..[Y].` | **Bike heartbeat + slow telemetry**: long ID (looks like vehicle/session ID), then a `N4X` field where the byte at position 25 (the `X`) encodes **engine coolant temperature in degrees C**. Confirmed in 2026-05-23 trigger test (see DISCOVERIES.md): position 25 fell monotonically while engine off (bike cooling), then rose monotonically immediately after Arjun started the engine, in the 83-89 °C range typical for warm operating temp. In the static M0 capture this byte was constant; the variation only appears in live sessions with state changes. |
 
-### Confirmed `a537` notify frame layout
+### Confirmed `a537` notify frame layout (DECODED FROM SOURCE 2026-05-23)
+
+**Source**: `onClusterDataRecev(C0944c)` methods in `NavigationActivity`, `C.java` (fragment), `RouteActivity`, `RiderProfileActivity`, `CreateProfileActivity`. Each subscriber parses bytes from the BLE notify channel. The largest and most complete parser is at `HomeScreenActivity.onClusterDataRecev` (961 instruction units) but JADX failed to decompile its body — we reconstructed the schema from the smaller subscribers.
 
 ```
-pos: 0    1     2-22                      23 24 25         26-27  28      29
-     0xA5 0x37  ASCII "00001672904911000984 9"  N  4  TEMP   ff ff  csum   0x7F
-                                            ^ position 21      ^ position 25
-                                            (last digit of      (engine
-                                            embedded ID)        temp °C)
+pos: 0    1     2-4       5-10        11-16       17-22       23  24       25-27      28      29
+     0xA5 0x37  SPEED     ODOMETER    TRIP_A      TRIP_B      ?   FUEL_LVL FUEL_ECON  csum    0x7F
+                (km/h)    (km)        (km .1)     (km .1)     (sep) (bars)  (km/L 3B)
 ```
 
-- Position 0: `0xA5` (header)
-- Position 1: `0x37` ('7', message type)
-- Positions 2-22: 21-char ASCII numeric, **constant across all observations** — this is some bike/session identifier (NOT the published serial, which is `SBM110202788`). Could be VIN-derived or internal device ID. Treat as PII; do not log to git.
-- Position 23: `0x4E` ('N', constant)
-- Position 24: `0x34` ('4', constant)
-- Position 25: **engine coolant temperature, decimal-encoded as a single byte where the value is the degrees C** (e.g., 0x58 = 88°C). Decrements when engine off, increments when engine on.
-- Positions 26-27: `0xFF 0xFF` (padding, constant)
-- Position 28: checksum = `sum(payload[1:28]) mod 256` (confirmed algorithm)
-- Position 29: `0x7F` (end-of-message)
+| Bytes | Field | Decode |
+|-------|-------|--------|
+| 0 | header | `0xA5` constant |
+| 1 | type | `0x37` (`'7'`) constant |
+| **2-4** | **Current speed (km/h)** | 3 ASCII digits; `int speed = Integer.parseInt(str.substring(2, 5))` |
+| **5-10** | **Odometer (km, lifetime)** | 6 ASCII digits zero-padded; strip leading zeros; `String odo = str.substring(5, 11).replaceAll("^0+(?!$)", "")` |
+| **11-16** | **Trip A (km with decimal)** | 6 ASCII digits; format as `XXXXX.X km`; `Float.parseFloat(substr(0,5) + "." + substr(5))` |
+| **17-22** | **Trip B (km with decimal)** | Same encoding as Trip A |
+| 23 | (separator) | Always observed as `'N'` (0x4E); not used by parser |
+| **24** | **Fuel level (1-6 bars)** | Byte values: `'1'`=1 bar, `'2'`=2, ..., `'6'`=6 bars, else=0. Also computed as `Byte.toUnsignedInt(b) - 64` for an alternative scaled value `this.K`. |
+| **25-27** | **Fuel economy / consumption** | 24-bit bitfield across 3 bytes. Formula varies by bike model: <br>• **Default (Gixxer SF 150)**: `(bits[0:13] + bits[13:24]/2048) / 10` → km/L <br>• **Access-TFT / Burgman Street-TFT**: `Integer.parseInt(bits[0:24], 2) / 10.0 / 2048` <br>• **Energy Consumption (EV models)**: `Integer.parseInt(bits[0:24], 2) / 10000` |
+| 28 | checksum | `sum(payload[1:28]) mod 256` (confirmed) |
+| 29 | terminator | `0x7F` constant |
+
+### Decoded values from M0 capture
+
+Captured (engine OFF, idle): `a5 37 30 30 30 30 31 36 37 32 39 30 34 39 31 31 30 30 30 39 38 34 39 4e 34 4d ff ff 3a 7f`
+
+- **Speed**: `substring(2,5)` = `"000"` → 0 km/h ✓ (engine was off)
+- **Odometer**: `substring(5,11)` = `"001672"` → 1672 km
+- **Trip A**: `substring(11,17)` = `"904911"` → 90491.1 km (this value is suspiciously large — possibly a different encoding for the SF 150 specifically; needs confirmation)
+- **Trip B**: `substring(17,23)` = `"000984"` → 98.4 km (or 9.84 km)
+- **Fuel level**: byte[24] = `0x34` (`'4'`) → **4 bars out of 6**
+- **Fuel economy**: bytes[25-27] = `4D FF FF` → 24-bit `01001101 11111111 11111111` → decoded as ~249.6 km/L (clearly invalid — sentinel value for "engine off / no data")
+
+The Trip A "90491.1 km" value is odd — but our parsers were derived from `NavigationActivity` and other contexts. There may be SF-150-specific overrides we haven't found. To verify, capture with engine running and a known trip distance, compare to cluster display.
 
 ### Confirmed: notify is response-driven, not autonomous
 

@@ -496,6 +496,74 @@ Remaining hypotheses are now narrowed to:
 ### Next thing to find
 
 Locate the FastBle `.notify(...)` invocation in Suzuki source — specifically, find what method calls `BleManager.notify(bleDevice, serviceUuid, charUuid, callback)` to register for `0xFFF2` notifications. The callback inside that call is what parses the incoming bytes and writes them to Realm. That code is the key to mapping which incoming message types carry fuel/odo/trip vs heartbeat.
+
+## 2026-05-23 — MAJOR FINDING — `a537` notify carries FULL telemetry (we misread it all session)
+
+### What we found
+
+Found the notify call chain end-to-end in source:
+
+1. **Notify subscribe**: `MyBleService.a(BleDevice)` calls `bVar.h(bleDevice, "0000fff0...", "0000fff2...", new com.suzuki.services.c(this, characteristic))` — this is FastBle's `BleManager.notify()`. Picks the 4th GATT service (`getServices().get(3)` = `0xFFF0`) and 2nd characteristic (`getCharacteristics().get(1)` = `0xFFF2`).
+2. **FastBle internal dispatch**: `com/clj/fastble/bluetooth/a.java:onCharacteristicChanged` iterates registered callbacks, builds a `Handler.Message` with `what=19`, puts notify bytes in Bundle as `"notify_value"`, posts to a Handler stored on the callback.
+3. **Handler processing**: `androidx/localbroadcastmanager/content/a.java:case 19` extracts the byte[], wraps it in a `com.suzuki.pojo.C0944c` event object (`C0944c.a = String, C0944c.b = byte[]`), and posts to **EventBus** (`org.greenrobot.eventbus.d.b().f(c0944c)`).
+4. **EventBus subscribers**: 6 classes have `public void onClusterDataRecev(C0944c)` methods that receive the event and parse the bytes:
+   - `HomeScreenActivity` (961 instruction units — JADX failed to decompile)
+   - `NavigationActivity` (fully decompiled — most complete schema source)
+   - `RouteActivity` (decoded)
+   - `RiderProfileActivity` (small)
+   - `CreateProfileActivity` (small)
+   - `com.suzuki.application.fragment.C` (decoded — has fuel parsing)
+
+### Major reveal — `a537` notify is NOT a heartbeat
+
+We've been calling `a537` "the bike heartbeat with constant ID + sequence counter." **That was wrong.**
+
+The actual content (from source parsers):
+
+| Bytes | Field | Decode method |
+|-------|-------|---------------|
+| 2-4 | **Current speed (km/h)** | 3 ASCII digits → int |
+| 5-10 | **Odometer (km, lifetime)** | 6 ASCII digits, strip leading zeros |
+| 11-16 | **Trip A** (km, format `XXXXX.X`) | 6 ASCII digits with implicit decimal |
+| 17-22 | **Trip B** (km) | Same as Trip A |
+| 24 | **Fuel level (1-6 bars)** | byte `'1'-'6'` → 1-6 |
+| 25-27 | **Fuel economy / consumption** | 24-bit bitfield; formula varies by bike model |
+
+**Our M0 capture decoded**:
+- Speed: 0 km/h (engine off ✓)
+- Odometer: **1672 km** (Arjun's actual bike mileage at capture time)
+- Trip A: 90491.1 (suspicious — may need model-specific decoding for SF 150)
+- Trip B: 98.4
+- Fuel: **4 bars / 6** (byte `'4'`)
+- Fuel economy: sentinel `0xFFFFFF` = "no data" (engine off)
+
+### What I had WRONG for most of this session
+
+1. **"a537 is pure heartbeat, only sequence counter varies"** — wrong. The byte we tracked as "sequence" at position 25 is the HIGH byte of fuel-economy. It varied because fuel-economy readings vary (and during engine-off, all bytes 25-27 are `0xFF` sentinel — which is what we saw mostly).
+2. **"Position 25 of a537 encodes engine coolant temperature"** — wrong. It's the high byte of a 24-bit fuel-economy bitfield. The X→W→V→U pattern I "observed" was likely random variation during engine-off `0xFFFFFF` sentinel + noise.
+3. **"Bike doesn't push fuel/odo/trip over BLE"** — VERY wrong. The bike pushes ALL of this every 5 seconds in every `a537` notify. We had it the whole time and didn't decode it.
+4. **"Bytes 2-22 are a constant device ID string"** — wrong. They're speed + odometer + trip A + trip B, fully decoded fields.
+
+### What this means for Phase 3 Branch B (telemetry dashboard)
+
+**Branch B is VERY ALIVE.** We have ALL the telemetry data in the BLE notify channel. A dashboard app just needs to:
+1. Subscribe to `0xFFF2` notify (which we know how to do)
+2. Parse each incoming `a537` with the schema above
+3. Display speed / odometer / trip A / trip B / fuel level / fuel economy
+
+No cloud needed. No additional message types to discover. The data has been in front of us this whole session.
+
+### What's STILL unknown
+
+- The 8 specific cases in the larger `HomeScreenActivity.onClusterDataRecev` (961 units, didn't decompile) probably handle MORE message types than just `a537`. May include `a531`/`a533`/`a536` reception cases or different message types entirely (e.g., engine alarms, fault codes, service indicators).
+- The `Trip A = 90491.1 km` value is suspicious — there may be model-specific decoding for the SF 150 that the smaller parsers don't capture.
+- The `K.g` flag's role in checksum inversion is still untested.
+
+### Lesson reinforced
+
+**Static source analysis catches what dynamic black-box guessing misses.** We spent the entire session trying to infer the protocol from byte patterns in captures, and built increasingly elaborate (and wrong) hypotheses. Reading the decompiled source for 15 minutes gave us the complete answer.
+
+For future projects: **decompile FIRST, capture SECOND.** Use captures to verify hypotheses derived from source, not to guess at structures.
 - [ ] Find which fields in A0.java's template (`p0`/`m0`/`n0`/`q0`/`o0`) are TIME, DISTANCE, UNITS, ARROW. Each is likely a small string that gets concatenated into the 30-byte frame.
 - [ ] Run `tools/forge_network.py` (built by subagent during this session) once bike is on next time, to test the OLD hypothesis (a533 pos 21/22). May fail — see above — but worth one test.
 - [ ] Capture an actual ride to get turn-arrow message variations.
