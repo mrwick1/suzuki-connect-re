@@ -423,9 +423,40 @@ This explains why our captured a531 had `pos 2 = 0x2e` (=`.`=46) sometimes and o
 - **The 0x02 0xc9 at a533 positions 21-22 in WITH-SIM** might just be random/uninitialized bytes from the message variant produced by f.java's "Phone Smart status pkt" template (since f.java sets pos 21-22 to 0xFF, but other heartbeat code paths may produce different values). The differential analysis may have caught the wrong correlation.
 - **To definitively map signal-strength byte position**: trace `C.I` through A0.java's template fields, identify which template position holds it, then look at our captures at that position.
 
+### 2026-05-23 — Position 23 of a531 CONFIRMED as signal-status byte
+
+By mapping `A0.D()`'s template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"` byte-by-byte against the actual captured NO-SIM and WITH-SIM messages, the field lengths and positions are now nailed down:
+
+- `p0` = 4 chars (positions 4-7)
+- `m0` = 1 char (position 8) — always "M"
+- `n0` = 6 chars (positions 9-14) — **TIME** as `HHMMxM` (e.g., `0517PM`)
+- `"000"` literal at 15-17 (overwritten with 0xFF by code)
+- `q0` = 4 chars (positions 18-21) — **DISTANCE NUMBER**
+- `o0` = 1 char (position 22) — **UNIT**: `K` (km) or `M` (meters)
+- **`str` (= `A0.H1`) at position 23** — **SIGNAL STATUS**: `'0'` blocks nav (shows "Searching for network"), `'1'` allows nav
+- `str2` (= `A0.I1`) at position 24 — secondary status, both captures showed `'1'`
+- `"00000"` literal at 25-29 (positions 25-27 overwritten with 0xFF, 28 with checksum, 29 with 0x7F)
+
+**Empirical confirmation from captures**:
+- NO-SIM (WiFi only, cluster shows "Searching for network"): `bytes[23] = '0'` AND `bytes[2] = '.'` (0x2e — degraded mode marker)
+- WITH-SIM (cluster shows real nav arrows): `bytes[23] = '1'` AND `bytes[2] = 0x08` (a real Mappls maneuver ID)
+
+This matches `A0.D()`'s code branch: when `str ∈ {"1","3","5"}` (good signal), the real maneuver ID is restored to `bytes[2]`; otherwise it's forced to `46` (`'.'`).
+
+### Forge tool corrected
+
+Replaced earlier (wrong-hypothesis) `forge_network.py` strategy with `tools/forge_signal_v2.py`, which builds an a531 with:
+- `bytes[2]` = chosen maneuver ID (default 8, a known real value)
+- `bytes[23]` = `'1'` (signal good)
+- `bytes[24]` = `'1'`
+- All other fields set to look like a valid a531 (time, distance, unit, padding)
+- Checksum recomputed via the confirmed `sum(bytes[1:28]) mod 256` algorithm
+
+Sanity-checked: produces `a53108ff303038304d30353137504dffffff30312e354b3131ffffff227f` with verified checksum. NOT YET tested against bike — that's the first thing to try next session.
+
 ### Still pending (for next session)
 
-- [ ] Trace `C.I` through A0.java/C.java templates to find exactly which BYTE POSITION of which message type carries the network-signal digit. Then test forging that.
+- [ ] Run `tools/forge_signal_v2.py` against bike (key on, Suzuki Connect closed). Expected: cluster clears "Searching for network" and shows arrow icon 8.
 - [ ] Find which fields in A0.java's template (`p0`/`m0`/`n0`/`q0`/`o0`) are TIME, DISTANCE, UNITS, ARROW. Each is likely a small string that gets concatenated into the 30-byte frame.
 - [ ] Run `tools/forge_network.py` (built by subagent during this session) once bike is on next time, to test the OLD hypothesis (a533 pos 21/22). May fail — see above — but worth one test.
 - [ ] Capture an actual ride to get turn-arrow message variations.

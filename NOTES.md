@@ -72,26 +72,57 @@ public final void D(int i, int i2, String str, String str2) {
 }
 ```
 
-### Decoded field positions in `a531`
+### Decoded field positions in `a531` (CONFIRMED 2026-05-23 by template-to-capture mapping)
 
-| Byte position | Field | Content |
-|---------------|-------|---------|
-| 0 | `0xA5` | Header (constant) |
-| 1 | `0x31` `'1'` | Message type (constant for a531) |
-| 2 | maneuver ID | The Mappls turn-arrow code (or `'.'` = 0x2e if signal degraded) |
-| 3 | `0xFF` | Padding |
-| 4-7 (varies) | `p0` | (TBD what exactly — content varies, possibly a status field) |
-| ... | `m0`, `n0`, etc. | Other fields built from instance state |
-| ... | `str` (H1) | Signal-status digit (`'0'` = no signal triggers "Searching for network") |
-| ... | `str2` (I1) | Secondary status |
-| 15-17 | `0xFF` | Padding |
-| 25-27 | `0xFF` | Padding |
-| 28 | checksum | `SuzukiApplication.a(bytes)` |
-| 29 | `0x7F` | Terminator (constant) |
+Template field lengths derived from the captured NO-SIM and WITH-SIM messages, mapped against `A0.D()`'s template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"`:
 
-**Critical insight**: in all our captures we always had degraded signal (no SIM or signal-yes-not-cellular state). When signal is degraded, `str ∈ {"0","2","4","6"}` causes the code to **force the maneuver ID byte to `46` (`'.'`)**. So **our captures never contained real maneuver IDs** — the bike's cluster was always rendering a "degraded mode" arrow region.
+| Byte position(s) | Field | Content |
+|---|---|---|
+| 0 | header | `0xA5` (constant) |
+| 1 | type | `0x31` `'1'` (constant for a531) |
+| 2 | maneuver ID | The Mappls maneuver int — or `0x2e` (`'.'`=46) if signal degraded (see "degraded mode" below) |
+| 3 | pad | `0xFF` (constant — forced override) |
+| 4-7 | `p0` | 4-char ASCII number. Examples: `"0080"`, `"0110"`. Unknown semantic (possibly trip-elapsed minutes, temperature, or similar). |
+| 8 | `m0` | 1-char ASCII. Always `"M"` in captures. Possibly a unit/separator. |
+| 9-14 | `n0` | 6-char ASCII. Examples: `"0517PM"`, `"0641PM"`. **CURRENT TIME** in 4-digit `HHMM` + `AM`/`PM` format. |
+| 15-17 | pad | `0xFF` (constant — code forces `bytes[15..17] = -1`) |
+| 18-21 | `q0` | 4-char ASCII number. **DISTANCE TO NEXT INSTRUCTION** (zero-padded). Examples: `"05.6"` (with decimal point), `"0348"` (integer). |
+| 22 | `o0` | 1-char ASCII unit. **`"K"` = km, `"M"` = meters**. |
+| **23** | **`str` (H1)** | **SIGNAL-STATUS digit. Confirmed: `'0'` = no signal (triggers "Searching for network"), `'1'` = good signal (cluster shows arrows).** |
+| 24 | `str2` (I1) | Secondary status digit. Both captures showed `'1'`. Other values possible per A0.H1 logic. |
+| 25-27 | pad | `0xFF` (constant — code forces `bytes[25..27] = -1`) |
+| 28 | checksum | `SuzukiApplication.a(bytes)` = `sum(bytes[1:28]) mod 256` |
+| 29 | terminator | `0x7F` (constant) |
 
-This explains the persistent `0x2e` at position 2 of all captured a531 messages. To capture real maneuver bytes, we'd need `str = "1"` (good signal) — which happens naturally with a real cellular connection, OR can be forged.
+### "Degraded mode" override (from `A0.D()` source)
+
+When the signal-status string `str` (H1) is in `{"0", "2", "4", "6"}` (degraded states), the code:
+
+```java
+if (this.n1 == 0) this.n1 = i;   // SAVE the real maneuver ID for later
+i = 46;                           // OVERWRITE with '.'
+```
+
+When `str ∈ {"1", "3", "5"}` (good signal states), the saved `n1` value is RESTORED:
+
+```java
+int i3 = this.n1;
+if (i3 != 0) { this.n1 = 0; i = i3; }   // RESTORE the real maneuver ID
+```
+
+So `bytes[2]` carries either:
+- The real maneuver ID (when signal good)
+- `0x2e` `'.'` placeholder (when signal degraded — bike will not show real arrow)
+
+This was confirmed by our two captures:
+- NO-SIM (WiFi only): bytes[23] = `'0'` (signal degraded) → bytes[2] = `0x2e` (placeholder)
+- WITH-SIM (cellular): bytes[23] = `'1'` (signal good) → bytes[2] = `0x08` (a real maneuver ID — icon 8 per C0897z.java's table)
+
+### Forging strategy to defeat "Searching for network"
+
+Set `bytes[23] = 0x31` (`'1'`) in our forged a531 messages, and set `bytes[2]` to a real maneuver ID from the C0897z table. Recompute `bytes[28]` with the sum algorithm. Bike should accept and render real arrow content.
+
+`forge_network.py` (existing) targets the OLD wrong hypothesis (a533 pos 21/22) and will NOT work. Needs replacement with a tool that forges a531 pos 23 instead.
 
 ### `a531` template field map (TBD — needs further tracing)
 
