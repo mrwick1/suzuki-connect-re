@@ -28,6 +28,101 @@
 | `com.suzuki.application.SuzukiApplication` | Holds the checksum function `static byte a(byte[])` |
 | `com.suzuki.activity.HomeScreenActivity` | Holds `static byte i0` (SMS-present indicator) + `static byte j0` (Call-present indicator) |
 
+### `a531` navigation message construction (confirmed from `A0.D()` source)
+
+The full send function in `A0.java`:
+
+```java
+public final void D(int i, int i2, String str, String str2) {
+    // i      = Mappls maneuver ID (turn arrow code)
+    // i2     = category (1=normal, 3=alert, 10=clear)
+    // str    = signal-status digit (the H1 field, controls "Searching for network")
+    // str2   = secondary status (I1)
+
+    String str3 = "?110" + this.p0 + this.m0 + this.n0 + "000"
+                + this.q0 + this.o0 + str + str2 + "00000";
+
+    // Override status conditions:
+    if (airplane_mode) str = "0";
+    if (!gps_enabled)  str = "4";
+
+    // Maneuver ID overwrite:
+    if (str.equals("1") || str.equals("3") || str.equals("5")) {
+        // GOOD signal → preserve real maneuver ID (from saved n1)
+        if (this.n1 != 0) { i = this.n1; this.n1 = 0; }
+    } else {
+        // BAD signal ("0","2","4","6") → force maneuver to '.' (46)
+        if (this.n1 == 0) this.n1 = i;
+        i = 46;
+    }
+
+    bytes = str3.getBytes("UTF-8");
+    bytes[0] = -91;                        // 0xA5 header
+    bytes[2] = (byte) i;                   // MANEUVER ID — '.' (0x2e) when bad signal
+    bytes[3] = -1;                         // 0xFF
+    // Special model patches:
+    if (bike is "e-ACCESS" / "Access-TFT" / "Burgman Street-TFT"
+        && this.n0.charAt(0) == '0') {
+        bytes[9] = 32;                     // ASCII space override
+    }
+    bytes[15] = -1; bytes[16] = -1; bytes[17] = -1;
+    for (int i4 = 25; i4 <= 27; i4++) bytes[i4] = -1;
+    bytes[28] = SuzukiApplication.a(bytes);  // checksum
+    bytes[29] = 127;                          // 0x7F terminator
+}
+```
+
+### Decoded field positions in `a531`
+
+| Byte position | Field | Content |
+|---------------|-------|---------|
+| 0 | `0xA5` | Header (constant) |
+| 1 | `0x31` `'1'` | Message type (constant for a531) |
+| 2 | maneuver ID | The Mappls turn-arrow code (or `'.'` = 0x2e if signal degraded) |
+| 3 | `0xFF` | Padding |
+| 4-7 (varies) | `p0` | (TBD what exactly — content varies, possibly a status field) |
+| ... | `m0`, `n0`, etc. | Other fields built from instance state |
+| ... | `str` (H1) | Signal-status digit (`'0'` = no signal triggers "Searching for network") |
+| ... | `str2` (I1) | Secondary status |
+| 15-17 | `0xFF` | Padding |
+| 25-27 | `0xFF` | Padding |
+| 28 | checksum | `SuzukiApplication.a(bytes)` |
+| 29 | `0x7F` | Terminator (constant) |
+
+**Critical insight**: in all our captures we always had degraded signal (no SIM or signal-yes-not-cellular state). When signal is degraded, `str ∈ {"0","2","4","6"}` causes the code to **force the maneuver ID byte to `46` (`'.'`)**. So **our captures never contained real maneuver IDs** — the bike's cluster was always rendering a "degraded mode" arrow region.
+
+This explains the persistent `0x2e` at position 2 of all captured a531 messages. To capture real maneuver bytes, we'd need `str = "1"` (good signal) — which happens naturally with a real cellular connection, OR can be forged.
+
+### `a531` template field map (TBD — needs further tracing)
+
+The template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"` has 5 instance fields (`p0`, `m0`, `n0`, `q0`, `o0`) of unknown lengths. From captured payloads we know roughly:
+- The chars after `?110` and before `"000"` carry: 4-char number ("0080"), then "M", then time-like 4 chars ("0517"), then "PM" — so `p0` ≈ "0080", `m0` = "M", `n0` = "0517PM" or similar.
+- Distance + units appears at positions ~18-24 — that's likely `q0` + `o0`.
+
+These need to be confirmed by tracing where each field gets set in C.java / A0.java.
+
+### Maneuver-ID → arrow-icon mapping (from `C0897z.java`)
+
+The adapter maps Mappls maneuver IDs to icon resource IDs:
+
+| Mappls maneuver ID | Icon ID | Notes |
+|--------------------|---------|-------|
+| 9, 10 | 8 | (something) |
+| 26, 27, 28 | 15 | (one arrow type) |
+| 29, 30, 31 | 16 | (another arrow type) |
+| 65 | 67 | |
+| 72 + bike state b0=20 | 65 | Roundabout variant |
+| 72 + b0=21 | 66 | Roundabout variant |
+| 72 + b0=22 | 67 | Roundabout variant |
+| 72 + b0=23 | 68 | Roundabout variant |
+| 72 + b0=24 | 69 | Roundabout variant |
+| 72 + b0=25 | 70 | Roundabout variant |
+| 72 + b0=26 | 71 | Roundabout variant |
+| 72 (default) | 71 | |
+| others | same as input | Direct passthrough |
+
+These icon IDs are what the bike's cluster renders for arrows. So forging `bytes[2]` with values like `0x10` (16), `0x43` (67), etc. should produce specific turn arrows on the cluster — once we also forge the signal-status digit so `bytes[2]` isn't overwritten with `'.'`.
+
 ### Checksum function (confirmed from source)
 
 ```java
