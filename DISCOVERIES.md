@@ -90,10 +90,63 @@ Evidence I should have considered:
 
 ---
 
+## 2026-05-23 — Exhaustive capture re-analysis (in response to Arjun's pushback)
+
+### What prompted this
+
+Arjun called out that I'd only been spot-checking the capture, not analyzing it fully. He observed: "the app shows fuel/odo/trip/last-location even with the bike OFF, and there's a 'last sync time' displayed — so where does that data come from? Don't proceed on assumptions."
+
+Both criticisms were correct.
+
+### Full-capture analysis (all 7300 ATT packets across 18 min)
+
+**ATT opcode distribution across the ENTIRE capture:**
+
+| Opcode | Name | Count |
+|--------|------|-------|
+| 0x12 | Write Request | 3474 |
+| 0x13 | Write Response | 3473 |
+| 0x1b | Handle Value Notification | 163 |
+| 0x08 | Read By Type Request | 64 |
+| 0x01 | Error Response | 40 |
+| 0x09 | Read By Type Response | 34 |
+| 0x10/0x11 | Read By Group Type Req/Resp | 11/11 |
+| 0x02/0x03 | Exchange MTU Req/Resp | 5/5 |
+| 0x04/0x05 | Find Information Req/Resp | 10/5 |
+| 0x06/0x07 | Find By Type Value Req/Resp | 5/5 |
+| **0x0a** | **Read Request** | **0** |
+
+### Key derived facts
+
+- **Zero data reads (opcode 0x0a) across the entire 18-min session.** The phone never directly reads any characteristic value. All non-write/notify activity is GATT discovery (Read By Type/Group, Find Info).
+- **5 separate BLE connection events**, evidenced by 5 distinct MTU exchanges at 63s, 296s, 620s, 661s, 672s. Each reconnect triggers a fresh GATT discovery cycle. The bike's service tree is identical across all 5 discoveries.
+- **Bike caps MTU at 65 bytes** even when phone requests 517. This caps payload size at ~30 bytes (after ATT headers), explaining why all observed application messages are 30 bytes.
+- **40 Error Responses are all "Attribute Not Found"** — normal discovery noise from the phone sweeping handle ranges that don't exist on the bike. Not evidence of failed auth or anything interesting.
+- The bike's vendor service is at `0xFFF0` with characteristics `0xFFF1` (write) and `0xFFF2` (notify) — same as the GATT walk confirmed, no hidden additional services.
+
+### Wrong assumption was actually right, but for the right reasons this time
+
+**Updated assumption (now confirmed, not hypothesis)**: Fuel/odo/trip/last-location data does NOT come over BLE in this protocol. Confirmed at the protocol level — not by absence of one data point, but by absence of any data-read mechanism across 5 connection events and 7300 packets.
+
+**Therefore**: Suzuki Connect's fuel/odo/trip/last-location values come from **Suzuki's cloud API** (HTTPS), populated by the bike's cellular TCU uploading telemetry independently. The "last sync time" in the app refers to a cloud refresh or paired-connection check-in, not a BLE data fetch.
+
+### Implication for Phase 3 Branch B
+
+- "Telemetry dashboard via BLE subscription" = **definitively dead.** Bike does not expose live telemetry over BLE in this protocol.
+- "Telemetry dashboard via Suzuki cloud API" = **viable, separate sub-project.** Requires HTTPS interception (mitmproxy + Frida SSL pinning bypass) to RE the cloud API. Substantially more powerful than BLE-only would have been (cloud probably has historical trip data, fault code archives, etc.).
+- Decision deferred to end of Phase 1: do we add a "Phase 1.5: HTTPS API RE" or fold it into Phase 2 prep?
+
+### Lessons learned
+
+1. **Don't sample when the user asks for analysis.** Spot-checks miss things and create false confidence. Exhaustive dumps + opcode-level breakdowns are cheap (one tshark invocation).
+2. **Absence of one channel ≠ absence everywhere.** When data exists in the app, find ALL channels it could come from (BLE + cellular + cloud + local cache) before concluding capabilities.
+3. **"Doing analysis" ≠ "doing complete analysis."** Be explicit about what was checked and what wasn't. If sampling, say so.
+
+---
+
 ## Pending validation work (carry into next session)
 
 - [ ] Verify "bike cluster is dumb display" by sending custom text in `a531` and observing cluster (deferred until Gate 2 / proof-of-life works — needs checksum solved first)
-- [ ] Capture an app session that exercises trip details / fuel / last-location screens, look for new BLE message types (Hypothesis B for app data source)
-- [ ] mitmproxy + Frida SSL pinning bypass to verify Hypothesis A (cloud API is the source)
-- [ ] Decode `a531` further to find the turn-arrow encoding
-- [ ] Solve the checksum mystery on `a536`
+- [ ] mitmproxy + Frida SSL pinning bypass to confirm Suzuki cloud API endpoints (Phase 1.5 or Phase 2 prep)
+- [ ] Decode `a531` further to find the turn-arrow encoding (M5)
+- [ ] Solve the checksum mystery on `a536` (M4)
