@@ -2,26 +2,48 @@
 
 Personal educational reverse-engineering of the **Suzuki Connect BLE protocol** on Arjun's 2023 Suzuki Gixxer SF 150 motorcycle. The bike has a Bluetooth-enabled instrument cluster that pairs with the Suzuki Ride Connect Android app — currently using Mappls maps for turn-by-turn navigation. Goal: understand the protocol fully, then build a Google-Maps-powered replacement app and explore what else can be done with the cluster.
 
+## 🚨 Morning quickstart (after the 2026-05-24 overnight build)
+
+The Android app **GixxerBridge** is built and installed. Phase 2 + Phase 3-A shipped overnight.
+
+1. Plug the K20 Pro in via USB, confirm `adb devices` shows it
+2. `./android/MORNING_QUICKSTART.sh` — builds fresh APK, installs, grants every perm, launches
+3. Follow `SMOKE_TEST.md` (13 phases against the actual bike)
+4. If anything breaks: `TROUBLESHOOTING.md`
+
+The app:
+- 130 Kotlin files · 14,167 LOC · 205 unit tests green
+- 5 tabs: Home / Dashboard / Stats / Trips / Settings
+- Replaces Suzuki Connect end-to-end (Google Maps → cluster nav, live telemetry on phone, GPX/CSV export, ride analytics, crash detection, mileage logger, frame inspector for protocol RE)
+- Local-only, no cloud, no account
+- Branded design system inspired by the bike's cluster
+
+Project structure docs: `android/HANDOFF.md`.
+Build artifact: `android/app/build/outputs/apk/debug/app-debug.apk`.
+
 ## For a new conversation picking this up
 
 If you're a fresh Claude agent loading this project for the first time, **read in this order**:
 
 1. **`CLAUDE.md`** (this directory) — project rules. The hard "no assumptions" rule especially.
 2. **This README** — what's the project, what's been done.
-3. **`NOTES.md`** — current state of protocol knowledge (the polished spec).
-4. **`DISCOVERIES.md`** — chronological log of how we got here, including walked-back wrong assumptions. Read this to understand the journey, not just the current state.
-5. **`docs/superpowers/specs/2026-05-23-phase1-protocol-understanding-design.md`** — original Phase 1 design spec.
-6. **`docs/superpowers/plans/2026-05-23-phase1-protocol-understanding.md`** — original implementation plan.
-7. **`LOCAL_NOTES.md`** (gitignored) — PII (bike MAC, serial). Local only.
+3. **`android/HANDOFF.md`** — Android app structure + how to build/run.
+4. **`SMOKE_TEST.md`** — the morning bike test.
+5. **`NOTES.md`** — protocol knowledge (the polished spec).
+6. **`DISCOVERIES.md`** — chronological log including walked-back wrong assumptions.
+7. **`docs/superpowers/specs/2026-05-24-gixxerbridge-android-app-design.md`** — design spec for the app.
+8. **`docs/superpowers/specs/2026-05-24-assumptions-log.md`** — list of every unverified assumption with verification plan.
+9. **`docs/superpowers/specs/2026-05-23-phase1-protocol-understanding-design.md`** — original Phase 1 design spec.
+10. **`LOCAL_NOTES.md`** (gitignored) — PII (bike MAC, serial). Local only.
 
 ## Goal — three phases
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| **Phase 1** | Understand the BLE protocol fully. Document it so an encoder can be implemented from spec alone. | **~80% done** (M0 + most of M1 done; some open threads in NOTES) |
-| **Phase 2** | Build an Android app that listens to Google Maps' nav notifications and translates them to the Suzuki protocol, sending to the bike via BLE. Replaces Mappls with Google Maps. | Not started — pending Phase 1 close |
-| **Phase 3-A** | Custom cluster display — render arbitrary content (clock / weather / messages) to the bike's instrument cluster using its own text/icon fields. | Not started — depends on Phase 1 |
-| **Phase 3-B** | Telemetry dashboard (RPM / fuel / etc.) on phone. May not be possible — bike has no SIM and only exposes engine temperature (so far) over BLE. | Open — needs more investigation |
+| **Phase 1** | Understand the BLE protocol fully. Document it so an encoder can be implemented from spec alone. | ✅ **Done** — all 7 frame types decoded, `tools/protocol.py` is the canonical reference |
+| **Phase 2** | Android app that translates Google Maps notifications to Suzuki BLE frames. | ✅ **Built overnight 2026-05-24** — see GixxerBridge in `android/` |
+| **Phase 3-A** | Custom cluster display — clock/weather/now-playing rendered to the bike's text fields when nav idle. | ✅ **Built overnight 2026-05-24** — `IdleClockGenerator` + alternating now-playing cycle |
+| **Phase 3-B** | Telemetry dashboard on phone (speed / fuel / odo / trip from a537). | ✅ **Built overnight 2026-05-24** — Dashboard tab + Stats tab + ride analytics |
 
 ## Current state (as of 2026-05-23)
 
