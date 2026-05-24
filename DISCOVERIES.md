@@ -855,6 +855,59 @@ All 154 captured a533 frames have IDENTICAL bytes 2-3 = `0x33 0x59` (`"3Y"`). So
 - The a536 sample in NOTES.md is fully consistent with source — no NOTES.md change needed beyond what we wrote.
 - The a531 samples are fully consistent — confirms the degraded-mode override behavior we already documented from A0.D().
 
+### 2026-05-24 — Mystery RESOLVED: a533 bytes 2-3 = phone battery status
+
+Wrote `tools/find_field_writes.py` (androguard, ~30 LOC) to enumerate every `iput-object` / `sput-object` instruction in the dex targeting `Lcom/suzuki/application/fragment/C;->G`. Found **17 writes** — 1 in C's constructor (the `"1N"` default we already knew) and **16 in a single method**: `Landroidx/appcompat/app/z;->onReceive`.
+
+That class — `androidx/appcompat/app/z.java` — is a multi-purpose BroadcastReceiver that ProGuard relocated **out of the Suzuki package namespace** into `androidx/appcompat/app`. That's why every grep we ran inside `decompiled/jadx-out/sources/com/suzuki/` came up empty. Static analysis caveat learned: **ProGuard can move classes across package boundaries** — future searches must scan the entire decompile output, not just the app's package.
+
+**The full encoding** (`androidx/appcompat/app/z.java` lines 153-209, case-3 branch handling `ACTION_BATTERY_CHANGED`):
+
+`c.G` is a **2-ASCII-char encoding of the phone's battery status**:
+
+| Char 1 | Battery level bucket |
+|--------|---------------------|
+| `'3'` | 75-100% |
+| `'2'` | 50-74% |
+| `'1'` | 25-49% |
+| `'0'` | 0-24% |
+
+| Char 2 | Charging state |
+|--------|---------------|
+| `'Y'` | currently charging (`BatteryManager.BATTERY_STATUS_CHARGING == 2`) |
+| `'N'` | not charging (status 1=UNKNOWN, 3=DISCHARGING, 4=NOT_CHARGING, 5=FULL) |
+
+So our captured `"3Y"` = phone was 75-100% charged AND plugged in (charging). Consistent with Arjun's M0 setup: phone USB-connected to laptop for HCI snoop the entire session.
+
+**Bonus finding from the same code path:**
+
+`c.H` is set in the same receiver branch to a hex string `String.format("0x%02X", battery_percent_int)` (e.g. `"0x64"` for 100%). That's the field referenced at C0940y.java line 167: `int i5 = Integer.parseInt(c.H.substring(2), 16);`. For e-ACCESS / Access-TFT / Burgman-TFT bikes, `iArr[2] = i5` overrides byte 2 to the raw battery percent (so the bike's cluster displays the phone's exact battery percentage in addition to / instead of the bucket). For our Gixxer SF 150, only the bucket char `c.G[0]` makes it to byte 2.
+
+### What this fully closes
+
+a533 is now **100% decoded** end-to-end. Every byte position mapped to a semantic source. The full TX inventory + every field decoded:
+
+| Pos | Field | Decode |
+|-----|-------|--------|
+| 0 | header | 0xA5 |
+| 1 | type | `'3'` (0x33, a533) |
+| 2 | `c.G[0]` | Phone battery bucket digit: `'0'`=0-24%, `'1'`=25-49%, `'2'`=50-74%, `'3'`=75-100% |
+| 3 | `c.G[1]` | Phone charging state: `'Y'`=charging, `'N'`=not charging |
+| 4-6 | `c.P` (3 ASCII) | Speed from SharedPreferences (`%03d` format). 0xFF×3 if speed==0 |
+| 7 | `c.I` (1 ASCII) | Signal/nav status digit (same encoding as a531 byte 23). Override to `0x00` if `c.I=="0"` |
+| 8-13 | `c.O` (6 ASCII) | Current wall-clock time in `hhmmss` 12-hour format. 0xFF×6 if `"000000"` |
+| 14 | `HomeScreenActivity.i0` | SMS/notification pending flag (`'N'`=78 default / cleared, `'Y'`=89 set by NotificationService) |
+| 15 | `HomeScreenActivity.j0` | Call pending flag (same N/Y encoding, set by CallReceiverBroadcast). In K.g==true branch, replaced with `e.u0 ? 'Y' : 'N'` |
+| 16-20 | sentinel | 0xFF×5 |
+| 21 | `c.M` (int, K.g==false only) | Mode int 0-11 (gear?). 0xFF in K.g==true branch |
+| 22 | `(int) c.N` (K.g==false only) | Some angle/double field cast to byte. 0xFF in K.g==true branch |
+| 23 | literal `1` (K.g==false only) | Constant 0x01. 0xFF in K.g==true branch |
+| 24-27 | sentinel | 0xFF×4 |
+| 28 | checksum | `sum(bytes[1:28]) mod 256` |
+| 29 | end | 0x7F |
+
+**Lesson recorded**: when JADX shows a field with only its default-value assignment but captures prove a different runtime value, the assignment is somewhere ProGuard hid it — likely in a renamed class moved out of the app's package. Use androguard or similar to grep at the dex bytecode level (`iput-object` / `sput-object` instructions) rather than the Java decompile. Tool: `tools/find_field_writes.py`.
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.
