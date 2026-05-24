@@ -24,6 +24,7 @@ import dev.mrwick.gixxerbridge.ble.BikeInfo
 import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,7 +89,12 @@ fun AboutScreen() {
 
         // "Connected bike" card — only shown once BleClient has read the standard
         // 0x180A Device Information Service from the bike (happens on first connect).
-        bikeInfo?.let { ConnectedBikeCard(it) }
+        // While we're connected but the DIS read hasn't landed yet, show a
+        // skeleton placeholder so the user sees something is in flight.
+        when {
+            bikeInfo != null -> ConnectedBikeCard(bikeInfo!!)
+            connectionState == ConnectionState.Ready -> ReadingBikeInfoCard()
+        }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {

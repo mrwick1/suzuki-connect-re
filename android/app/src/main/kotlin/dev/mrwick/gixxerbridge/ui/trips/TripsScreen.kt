@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +31,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
+import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,6 +46,23 @@ fun TripsScreen(
     onOpenSettings: () -> Unit = {},
 ) {
     val rides by vm.rides.collectAsStateWithLifecycle()
+    // The rides StateFlow seeds with emptyList() before Room's first emission,
+    // so we can't distinguish "loading" from "loaded-empty" on the flow alone.
+    // Show skeletons for a brief grace window after composition; either real
+    // data arrives within it (skeletons disappear immediately) or the window
+    // closes and we render the real empty state.
+    val bootDone by produceState(initialValue = false) {
+        delay(250); value = true
+    }
+    if (rides.isEmpty() && !bootDone) {
+        LazyColumn(
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(3) { SkeletonCard() }
+        }
+        return
+    }
     if (rides.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(

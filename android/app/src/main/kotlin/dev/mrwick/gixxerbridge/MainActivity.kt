@@ -3,6 +3,7 @@ package dev.mrwick.gixxerbridge
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -160,6 +161,24 @@ private fun AppShell() {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route ?: Tab.Home.route
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? android.app.Activity
+
+    // Root-level back handler: when we're on the Home tab, "back" should minimise
+    // the app (moveTaskToBack) rather than call finish(). This keeps BikeBridgeService
+    // alive in the background and avoids the Suzuki Connect-style "exit?" UX.
+    BackHandler(enabled = currentRoute == Tab.Home.route) {
+        activity?.moveTaskToBack(true)
+    }
+    // From any non-Home top-level tab, "back" pops to Home instead of exiting.
+    // Sub-routes (pairing/allowlist/trip/composer/about/inspector/mileage) fall
+    // through to NavHost's default behaviour, which pops the back stack normally.
+    BackHandler(enabled = currentRoute != Tab.Home.route && currentRoute in tabs.map { it.route }) {
+        nav.navigate(Tab.Home.route) {
+            popUpTo(Tab.Home.route) { inclusive = false }
+            launchSingleTop = true
+        }
+    }
 
     Scaffold(
         bottomBar = {

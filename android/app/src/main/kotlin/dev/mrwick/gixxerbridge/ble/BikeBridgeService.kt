@@ -76,6 +76,20 @@ class BikeBridgeService : LifecycleService() {
     private var crashDetectorJob: Job? = null
     private val demoSource = DemoTelemetrySource()
 
+    // PERF: This service is fully decoupled from the hosting Activity's lifecycle so
+    // it survives MainActivity going to background (e.g. when the user hits "back" on
+    // Home and we call moveTaskToBack(true) instead of finish()).
+    //   - startInForeground() is called in onCreate() below, giving us a sticky
+    //     foreground notification (NOTIFICATION_ID=1, type CONNECTED_DEVICE).
+    //   - onStartCommand returns START_STICKY so the OS will restart us if it
+    //     reclaims memory while we're backgrounded.
+    //   - Every collaborator is constructed with applicationContext (settings,
+    //     bleClient, phoneState, weatherCache, nowPlayingProvider, dnd, lastParked,
+    //     rideLogger via Room, sos, crashDetector, lastParked.snapshotOnDisconnect).
+    //     No Activity / Window / Composable references are captured here, so the
+    //     UI process going to back doesn't leak or stall the service.
+    //   - The only Activity ref is the PendingIntent target in buildNotification,
+    //     which is just a launch intent — no live Activity reference is held.
     override fun onCreate() {
         super.onCreate()
         startInForeground()
@@ -282,26 +296,72 @@ class BikeBridgeService : LifecycleService() {
             }
         }
 
+        // PERF: extended-disconnect weather pause. If the bike hasn't been Ready
+        // for 24h, the user almost certainly isn't riding and the cluster isn't
+        // looking at the cached forecast — stop the 30-min open-meteo poll
+        // entirely. Resume immediately on the next Ready transition so the
+        // welcome frame still has a fresh value.
+        // ASSUMED: 24h is the right idle window — long enough to skip overnight
+        // and "left phone at desk" gaps, short enough that the first ride of
+        // the next day still gets a fresh forecast within the first poll cycle.
+        lifecycleScope.launch {
+            val idlePauseMs = 24 * 60 * 60 * 1000L
+            var pauseJob: Job? = null
+            bleClient.state.collect { state ->
+                if (state is ConnectionState.Ready) {
+                    pauseJob?.cancel()
+                    pauseJob = null
+                    weatherCache.resume()
+                } else if (pauseJob == null) {
+                    pauseJob = launch {
+                        delay(idlePauseMs)
+                        if (bleClient.state.value !is ConnectionState.Ready) {
+                            weatherCache.pause()
+                        }
+                    }
+                }
+            }
+        }
+
         // Heartbeat producer -> writer queue
+        // PERF: gate on Ready — when the bike is disconnected, writes always fail
+        // and the encode+enqueue+drain churn wastes wakeups on the foreground
+        // service. The HeartbeatLoop still ticks at 1 Hz internally, but we drop
+        // its frames on the floor until the link is live again.
         lifecycleScope.launch {
             heartbeatLoop.run { hb ->
-                val bytes = hb.encode()
-                frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.HEARTBEAT, bytes, "hb"))
+                if (bleClient.state.value is ConnectionState.Ready) {
+                    val bytes = hb.encode()
+                    frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.HEARTBEAT, bytes, "hb"))
+                }
             }
         }
 
         // Nav producer -> writer queue (only when changed; FrameWriter dedupes by content)
+        // PERF: gate on Ready — same reasoning as the heartbeat above. NavMux
+        // keeps producing (idle clock ticks forward locally), but we don't
+        // serialise + enqueue frames the link can't deliver.
         lifecycleScope.launch {
             navMux.frame.distinctUntilChanged().collect { nav ->
-                val bytes = nav.encode()
-                frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.NAV, bytes, "nav"))
+                if (bleClient.state.value is ConnectionState.Ready) {
+                    val bytes = nav.encode()
+                    frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.NAV, bytes, "nav"))
+                }
             }
         }
 
         // Writer drain: forever take + send via BleClient.write
+        // PERF: when the link isn't Ready, back off 100 ms before retrying so a
+        // queue full of stale frames doesn't busy-loop hammering bleClient.write
+        // (which returns false fast). Producers above are also gated, so this
+        // mostly catches in-flight frames enqueued just before a disconnect.
         lifecycleScope.launch {
             while (true) {
                 val entry = frameWriter.take()
+                if (bleClient.state.value !is ConnectionState.Ready) {
+                    delay(100)
+                    continue
+                }
                 val ok = bleClient.write(entry.frame)
                 AppGraph.frameStream.emit(FrameEvent(FrameEvent.Direction.TX, entry.frame, note = entry.note))
                 if (!ok) Log.w(tag, "write failed: ${entry.note}")

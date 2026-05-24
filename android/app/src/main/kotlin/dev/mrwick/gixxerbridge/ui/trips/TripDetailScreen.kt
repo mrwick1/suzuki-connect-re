@@ -41,6 +41,9 @@ import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.export.GpxExporter
+import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
+import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
+import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -60,6 +63,25 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
     LaunchedEffect(rideId) { locations = vm.locationsFor(rideId) }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        if (ride == null) {
+            // rides flow seeds with emptyList(); show a skeleton header + map +
+            // a few sample rows while Room's first emission lands.
+            SkeletonLine(widthFraction = 0.7f, height = 24.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            SkeletonLine(widthFraction = 0.4f, height = 14.dp)
+            Spacer(modifier = Modifier.height(4.dp))
+            SkeletonLine(widthFraction = 0.4f, height = 14.dp)
+            Spacer(modifier = Modifier.height(4.dp))
+            SkeletonLine(widthFraction = 0.3f, height = 14.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            SkeletonBlock(height = 200.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            repeat(3) {
+                SkeletonCard()
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            return@Column
+        }
         if (ride != null) {
             Text(
                 SimpleDateFormat("EEE, MMM d yyyy · HH:mm", Locale.US).format(Date(ride.startedAtMillis)),

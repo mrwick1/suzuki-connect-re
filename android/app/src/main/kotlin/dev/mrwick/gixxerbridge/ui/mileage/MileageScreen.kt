@@ -31,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.FuelFillEntity
+import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -61,6 +64,11 @@ fun MileageScreen(vm: MileageViewModel) {
     val perTank by vm.perTank.collectAsStateWithLifecycle()
 
     var showAdd by remember { mutableStateOf(false) }
+    // fills StateFlow seeds with emptyList() — gate the empty-state UI behind
+    // a short grace window so first-paint shows skeletons instead of "no fills".
+    val bootDone by produceState(initialValue = false) {
+        delay(250); value = true
+    }
 
     Scaffold(
         floatingActionButton = {
@@ -77,7 +85,14 @@ fun MileageScreen(vm: MileageViewModel) {
                 .padding(padding),
         ) {
             AverageCard(avg)
-            if (fills.isEmpty()) {
+            if (fills.isEmpty() && !bootDone) {
+                LazyColumn(
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(3) { SkeletonCard() }
+                }
+            } else if (fills.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "No fills logged yet — tap \"Add fill\" after your next pump visit.",

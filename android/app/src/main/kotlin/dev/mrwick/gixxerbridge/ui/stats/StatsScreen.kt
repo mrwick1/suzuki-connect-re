@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,10 +37,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.analytics.PersonalBests
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.WeeklyTotal
+import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
+import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.stats.charts.BarChart
 import dev.mrwick.gixxerbridge.ui.stats.charts.CalendarHeatmap
 import dev.mrwick.gixxerbridge.ui.stats.charts.HistogramChart
 import dev.mrwick.gixxerbridge.ui.stats.charts.LineChart
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -81,6 +85,36 @@ fun StatsScreen(
         }
     }
 
+    // Distinguish initial-load from genuinely-empty: show skeletons during a
+    // short grace window after composition. Real data within the window
+    // dismisses skeletons immediately.
+    val bootDone by produceState(initialValue = false) {
+        delay(250); value = true
+    }
+    if (rides.isEmpty() && !bootDone) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SkeletonCard(modifier = Modifier.weight(1f))
+                SkeletonCard(modifier = Modifier.weight(1f))
+                SkeletonCard(modifier = Modifier.weight(1f))
+            }
+            SkeletonBlock(height = 120.dp)
+            SkeletonBlock(height = 160.dp)
+            SkeletonBlock(height = 160.dp)
+            SkeletonBlock(height = 160.dp)
+            SkeletonCard()
+        }
+        return
+    }
     if (rides.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(

@@ -1,8 +1,14 @@
 package dev.mrwick.gixxerbridge.ui.dashboard
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -101,6 +107,18 @@ private fun SpeedHeroCard(t: TelemetryFrame?) {
                     )
                 }
             } else {
+                // Pulse the placeholder dash so it's visually obvious we're
+                // waiting on a value (vs. the bike reporting a literal "—").
+                val infinite = rememberInfiniteTransition(label = "speedShimmer")
+                val pulseAlpha by infinite.animateFloat(
+                    initialValue = 0.35f,
+                    targetValue = 0.85f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "speedShimmerAlpha",
+                )
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -108,7 +126,7 @@ private fun SpeedHeroCard(t: TelemetryFrame?) {
                     Text(
                         text = "—",
                         style = GixxerMono.display,
-                        color = accent,
+                        color = accent.copy(alpha = pulseAlpha),
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.height(4.dp))
