@@ -1237,6 +1237,80 @@ The only thing lost by skipping the cloud is the "X days until renewal" banner t
 
 This combined with the no-application-layer-auth finding from earlier today (`69da3ce`) makes the picture extremely clean: **a 200-LOC Python script + our `protocol.py` library is functionally equivalent to the full Suzuki Connect app for everything the bike actually does.**
 
+## 2026-05-24 — Weather data source: Mappls SDK internal API
+
+### Trace question
+
+a533 byte 21 (`C.M` weather code) and byte 22 (`C.N` temperature) get populated by `C.r(String weatherText)` and `C.q(String tempStr)`. But who CALLS those methods? Where do the strings come from? Trace it end-to-end to identify any 3rd-party API endpoint we hadn't catalogued.
+
+### Pipeline
+
+```
+[trigger] C.java line 806:
+  MapplsWeatherManager.newInstance(
+    MapplsWeather.builder().location(lat, lng).build()
+  ).call(new androidx.work.impl.model.m(this, iArr, handler, 13, false))
+       ↓ Mappls SDK does HTTP internally
+       ↓ GET https://explore.mappls.com/<weather endpoint>?lat=&lng=...
+       ↓
+[response]: WeatherResponse POJO with .data.temperature, .weatherCondition.weatherText, .airQuality.airQualityIndex, etc.
+       ↓
+[callback] androidx/work/impl/model/m.onSuccess (case 13 — multipurpose callback,
+  ProGuard-merged with many other handlers; the WeatherResponse switch is at line 552):
+  com.suzuki.pojo.e.D = "<temp value><unit>"  (e.g. "27°C")
+  com.suzuki.pojo.e.E = <icon URL>
+  com.suzuki.pojo.e.F = <weather text>        (e.g. "Partly Cloudy")
+  com.suzuki.pojo.e.G = <AQI>
+  com.suzuki.pojo.e.H = <real-feel text>
+       ↓
+[immediate dispatch within m.onSuccess, lines 597-604]:
+  c.r(com.suzuki.pojo.e.F)    →  C.M = weather code (0-11) via C.r() switch on lowercase text
+  c.q(com.suzuki.pojo.e.D)    →  C.N = 115 + ceil((9C/5)+32) via C.q() temperature parse
+       ↓
+[next C0940y heartbeat tick, ~1s later]:
+  a533 frame built with byte 21 = (int) C.M, byte 22 = (int) C.N
+       ↓
+[bike cluster receives a533, decodes byte 21 as weather-icon index, byte 22 as F+115 → displays temperature]
+```
+
+### New cloud endpoint catalogued: `https://explore.mappls.com/`
+
+The Mappls SDK class `MapplsWeather` (and many sibling classes — `MapplsNearbyReport`, `MapplsCostEstimation`, `MapplsCategoryMaster`, `MapplsRouteSummary`, `MapplsSubmitReport`, `MapplsFuelCost`, `MapplsPlaceDetail`) all build on `Constants.EXPLORE_BASE_URL` = `"https://explore.mappls.com/"`. This is a 3rd-party API endpoint Suzuki Connect talks to (via the bundled SDK), distinct from the 2 license endpoints on `projects.mapmyindia.com` we already catalogued.
+
+**Refined cloud surface inventory:**
+
+| Endpoint | Code path | Purpose | Required for bike control? |
+|----------|-----------|---------|---------------------------|
+| `https://projects.mapmyindia.com/autolicverify/...` (2 endpoints) | Suzuki code, direct | Subscription expiry + plan update | No — purely cosmetic (DISCOVERIES.md 2026-05-24 license audit) |
+| `https://explore.mappls.com/<weather>` | Mappls SDK internal | Weather + temperature | No — bike just won't show weather icon (cluster defaults to weather=1, temp=0) |
+| `https://explore.mappls.com/<aqi>` | Mappls SDK internal | Air-quality index | No — only used in app UI, no a5XX byte for AQI |
+| `https://explore.mappls.com/<poi, nearby, costEstimation, ...>` | Mappls SDK internal | Map/POI features | No — orthogonal to bike protocol |
+| Mappls map-tile servers (various `mappls.com` paths) | Mappls SDK internal | Navigation map rendering | No |
+
+**Earlier claim refinement**: the prior "only 2 endpoints" was for **Suzuki-coded HTTP**. The Mappls SDK adds many opaque API calls under `explore.mappls.com` and `apis.mappls.com`. They were not catalogued before because our URL grep was scoped to `com.suzuki.*`. They don't change the "Phase 2 can skip the cloud" verdict — all of them are optional for bike control.
+
+### Phase 2 implications
+
+A replacement client has three options for weather:
+
+1. **Skip weather entirely**: leave a533 byte 21 = 0x00 (default) and byte 22 = 0x00 (default). Cluster displays no weather icon and presumably a sentinel temperature, OR ignores the bytes. Costs nothing; least information shown.
+
+2. **Bundle the Mappls SDK**: get weather automatically the same way the Suzuki app does. Requires a Mappls API key and the SDK dependency.
+
+3. **Use a different weather API** (OpenWeatherMap, AccuWeather direct, etc.): fetch temperature + weather text yourself, feed values to `HeartbeatFrame(weather=..., temp_f_plus_115=...)` from our `protocol.py`. Easy with any HTTP client.
+
+For our protocol library, no changes needed — `HeartbeatFrame` already exposes `weather` and `temp_f_plus_115` as direct fields. The encoding is the same regardless of source.
+
+### What this closes
+
+- "Where does the a533 weather data come from?" → Mappls SDK's `explore.mappls.com` weather endpoint, dispatched in C.java line 806, callback in `androidx/work/impl/model/m.onSuccess` (case 13).
+- "Is there a hidden 3rd-party API we missed?" → Yes, `explore.mappls.com` (multiple endpoints, all routed through Mappls SDK internally). Doesn't change Phase 2 viability — all optional.
+
+### What's open
+
+- Trigger for the weather API call (line 806 was inside some onClick or scheduled handler — would be worth confirming when it fires, e.g. "on every nav start" vs "every X minutes" vs "manual user action")
+- Whether Mappls SDK ever fires its `explore.mappls.com` calls without an API key (likely no — Mappls requires registration). A replacement client using Mappls would need its own key.
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.

@@ -28,7 +28,7 @@ The "only 2 endpoints" claim has been **fully validated** by a more thorough aud
 
 - **MQTT is DEAD CODE.** `org.eclipse.paho.android.service.MqttService` is registered in `AndroidManifest.xml` because the Paho library is bundled in the dependency tree, but no Suzuki code instantiates `MqttClient`, calls `MqttService.class`, or contains any broker URL (`tcp://`, `ssl://`, `mqtt://`, `mqtts://` — all return zero hits in `com.suzuki.*`). The Paho `BroadcastReceiver` we found in `androidx/appcompat/app/z.java` is just the library's own `NetworkConnectionIntentReceiver` waiting for an MQTT client that never gets created.
 
-- **Mappls SDK** (`com.mappls.sdk.*`) talks to many internal Mappls servers (map tiles, routing, search, geocoding, directions) — those are part of the bundled navigation library and orthogonal to bike telemetry/control. Suzuki does not see those calls; the SDK handles them opaquely.
+- **Mappls SDK** (`com.mappls.sdk.*`) talks to many internal Mappls servers (map tiles, routing, search, geocoding, directions, **weather**, AQI, POI nearby, cost estimation) — all routed through `https://explore.mappls.com/` (`Constants.EXPLORE_BASE_URL`) and various Mappls map-tile hosts. Suzuki app delegates to the SDK and doesn't know the URLs. The **weather** + temperature path is particularly relevant because it feeds a533 bytes 21-22 — see DISCOVERIES.md 2026-05-24 "Weather data source" section for the full pipeline trace.
 
 **Conclusion**: bike control / data flow has only one channel (BLE on 0xFFF1/0xFFF2). The cloud is used solely for license verification + plan updates. Nothing else flows through the network.
 
