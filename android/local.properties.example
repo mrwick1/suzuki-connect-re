@@ -1,0 +1,2 @@
+# Copy to local.properties and edit. local.properties itself is gitignored.
+sdk.dir=/home/mrwick/Android

@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">GixxerBridge</string>
+    <string name="bike_service_channel_name">Bike connection</string>
+    <string name="bike_service_channel_desc">Maintains the Bluetooth link to your bike.</string>
+    <string name="bike_service_notification_title">Connected to bike</string>
+    <string name="bike_service_notification_disconnected">Bike disconnected — auto-reconnecting</string>
+    <string name="permission_notif_listener_required">GixxerBridge needs access to notifications so Google Maps directions and incoming calls can be forwarded to your bike cluster.</string>
+    <string name="permission_open_settings">Open settings</string>
+    <string name="pair_scan">Scan for bike</string>
+    <string name="pair_scanning">Scanning…</string>
+    <string name="start_service">Start GixxerBridge</string>
+    <string name="stop_service">Stop GixxerBridge</string>
+</resources>
