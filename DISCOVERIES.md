@@ -1171,6 +1171,72 @@ The dex-bytecode field-write tool (`find_field_writes.py`) keeps paying dividend
 
 Tool now general-purpose: `python tools/find_field_writes.py <class-path>.<FieldName>` works for any class/field combo.
 
+## 2026-05-24 — License/subscription state is PURELY COSMETIC
+
+### What we did
+
+Earlier commits established that the only cloud API surface is the 2 Mappls license endpoints (subscription expiry check + plan update). Today's question: **does the bike actually care?** Specifically:
+
+- Is BLE write privilege gated on a valid subscription?
+- Is any frame field (a531/a533/a536/etc.) altered based on subscription status?
+- Does the bike refuse to function if the phone hasn't authenticated to the cloud recently?
+
+### Findings (all NO)
+
+**ACCESS_TOKEN usage trace:**
+
+The OAuth access token (from the cloud token endpoint) is:
+1. Written to `SharedPreferences("AppPrefs").ACCESS_TOKEN` by `DashboardFragment$16` after the token API succeeds
+2. Read by **`okhttp3.internal.platform.d.y()`** — a single getter (line 707-709 of that file)
+3. Used by exactly 5 call sites — every one is a Mappls license API call (`https://projects.mapmyindia.com/autolicverify/...`):
+   - `RunnableC0828e.java:65, 105, 175, 206` (4 license-API calls inside ActivateYourPlan flow)
+   - `DashboardFragment$16.java:76` (1 license-API call inside dashboard refresh)
+
+That's it. No other code reads `ACCESS_TOKEN`. **The token is NEVER used for BLE writes, notify subscription, or any non-license purpose.**
+
+**Subscription-expired flag (`com.suzuki.pojo.e.w0`) usage trace:**
+
+Set by `DashboardFragment$16.onResponse` (the license-API callback) — `true` if both complimentary period expired AND no active paid subscription, else `false`. **Crucially: on API failure** (no internet, timeout, server error) `e.w0 = false` — the app assumes "subscribed" rather than denying service.
+
+Read by:
+- `C0915i0.t()` — sets visibility on a "no subscription" banner (`this.c.setVisibility(...)`) and swaps the banner background between `R.drawable.no_subscription` (default) / `R.drawable.no_subscription_ev` (e-ACCESS). UI only.
+- `RunnableC0911g0.java:40` — just a `Log.e("SUB_DASH_Map", ...)` debug line.
+- `SubscriptionManager$2.lambda$onResponse$0` — wakes up `C0915i0.t()` after the API call returns. UI only.
+
+**Total READ paths for `e.w0` = three. All UI visibility. Zero functional gating.**
+
+**No BLE frame field carries subscription state:**
+
+Every TX frame's body has been fully decoded (commits `b916c2c`, `b99ca90`). No subscription/license byte anywhere in a531/a532/a533/a534/a535/a536.
+
+### Cloud architecture verdict
+
+- Cloud talks to the phone for license bookkeeping only
+- Phone NEVER tells the bike about subscription state (no protocol field exists for it)
+- Bike NEVER asks the phone about subscription state (no RX frame type)
+- On API failure, the app fails OPEN (`e.w0 = false`, "subscribed") — even Suzuki's own app doesn't enforce the subscription if the cloud is unreachable
+- Even when `e.w0 = true` ("expired"), the only effect is a UI banner — BLE writes continue normally, the bike keeps receiving nav/heartbeat/identity frames, the cluster keeps displaying them
+
+### Phase 2 implication
+
+A replacement Android app (or Linux laptop / ESP32) **can skip the cloud entirely with zero functional loss**. No subscription check. No token refresh. No license API calls. The bike will be unable to tell the difference between the official Suzuki app with an active subscription and a 200-line custom Python script. The cluster display, the BLE write/notify behavior — all identical.
+
+The only thing lost by skipping the cloud is the "X days until renewal" banner the official app displays — and even that's only displayed *if* the user opens the dashboard tab.
+
+### Phase 3 implications
+
+- Branch A (custom cluster display via forging): zero impact — already works without cloud.
+- Branch B (telemetry dashboard): zero impact — a537 notifies are bike-initiated and don't pass through anything cloud-touched.
+- Bike-firmware reflash (parked indefinitely per the cluster-hardware research note above): zero impact — was never coupled to subscription anyway.
+
+### What this closes
+
+- "Does Phase 2 need to maintain a license bookkeeping path?" → **No.**
+- "Could a subscription-lapse brick the bike's BLE features when paired with the official app?" → No. The official app fails open.
+- "Is there any hidden auth tied to subscription?" → No. The ACCESS_TOKEN is only used for cloud calls, never for BLE.
+
+This combined with the no-application-layer-auth finding from earlier today (`69da3ce`) makes the picture extremely clean: **a 200-LOC Python script + our `protocol.py` library is functionally equivalent to the full Suzuki Connect app for everything the bike actually does.**
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.

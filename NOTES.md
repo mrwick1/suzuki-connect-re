@@ -32,6 +32,17 @@ The "only 2 endpoints" claim has been **fully validated** by a more thorough aud
 
 **Conclusion**: bike control / data flow has only one channel (BLE on 0xFFF1/0xFFF2). The cloud is used solely for license verification + plan updates. Nothing else flows through the network.
 
+### Subscription state is purely cosmetic (verified 2026-05-24)
+
+Audit of `ACCESS_TOKEN` + the subscription-expired flag `com.suzuki.pojo.e.w0` shows:
+
+- `ACCESS_TOKEN` (OAuth) is read ONLY by 5 call sites — all Mappls license API calls. Never used for BLE writes or any other purpose.
+- `e.w0` ("subscription expired") is read by 3 sites — all are UI visibility code that just shows/hides a renewal banner.
+- On license API failure, the app fails OPEN (`e.w0 = false`, "assumes subscribed"). Even Suzuki's own app doesn't enforce subscription when the cloud is unreachable.
+- No BLE frame field carries subscription state. The bike has no way to know if the user is subscribed.
+
+**Phase 2 / replacement client implication**: a custom Android app, Python script, or ESP32 can skip the cloud entirely with zero functional loss. Combined with the no-application-layer-auth finding (DISCOVERIES.md 2026-05-24), **~200 LOC + `protocol.py` is functionally equivalent to the full Suzuki Connect app for everything the bike does**. The only thing lost is the renewal-prompt banner in the app UI.
+
 ### Manifest-declared Suzuki receivers (catalogued 2026-05-24)
 
 For completeness, every Suzuki-owned `<receiver>` / `<service>` in the manifest:
