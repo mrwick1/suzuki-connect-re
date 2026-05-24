@@ -42,15 +42,19 @@ const T0 = Date.now();
 let logWriter = null;
 let logPath = null;
 
+let writeErrCount = 0;
 const emit = (type, payload) => {
     const line = JSON.stringify({ t: Date.now() - T0, type, ...payload });
     console.log(line);  // visible while USB connected
     if (logWriter !== null) {
         try {
-            logWriter.write(line + "\n");
-            logWriter.flush();
+            logWriter.println(line);  // PrintWriter — autoFlush is on
         } catch (e2) {
-            // swallow — don't break the hook chain
+            // log the FIRST write error so we know what's failing
+            if (writeErrCount < 1) {
+                console.log("WRITE_ERROR: " + e2);
+            }
+            writeErrCount++;
         }
     }
 };
@@ -96,8 +100,10 @@ function classifyFrame(hex) {
 
 Java.perform(function () {
     // Open the phone-side log file first so the attach event itself lands in it.
-    // Try external files dir first (easy to pull); fall back to internal app
-    // files dir which is always writable (pull via adb shell + run-as).
+    // PrintWriter with autoFlush=true ensures every println() hits disk
+    // immediately (FileWriter.flush() was insufficient — events weren't
+    // actually persisting). Internal app storage; pull with:
+    //   adb root && adb pull /data/user/0/suzuki.com.suzuki/files/suzuki-ride-*.jsonl
     try {
         const ActivityThread = Java.use("android.app.ActivityThread");
         const app = ActivityThread.currentApplication();
@@ -109,7 +115,9 @@ Java.perform(function () {
         }
         logPath = dir.getAbsolutePath() + "/suzuki-ride-" + ts + ".jsonl";
         const FileWriter = Java.use("java.io.FileWriter");
-        logWriter = FileWriter.$new(logPath, true);
+        const PrintWriter = Java.use("java.io.PrintWriter");
+        const fw = FileWriter.$new(logPath, true);
+        logWriter = PrintWriter.$new(fw, true);  // autoFlush = true
     } catch (e) {
         console.log("WARN: phone-side log file unavailable: " + e);
     }

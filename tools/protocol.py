@@ -198,7 +198,15 @@ class NavFrame:
     eta: str                # bytes 9-14: 6-char ETA (HHMMAA 12h or HHMM00 24h)
     dist_total: str         # bytes 18-21: 4-char total distance-to-go
     dist_total_unit: str    # byte 22: 'K' or 'M'
-    status: str             # byte 23: nav status digit '0'-'6'
+    status: str             # byte 23: nav status digit. Semantics (corrected 2026-05-24 after
+                            # ride capture surprise — see DISCOVERIES.md "First real ride capture"):
+                            #   '0' = no signal / airplane mode (C.e1 true)
+                            #   '1' = normal nav (default)
+                            #   '2' = route recalculating (A0.X; auto-resets after one frame)
+                            #   '3' = via-point (waypoint) reached (A0.b0; sticky until next via)
+                            #   '4' = GPS provider disabled (A0.Z)
+                            #   '5' = destination reached (A0.a0; STICKY forever, no source reset)
+                            #   '6' = phone has no network (A0.v0)
     continue_flag: str      # byte 24: '0' = terminate nav, else continue
     raw: Optional[bytes] = field(default=None, repr=False)
 

@@ -1192,6 +1192,86 @@ Last unmapped chunk of "mystery globals" — the `com.google.android.gms.measure
 
 **M1 status check**: I think this might genuinely be the last static-analysis thread of substance. Everything that touches the wire is now decoded and library-implemented; everything app-internal is catalogued. Remaining open items all require either the bike physically (BLE-bond test, ride capture, forge tools running) or a different problem domain (Frida hooks, mitmproxy SSL bypass).
 
+## 2026-05-24 — First real ride capture (M2-ish): 3315 frames, 17-min window
+
+### Setup outcome
+
+- Built `frida-scripts/ride_capture.js` (8 hook groups) + `tools/test_attach.py` Python wrapper + `frida-scripts/build.sh` to bundle the Frida 17 + frida-java-bridge dependency.
+- Test-attached against the live app pre-ride. Confirmed hooks fire on real frames (captured a "Devu" WhatsApp a535 in the test).
+- During the ride: Android killed `suzuki.com.suzuki` (PID 4116 → 13388 by end). Frida agent died with the old process; the Python wrapper had no idea and held a ghost session. **113s of Frida data out of 17 minutes.**
+- **HCI snoop kept logging via Android-native mechanism for the full ride** — 866 KB pcap captured. That's what saved us.
+
+### Ride pcap analysis (`captures/ride-20260524-1810.pcap`)
+
+3,315 BLE frames, 1003s of BLE-active window (with 5 reconnect events from BLE drops). All decode cleanly via `tools/protocol.py`:
+
+| Type | Count | Notes |
+|------|-------|-------|
+| a531 NAV | 2715 | 7 distinct real maneuver IDs (1, 4, 5, 8, 9, 14, 39) + 146 degraded placeholders |
+| a532 CALL | 22 | First captured! `'Me'` as caller name, `is_whatsapp=False`, cellular path |
+| a533 HEARTBEAT | 393 | Real-time updates |
+| a534 MISSED_CALL | 5 | First captured! "Y1" prefix decode validated against live data |
+| a536 IDENTITY | 21 | All `is_fresh=False` (= 'R' reconnect); 5 long gaps (>5s) indicate 5 BLE drops |
+| a537 TELEMETRY | 159 | Speed seen 0-10 km/h (city/parking-lot pace); odometer 16762→16765 (3 km this window); fuel_bars steady at 3 |
+
+### Major finding 1 — `A0.a0` and `A0.b0` flag semantics RESOLVED
+
+These were "TBD precise meaning" in the earlier static analysis. The ride captures revealed the answer via the surprise that status='5' fired 26% of frames (way more than any "off-route" hypothesis predicted).
+
+Source trace (after the surprise prompted re-reading the Mappls callbacks):
+
+- **`A0.a0` = "destination reached" sticky flag.** Set true in `com.mappls.sdk.navigation.routing.f.run` case 1 (line 74), alongside showing the "Destination Reached, do you want to exit?" dialog. **Never reset in source** — once true, every subsequent a531 frame in that session lands status='5' via the v0.java if-else chain.
+- **`A0.b0` = "via-point reached"** (waypoint along multi-stop route). Set in `com.mappls.sdk.navigation.routing.i.m` (line 607), alongside a `Toast: "Via Point Reached <name>"`. Same sticky behavior.
+- The ride had no via-points configured, so status='3' fired zero times (matches: `A0.b0` never set).
+
+### Updated complete status-digit map (corrected)
+
+| Digit | Source | Meaning | Reset? |
+|-------|--------|---------|--------|
+| `'0'` | `C.e1` true OR airplane mode | No signal / radio off | Auto when signal restored |
+| `'1'` | else (default) | Normal nav | — |
+| `'2'` | `A0.X` | Route recalculating | **Auto-resets in v0.java after one frame** |
+| `'3'` | `A0.b0` | Via-point (waypoint) reached | Sticky until next via-point |
+| `'4'` | `A0.Z` | GPS provider disabled | Auto when GPS returns |
+| `'5'` | `A0.a0` | **Destination reached** | **Sticky forever** (no source reset) |
+| `'6'` | `A0.v0` | Phone has no network | Auto when network returns |
+
+Prior NOTES.md/DISCOVERIES.md hypothesis "A0.a0 = off-route" was **wrong**. Corrected.
+
+Implication for `tools/protocol.py`'s `NavFrame.status` field: the docstring/inline comment should be updated. The encoding is identical (just a 1-char ASCII digit), but the documented semantics need to match this finding.
+
+### Major finding 2 — maneuver ID 39 in the "gap" zone
+
+The bike's icon set extract (from APK `res/drawable-nodpi-v4/ic_step_*.xml`) showed gaps at 9, 26-35, 38-39, 42-49. The ride pcap shows the phone sent maneuver ID 39 to the bike 118 times. Three possibilities:
+
+1. The APK icon extract was incomplete (ic_step_39 may actually exist in a split APK we didn't enumerate)
+2. The bike's firmware has icons in the gap zones even if the APK doesn't ship them
+3. The bike falls back to a default icon for unknown IDs
+
+To verify: trigger maneuver 39 again on a future ride and visually observe the cluster.
+
+### Major finding 3 — 5 BLE disconnect/reconnect events during the ride
+
+Inter-frame gap analysis on the 21 a536 IDENTITY frames showed 5 gaps >5s (ranging 10.6s to 317.4s = 5+ minutes). This means the BLE connection dropped 5 times during the ride. Likely causes:
+- Bike engine off (cluster powers down)
+- Stopped at length (e.g. parking, errand)
+- BLE range exceeded briefly
+
+Each reconnect triggered a fresh a536 IDENTITY frame (with `is_fresh=False` 'R' = "reconnect to known cluster"), matching our handshake decode.
+
+### Engineering lesson — Frida agent died with the app process
+
+The standard `device.attach(name) → session.create_script → script.load` flow gets a session that's tied to a specific PID. When Android kills that PID (background management, OOM, battery saver, etc.), the agent dies with it. The wrapper script has no signal — frida-server keeps the session in a "ghost" state.
+
+**Solution being built** in a parallel subagent task: `tools/robust_attach.py` with spawn-gating + respawn-aware re-attach. Use that for the next ride. See agent's deliverable.
+
+### Files
+
+- `captures/ride-20260524-1810.pcap` — HCI snoop, 866 KB
+- `captures/ride-20260524-1810-frida.jsonl` — partial Frida log (113s of pre-ride data only)
+
+Both gitignored (PII).
+
 ## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
 
 ### What we did
