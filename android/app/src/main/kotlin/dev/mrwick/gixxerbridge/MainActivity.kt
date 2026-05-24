@@ -1,54 +1,167 @@
 package dev.mrwick.gixxerbridge
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import dev.mrwick.gixxerbridge.ui.compose.FrameComposerScreen
+import dev.mrwick.gixxerbridge.ui.compose.FrameComposerViewModel
+import dev.mrwick.gixxerbridge.ui.dashboard.DashboardScreen
+import dev.mrwick.gixxerbridge.ui.dashboard.DashboardViewModel
+import dev.mrwick.gixxerbridge.ui.home.HomeScreen
+import dev.mrwick.gixxerbridge.ui.inspector.InspectorScreen
+import dev.mrwick.gixxerbridge.ui.inspector.InspectorViewModel
+import dev.mrwick.gixxerbridge.ui.lock.AppLockGate
+import dev.mrwick.gixxerbridge.ui.lock.AppLockViewModel
+import dev.mrwick.gixxerbridge.ui.settings.AllowlistScreen
+import dev.mrwick.gixxerbridge.ui.settings.AllowlistViewModel
+import dev.mrwick.gixxerbridge.ui.settings.PairingScreen
+import dev.mrwick.gixxerbridge.ui.settings.PairingViewModel
+import dev.mrwick.gixxerbridge.ui.settings.SettingsScreen
+import dev.mrwick.gixxerbridge.ui.settings.SettingsViewModel
+import dev.mrwick.gixxerbridge.ui.trips.TripDetailScreen
+import dev.mrwick.gixxerbridge.ui.trips.TripsScreen
+import dev.mrwick.gixxerbridge.ui.trips.TripsViewModel
+import dev.mrwick.gixxerbridge.app.AppGraph
 
 /**
- * Entry activity. Hosts the Compose nav graph; for the skeleton build, a
- * placeholder card that confirms the toolchain works end-to-end.
+ * Entry activity. FragmentActivity for biometric prompt compatibility (see ui/lock).
+ * Hosts a 5-tab bottom-nav + sub-routes for pairing, allowlist, trip detail, composer.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
+
+    private val notifPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignore result */ }
+    private val blePermLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* ignore result */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestRuntimePermissions()
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    Scaffold { padding ->
-                        Column(modifier = Modifier.padding(padding).padding(24.dp)) {
-                            Text(
-                                text = "GixxerBridge",
-                                style = MaterialTheme.typography.headlineMedium,
-                            )
-                            Spacer(modifier = Modifier.padding(8.dp))
-                            Text(
-                                text = "Skeleton build — Phase 0 toolchain verification. Real screens land in Phase 4.",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    }
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                val lockVm: AppLockViewModel = viewModel(factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application))
+                AppLockGate(lockVm) {
+                    AppShell()
                 }
             }
         }
     }
+
+    private fun requestRuntimePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            blePermLauncher.launch(arrayOf(
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_SCAN,
+            ))
+        } else {
+            blePermLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
+        }
+    }
 }
 
-@Preview(showBackground = true)
+private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
+    data object Home : Tab("home", "Home", Icons.Default.Home)
+    data object Dashboard : Tab("dashboard", "Dashboard", Icons.Default.Speed)
+    data object Trips : Tab("trips", "Trips", Icons.Default.Route)
+    data object Inspector : Tab("inspector", "Inspector", Icons.Default.Code)
+    data object Settings : Tab("settings", "Settings", Icons.Default.Settings)
+}
+
+private val tabs = listOf(Tab.Home, Tab.Dashboard, Tab.Trips, Tab.Inspector, Tab.Settings)
+
 @Composable
-private fun MainPreview() {
-    MaterialTheme {
-        Text("GixxerBridge preview")
+private fun AppShell() {
+    val nav = rememberNavController()
+    val backStack by nav.currentBackStackEntryAsState()
+    val currentRoute = backStack?.destination?.route ?: Tab.Home.route
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                tabs.forEach { tab ->
+                    NavigationBarItem(
+                        selected = currentRoute == tab.route,
+                        onClick = {
+                            nav.navigate(tab.route) {
+                                popUpTo(Tab.Home.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+        },
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            NavHost(navController = nav, startDestination = Tab.Home.route) {
+                composable(Tab.Home.route) { HomeScreen(onOpenPairing = { nav.navigate("pairing") }) }
+                composable(Tab.Dashboard.route) { DashboardScreen(viewModel()) }
+                composable(Tab.Trips.route) {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val vm: TripsViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                            TripsViewModel(ctx.applicationContext) as T
+                    })
+                    TripsScreen(vm, onOpenRide = { rideId -> nav.navigate("trip/$rideId") })
+                }
+                composable("trip/{rideId}") { backStackEntry ->
+                    val rideId = backStackEntry.arguments?.getString("rideId")?.toLongOrNull() ?: 0L
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val vm: TripsViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                            TripsViewModel(ctx.applicationContext) as T
+                    })
+                    TripDetailScreen(rideId, vm)
+                }
+                composable(Tab.Inspector.route) {
+                    val vm: InspectorViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                            InspectorViewModel(AppGraph.frameStream) as T
+                    })
+                    InspectorScreen(vm)
+                }
+                composable(Tab.Settings.route) {
+                    SettingsScreen(
+                        vm = viewModel(),
+                        onOpenPairing = { nav.navigate("pairing") },
+                        onOpenAllowlist = { nav.navigate("allowlist") },
+                    )
+                }
+                composable("pairing") {
+                    PairingScreen(vm = viewModel(), onPaired = { nav.popBackStack() })
+                }
+                composable("allowlist") {
+                    AllowlistScreen(vm = viewModel())
+                }
+                composable("composer") {
+                    FrameComposerScreen(vm = viewModel())
+                }
+            }
+        }
     }
 }

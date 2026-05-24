@@ -4,19 +4,24 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
 /**
- * Captures Google Maps nav notifications + calls + SMS + allowlisted apps.
- * Skeleton — Phase 3 wires actual dispatch to the bridge classes.
+ * Listens to every posted/dismissed Android notification.
+ * Dispatch + filtering lives in [NotificationDispatcher] (singleton, shared with the foreground service).
  *
- * Per R1 research (assumptions log A1), Google Maps uses RemoteViews; the
- * RemoteViews-walking parser lives in nav/GoogleMapsParser.kt and is called
- * from this listener once Phase 3 lands.
+ * Lifecycle note: this service is started by the system when the user grants
+ * notification-listener access. It runs in our app process, so singletons work.
  */
 class NotificationCaptureService : NotificationListenerService() {
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        NotificationDispatcher.attach(applicationContext)
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        // Phase 3: dispatch by package name
+        NotificationDispatcher.onPosted(applicationContext, sbn)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // Phase 3: emit null on Maps removal so NavMux falls back to idle clock
+        NotificationDispatcher.onRemoved(sbn)
     }
 }

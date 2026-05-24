@@ -1,0 +1,88 @@
+package dev.mrwick.gixxerbridge.ui.trips
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.data.RideEntity
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.max
+
+/** Trips list screen: one card per persisted ride, tap to open detail, swipe-less delete. */
+@Composable
+fun TripsScreen(vm: TripsViewModel, onOpenRide: (Long) -> Unit) {
+    val rides by vm.rides.collectAsStateWithLifecycle()
+    if (rides.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "No rides yet — take the bike for a spin.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        return
+    }
+    LazyColumn(
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(rides, key = { it.id }) { ride ->
+            RideRow(
+                ride = ride,
+                onClick = { onOpenRide(ride.id) },
+                onDelete = { vm.delete(ride.id) },
+            )
+        }
+    }
+}
+
+/** One row in [TripsScreen]: date + duration/distance/avg-speed summary + delete icon. */
+@Composable
+private fun RideRow(ride: RideEntity, onClick: () -> Unit, onDelete: () -> Unit) {
+    val dateFmt = remember { SimpleDateFormat("EEE, MMM d · HH:mm", Locale.US) }
+    val endMillis = ride.endedAtMillis ?: System.currentTimeMillis()
+    val durationMin = (endMillis - ride.startedAtMillis) / 60_000
+    val distance = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
+    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    dateFmt.format(Date(ride.startedAtMillis)),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    "$durationMin min · $distance km · avg ${"%.0f".format(ride.avgSpeedKmh)} km/h",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete ride")
+            }
+        }
+    }
+}

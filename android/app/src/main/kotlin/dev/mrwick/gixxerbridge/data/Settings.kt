@@ -177,16 +177,11 @@ class Settings(context: Context) {
 }
 
 // ---------- Conversion helpers (extracted so they can be unit tested) ----------
-
-/**
- * Pure conversion helpers between nullable public API values and the
- * non-null sentinel-encoded values stored in DataStore preferences.
- *
- * DataStore preference values themselves cannot be null, so:
- *   - null String  <=> ""  (empty string sentinel)
- *   - null Double  <=> Double.NaN (NaN sentinel, since NaN != NaN)
- */
-internal object SettingsConversions
+//
+// DataStore preference values themselves cannot be null, so nullable public
+// fields are encoded via sentinels:
+//   - null String <=> "" (empty string)
+//   - null Double <=> Double.NaN
 
 /** Encode a nullable [String] to its preference-store representation ("" == null). */
 internal fun encodeNullableString(s: String?): String = s ?: ""
