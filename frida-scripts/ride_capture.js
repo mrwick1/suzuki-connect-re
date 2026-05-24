@@ -28,11 +28,31 @@
 
 "use strict";
 
+// Frida 17 split the Java bridge into a separate npm package. The module
+// has a default export, hence .default. Bundled by frida-compile; see
+// frida-scripts/build.sh.
+const Java = require("frida-java-bridge").default;
+
 const T0 = Date.now();
+
+// Phone-side log file so events survive USB disconnect (e.g. when the phone
+// goes on a ride). Initialized inside the main Java.perform below.
+// Pull after the ride with:
+//   adb pull /sdcard/Android/data/suzuki.com.suzuki/files/suzuki-ride-<ts>.jsonl
+let logWriter = null;
+let logPath = null;
+
 const emit = (type, payload) => {
     const line = JSON.stringify({ t: Date.now() - T0, type, ...payload });
-    send(line);
-    console.log(line);
+    console.log(line);  // visible while USB connected
+    if (logWriter !== null) {
+        try {
+            logWriter.write(line + "\n");
+            logWriter.flush();
+        } catch (e2) {
+            // swallow — don't break the hook chain
+        }
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -75,7 +95,26 @@ function classifyFrame(hex) {
 // ---------------------------------------------------------------------------
 
 Java.perform(function () {
-    emit("attach", { ts_unix_ms: Date.now() });
+    // Open the phone-side log file first so the attach event itself lands in it.
+    // Try external files dir first (easy to pull); fall back to internal app
+    // files dir which is always writable (pull via adb shell + run-as).
+    try {
+        const ActivityThread = Java.use("android.app.ActivityThread");
+        const app = ActivityThread.currentApplication();
+        const ctx = app.getApplicationContext();
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        let dir = ctx.getExternalFilesDir(null);
+        if (dir === null) {
+            dir = ctx.getFilesDir();  // always available
+        }
+        logPath = dir.getAbsolutePath() + "/suzuki-ride-" + ts + ".jsonl";
+        const FileWriter = Java.use("java.io.FileWriter");
+        logWriter = FileWriter.$new(logPath, true);
+    } catch (e) {
+        console.log("WARN: phone-side log file unavailable: " + e);
+    }
+
+    emit("attach", { ts_unix_ms: Date.now(), log_path: logPath });
 
     // --- (1) MyBleService.f(byte[], int) — every phone -> bike write ---
     try {
@@ -136,15 +175,16 @@ Java.perform(function () {
     try {
         const B = Java.use("com.suzuki.application.fragment.B");
         B.onSignalStrengthsChanged.implementation = function (ss) {
-            this.onSignalStrengthsChanged(ss);
-            // After the original ran, c.I reflects the new value.
-            // 'this.a' (in obfuscated B) is the C instance.
+            // Just emit the SignalStrength.getLevel() — the resulting c.I
+            // value will land in the next a533 TX byte 7 (visible via the
+            // tx hook anyway). Avoid the obfuscated cross-class field-read
+            // which is fragile across APK builds.
+            let level = null;
             try {
-                const newVal = this.a.value.I.value;
-                emit("signal_strength", { c_I: newVal ? newVal.toString() : null });
-            } catch (e2) {
-                emit("signal_strength", { err: String(e2) });
-            }
+                level = ss !== null ? ss.getLevel() : null;
+            } catch (e2) { /* ignore */ }
+            emit("signal_strength", { level: level });
+            return this.onSignalStrengthsChanged(ss);
         };
     } catch (e) {
         emit("hook_error", { hook: "B.onSignalStrengthsChanged", err: String(e) });
@@ -217,6 +257,67 @@ Java.perform(function () {
         };
     } catch (e) {
         emit("hook_error", { hook: "C0855q0", err: String(e) });
+    }
+
+    // --- (8) A0.D — the a531 frame builder. Logs the 4 inputs as the app
+    // computes them, BEFORE the byte array is built. Tells us which flag
+    // (X / a0 / b0 / v0 / Z / signal) drove which status digit. Pin
+    // semantics by correlating with the tx event for the same a531 frame
+    // (same timestamp ±1ms).
+    try {
+        const A0 = Java.use("com.suzuki.application.fragment.A0");
+        A0.D.overload("int", "int", "java.lang.String", "java.lang.String")
+            .implementation = function (i, i2, statusStr, contFlag) {
+                emit("a531_build_inputs", {
+                    maneuver_id: i,
+                    secondary_id: i2,
+                    status: statusStr ? statusStr.toString() : null,
+                    continue_flag: contFlag ? contFlag.toString() : null,
+                });
+                return this.D(i, i2, statusStr, contFlag);
+            };
+    } catch (e) {
+        emit("hook_error", { hook: "A0.D", err: String(e) });
+    }
+
+    // --- (9) Mappls weather callback. The callback class
+    // androidx/work/impl/model/m is a ProGuard-merged multipurpose handler;
+    // case 13 (this.a == 13) handles WeatherResponse. We hook onSuccess
+    // and filter by the response class name so only weather events emit.
+    try {
+        const m = Java.use("androidx.work.impl.model.m");
+        m.onSuccess.implementation = function (obj) {
+            const className = obj ? obj.$className : null;
+            if (className === "com.mappls.sdk.services.api.weather.model.WeatherResponse") {
+                let temp = null, weatherText = null, aqi = null, realFeel = null;
+                try {
+                    const data = obj.getData();
+                    if (data !== null) {
+                        const t = data.getTemperature();
+                        if (t !== null && t.getValue() !== null) {
+                            temp = t.getValue().toString() + (t.getUnit() ? t.getUnit().toString() : "");
+                        }
+                        const wc = data.getWeatherCondition();
+                        if (wc !== null) {
+                            if (wc.getWeatherText() !== null) weatherText = wc.getWeatherText().toString();
+                            if (wc.getRealFeelWeatherText() !== null) realFeel = wc.getRealFeelWeatherText().toString();
+                        }
+                        const aq = data.getAirQuality();
+                        if (aq !== null && aq.getAirQualityIndex() !== null) {
+                            aqi = aq.getAirQualityIndex().toString();
+                        }
+                    }
+                } catch (e2) {
+                    // best-effort extract — don't break
+                }
+                emit("weather_response", {
+                    temp: temp, weather_text: weatherText, aqi: aqi, real_feel: realFeel,
+                });
+            }
+            return this.onSuccess(obj);
+        };
+    } catch (e) {
+        emit("hook_error", { hook: "m.onSuccess", err: String(e) });
     }
 
     emit("hooks_installed", {
