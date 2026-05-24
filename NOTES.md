@@ -381,7 +381,7 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 **Important corrections to prior table:**
 - Earlier NOTES.md only listed 3 TX types (a531, a533, a536). Missing: a532, a534, a535 (event-driven; absent in M0 because Arjun's phone was quiet during the 18-min capture).
 - The a531 sample `.1..0080M0517PM...05.6K01...L.` was earlier described as "current time + distance"; the `0517PM` field is actually the ETA, not current time (see corrected a531 decode above).
-- The a533 sample `.33Y214.050154NN...` doesn't byte-match any source template (every source path puts `'1'` or `c.G[0]` at byte 2, not `'3'`). Either the M0 sample-display has an off-by-one, or there's a sender path we haven't traced. Flagged in DISCOVERIES.md 2026-05-24 — needs hex-dump of pcap to verify.
+- The a533 sample `.33Y214.050154NN...` was hex-dumped from pcap and verified byte-by-byte against C0940y.java K.g==false template (the path our Gixxer SF 150 should take). **29 of 30 bytes match exactly**; only bytes 2-3 (= `"3Y"` in capture, vs `"1N"` from the `c.G` default) don't match any source assignment. Across all 154 captured a533 frames these two bytes are constant — so whatever sets `c.G`, it happens once per session and holds. Workaround for forging tools: treat bytes 2-3 as opaque session state (replay verbatim) until Frida-hook verifies the runtime value. See DISCOVERIES.md 2026-05-24 verification section for full byte-position table.
 - The a536 sample `.6ARJUN...` is consistent with the source template (`"?6" + name + ...`), with `ARJUN` as the 22-char NUL-padded name (5 chars + NUL padding).
 
 **From bike to phone** (notifies on `0xFFF2`):

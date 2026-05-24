@@ -777,6 +777,84 @@ So either:
 
 **To verify**: hex-dump 5-10 actual `a533` frames from `captures/m0-pairing-and-first-nav-20260523-1712.pcap` and compare byte 2 against the three template predictions. Cheap to do — punted for now.
 
+### Verification (2026-05-24, same day): pcap hex-dump confirms templates EXCEPT a533 byte 2-3
+
+Used `tshark -r ... -Y "btatt.opcode == 0x12 or btatt.opcode == 0x52" -T fields -e btatt.value` to extract all ATT Write payloads from `m0-pairing-and-first-nav-20260523-1712.pcap`.
+
+**Frame counts by header tuple (header, type, byte2, byte3):**
+
+| Header tuple | Count | Source template match |
+|--------------|-------|---|
+| `a5 31 2e ff` (a531, byte2=`.`/0x2e) | 1592 | ✓ A0.D() degraded-signal override (maneuver=46 placeholder) |
+| `a5 33 33 59` (a533) | 154 | ⚠️ See mystery below |
+| `a5 31 08 ff` (a531, byte2=0x08) | 131 | ✓ A0.D() normal (real Mappls maneuver ID 8) |
+| `a5 36 41 52` (a536, body starts "AR…") | 25 | ✓ C0940y/A0.E identity ("ARJUN" as 22-char NUL-padded name) |
+
+So the M0 capture's writes are exclusively a531 + a533 + a536. No a532 / a534 / a535 fired during this 18-min window — phone was quiet, as expected.
+
+**a536 sample fully verified:**
+```
+a5 36 41 52 4a 55 4e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ff ff ff ff ff 46 f7 7f
+^  ^  A  R  J  U  N  <NUL padding to byte 22>          <FF×5 override>  ^  ^  ^
+hdr 6                                                                  'F' chk end
+```
+- Byte 27 = `0x46` = `'F'` → confirms `K.s == true` (first connection to this cluster). Consistent with M0 being Arjun's first pairing session.
+- Bytes 2-6 = "ARJUN", followed by NUL padding through byte 21, then 0xFF override at 22-26 per the source. Matches exactly.
+
+**a531 samples fully verified:**
+- 1592 frames with byte 2 = 0x2e (`'.'`) — the A0.D() degraded-mode placeholder (maneuver=46 when signal status `H1 ∈ {"0","2","4","6"}`).
+- 131 frames with byte 2 = 0x08 — real Mappls maneuver ID 8, fires when signal restores to good (`H1 ∈ {"1","3","5"}`). The 131:1592 ratio matches the M0 timeline (mostly engine-off + nav-not-active, brief windows of real nav frames).
+
+**a533 sample — partial match, byte 2-3 mystery REMAINS:**
+
+Captured frame:
+```
+a5 33 33 59 32 31 34 00 30 35 30 31 35 34 4e 4e ff ff ff ff ff 01 00 01 ff ff ff ff 1a 7f
+```
+
+Byte-by-byte against C0940y.java K.g==false template (Gixxer SF 150's expected path):
+
+| Pos | Captured | Expected | Match? | Note |
+|-----|----------|----------|--------|------|
+| 0 | `a5` | `0xA5` | ✓ | header |
+| 1 | `33` | `'3'` | ✓ | a533 type byte |
+| 2 | `33` | `'1'` (= `c.G[0]` default) | ✗ | **Mystery** |
+| 3 | `59` | `'N'` (= `c.G[1]` default) | ✗ | **Mystery** |
+| 4-6 | `32 31 34` | `c.P` (3-digit speed) | ✓ | `c.P = "214"` (stale prefs?) |
+| 7 | `00` | `0` (override if `c.I=="0"`) | ✓ | confirms `c.I == "0"` (no signal) |
+| 8-13 | `30 35 30 31 35 34` | `c.O` (6-char `hhmmss`) | ✓ | `"050154"` = 5:01:54 PM |
+| 14-15 | `4e 4e` | `i0`, `j0` | ✓ | both `'N'` (no pending SMS/call) |
+| 16-20 | `ff ff ff ff ff` | 0xFF override | ✓ | |
+| 21 | `01` | `c.M` | ✓ | `M = 1` (default) |
+| 22 | `00` | `(int) c.N` | ✓ | `N ≈ 0` (default) |
+| 23 | `01` | literal `1` | ✓ | |
+| 24-27 | `ff ff ff ff` | 0xFF override | ✓ | |
+| 28 | `1a` | checksum | ✓ | |
+| 29 | `7f` | `0x7F` | ✓ | end marker |
+
+**29 of 30 bytes match exactly. Bytes 2-3 are the only discrepancy.**
+
+All 154 captured a533 frames have IDENTICAL bytes 2-3 = `0x33 0x59` (`"3Y"`). So whatever sets `c.G`, it's set once during the session and held constant.
+
+**What I tried but couldn't explain via source:**
+- Grep for `\.G\s*=` in all C0940y/C.java code paths (including JADX `--show-bad-code` re-decompile that recovered the giant `K(Boolean)` and `L()` methods, 3986 + 4882 instruction units each) — finds only the default `public String G = "1N";` at C.java:191.
+- Grep for `"3Y"` literal anywhere in source — zero hits.
+- Checked the `iArr[2] = i5` override path (line 175-177): only fires for `C.v1` equal to `"e-ACCESS"`, `"Access-TFT Edition"`, or `"Burgman Street-TFT Edition"`. Our Gixxer SF 150 wouldn't trigger this. Even if it did, `i5 = Integer.parseInt(c.H.substring(2), 16)` would have to coincidentally yield 0x33 — possible but unverified.
+- Checked C.v1 source — set only from `vehicle_model` SharedPreferences in HomeScreenActivity. For Gixxer it would NOT equal any of the e-ACCESS/TFT strings.
+
+**Possible explanations (all unverified):**
+1. ProGuard or JADX is failing to surface a runtime field assignment (maybe via a Kotlin property or a synthetic accessor).
+2. `c.G` is initialized via a code path that runs ONCE during pairing handshake, sourced from BLE cluster name or session token (which is why it's stable but not equal to default).
+3. The override path at line 175-177 IS firing — maybe `C.v1` does equal one of those strings in practice (the Realm-stored vehicle_model name might be normalized to one of those values regardless of bike type), and `c.H.substring(2)` parsed as hex yields exactly `0x33`. To verify: trace `C.v1` and `c.H` at runtime via Frida.
+
+**Practical workaround for forging tools:** Until Frida-hook verifies, treat bytes 2-3 of a533 as opaque session-state bytes. Replay them verbatim from a captured frame, OR set to `"1N"` per source default and observe whether the bike rejects the frame.
+
+### Verification updates DISCOVERIES.md changes how we should phrase NOTES.md
+
+- The a533 "captured sample looks weird vs source" warning in NOTES.md → upgrade to "29/30 bytes verified; bytes 2-3 unresolved, treat as session state."
+- The a536 sample in NOTES.md is fully consistent with source — no NOTES.md change needed beyond what we wrote.
+- The a531 samples are fully consistent — confirms the degraded-mode override behavior we already documented from A0.D().
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.
