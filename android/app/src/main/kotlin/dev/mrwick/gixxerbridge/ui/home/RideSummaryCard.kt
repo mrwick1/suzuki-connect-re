@@ -10,16 +10,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
-import dev.mrwick.gixxerbridge.data.GixxerDatabase
-import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.app.AppGraph
 
 /**
  * "Today / This week" summary on Home. Reads rides straight from [RideStore]
@@ -37,10 +36,12 @@ import dev.mrwick.gixxerbridge.data.RideStore
 @Composable
 fun RideSummaryCard() {
     val context = LocalContext.current
-    val store = remember {
-        RideStore(GixxerDatabase.get(context.applicationContext).rideDao())
-    }
-    val rides by store.observeRides().collectAsState(initial = emptyList())
+    // PERF: share the process-wide RideStore (audit finding 1.4). Also moved to
+    // collectAsStateWithLifecycle so the Room flow stops emitting while the
+    // host is backgrounded — saves wakeups and Compose work when the app isn't
+    // visible.
+    val store = remember(context) { AppGraph.rideStore(context) }
+    val rides by store.observeRides().collectAsStateWithLifecycle(initialValue = emptyList())
 
     val today = remember(rides) { RideAnalytics.totalsFor(rides, days = 1L) }
     val week = remember(rides) { RideAnalytics.totalsFor(rides, days = 7L) }

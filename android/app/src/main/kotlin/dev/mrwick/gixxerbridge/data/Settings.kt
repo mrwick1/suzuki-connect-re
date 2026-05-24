@@ -95,6 +95,10 @@ class Settings(context: Context) {
     val keepScreenOnWhileConnected: Flow<Boolean> =
         ds.data.map { it[Keys.KEEP_SCREEN_ON] ?: false }
 
+    /** Named accent colour for the app theme; defaults to [DEFAULT_ACCENT] ("cyan"). */
+    val themeAccent: Flow<String> =
+        ds.data.map { it[Keys.THEME_ACCENT] ?: DEFAULT_ACCENT }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }

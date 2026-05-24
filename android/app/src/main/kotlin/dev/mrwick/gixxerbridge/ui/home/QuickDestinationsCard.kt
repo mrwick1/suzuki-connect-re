@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.QuickDestinations
 import kotlinx.coroutines.launch
 
@@ -29,7 +30,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun QuickDestinationsCard() {
     val context = LocalContext.current
-    val store = remember { QuickDestinations(context.applicationContext) }
+    // PERF: process-wide singleton instead of per-composition allocation
+    // (audit finding 1.2). DataStore handles must be reused across the process.
+    val store = remember(context) { AppGraph.quickDestinations(context) }
     val home by store.home.collectAsStateWithLifecycle(initialValue = null)
     val work by store.work.collectAsStateWithLifecycle(initialValue = null)
     var editTarget by remember { mutableStateOf<QuickDestinations.Slot?>(null) }

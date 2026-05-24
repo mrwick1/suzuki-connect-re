@@ -172,7 +172,10 @@ private fun stateColor(s: ConnectionState): Color = when (s) {
 @Composable
 private fun ServiceDueBanner() {
     val context = LocalContext.current
-    val settings = remember { Settings(context.applicationContext) }
+    // PERF: use the process-wide Settings singleton via AppGraph instead of
+    // constructing a fresh handle here — avoids the per-composable allocation
+    // duplicated across every consumer (audit finding 1.1).
+    val settings = remember(context) { AppGraph.settings(context) }
     val intervalKm by settings.serviceIntervalKm.collectAsStateWithLifecycle(
         initialValue = Settings.DEFAULT_SERVICE_INTERVAL_KM,
     )

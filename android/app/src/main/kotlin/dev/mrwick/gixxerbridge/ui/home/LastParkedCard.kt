@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.location.LastParkedTracker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +33,9 @@ import java.util.Locale
 @Composable
 fun LastParkedCard() {
     val context = LocalContext.current
-    val tracker = remember { LastParkedTracker(context.applicationContext) }
+    // PERF: process-wide singleton instead of per-composition allocation
+    // (audit finding 1.3). LastParkedTracker wraps a DataStore handle.
+    val tracker = remember(context) { AppGraph.lastParkedTracker(context) }
     val parked by tracker.lastParked.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
     val p = parked ?: return

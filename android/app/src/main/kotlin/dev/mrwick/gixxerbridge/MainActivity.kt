@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,6 +66,12 @@ class MainActivity : AppCompatActivity() {
     private val blePermLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* ignore result */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // PERF / correctness: declare edge-to-edge BEFORE super.onCreate so the
+        // system handles status + navigation bar layout instead of the app
+        // fighting it on every frame. Without this, Android 15+ logs warnings
+        // and applies a default backwards-compat overlay that triggers extra
+        // window inset recomputations on background/foreground transitions.
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
         setContent {

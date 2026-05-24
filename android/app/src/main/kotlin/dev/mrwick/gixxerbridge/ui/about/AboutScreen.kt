@@ -166,6 +166,28 @@ private fun KeyValLongPress(k: String, v: String, onLongClick: () -> Unit) {
     }
 }
 
+/** Skeleton placeholder shown when connected but DIS read is still pending. */
+@Composable
+private fun ReadingBikeInfoCard() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Connected bike", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Reading bike info…",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF94A3B8),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            SkeletonLine(widthFraction = 0.6f, height = 12.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            SkeletonLine(widthFraction = 0.45f, height = 12.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            SkeletonLine(widthFraction = 0.5f, height = 12.dp)
+        }
+    }
+}
+
 @Composable
 private fun ConnectedBikeCard(info: BikeInfo) {
     Card(modifier = Modifier.fillMaxWidth()) {

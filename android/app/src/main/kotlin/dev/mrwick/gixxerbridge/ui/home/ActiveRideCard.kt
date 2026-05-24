@@ -37,8 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.mrwick.gixxerbridge.data.GixxerDatabase
-import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
@@ -49,7 +48,8 @@ import kotlinx.coroutines.delay
 fun ActiveRideCard() {
     val telemetry by TelemetryRepository.latest.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val store = remember { RideStore(GixxerDatabase.get(context.applicationContext).rideDao()) }
+    // PERF: shared RideStore from AppGraph (audit finding 1.5).
+    val store = remember(context) { AppGraph.rideStore(context) }
 
     var rideStartMs by remember { mutableStateOf<Long?>(null) }
     var rideStartOdo by remember { mutableStateOf<Int?>(null) }

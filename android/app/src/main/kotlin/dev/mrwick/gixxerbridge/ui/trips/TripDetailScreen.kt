@@ -41,6 +41,9 @@ import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.export.GpxExporter
+import dev.mrwick.gixxerbridge.export.ShareCardRenderer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
@@ -156,6 +159,25 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                         context.startActivity(Intent.createChooser(intent, "Share ride CSV"))
                     }
                 }) { Text("Share CSV") }
+                Button(onClick = {
+                    scope.launch {
+                        val rideLocations = vm.locationsFor(ride.id)
+                        val cardFile = withContext(Dispatchers.IO) {
+                            ShareCardRenderer.render(context, ride, rideLocations)
+                        }
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            cardFile,
+                        )
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "image/png"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Share ride card"))
+                    }
+                }) { Text("Share card") }
             }
             Spacer(modifier = Modifier.height(12.dp))
             RideTrackCard(locations)

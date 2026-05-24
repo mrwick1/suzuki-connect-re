@@ -10,7 +10,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.ble.ConnectionState
-import dev.mrwick.gixxerbridge.data.Settings
 
 /**
  * Adds/removes FLAG_KEEP_SCREEN_ON on the current Activity's window based on

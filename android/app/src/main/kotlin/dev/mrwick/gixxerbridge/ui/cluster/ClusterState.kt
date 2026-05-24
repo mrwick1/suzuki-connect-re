@@ -15,8 +15,15 @@ import kotlinx.coroutines.flow.stateIn
  * Hot state derived from the TX frame stream: the latest a531 (NavFrame) the
  * app sent to the bike. UI observes [latestNav] as a StateFlow.
  *
- * Process-wide singleton — the underlying flow is started Eagerly so the first
- * TX frame after process start is captured even before any Composable observes.
+ * PERF: switched from SharingStarted.Eagerly to WhileSubscribed(5_000) — the
+ * upstream is the frame inspector / mirror used by debug screens, and the
+ * filter+decode runs on every TX frame (1 Hz heartbeat + nav). When the app
+ * is backgrounded and no Composable observes, keeping the collector hot just
+ * burns CPU. The 5s grace window keeps it warm across screen rotations and
+ * brief tab swaps so the cluster preview doesn't flash empty on return.
+ * ASSUMED: losing the "captured before any UI observed" guarantee is fine —
+ * the cluster screens always re-observe on entry, and the source-of-truth
+ * for what was sent is the bike, not this derived state.
  */
 object ClusterState {
     val latestNav: StateFlow<NavFrame?> = AppGraph.frameStream.events
@@ -26,7 +33,7 @@ object ClusterState {
         }
         .stateIn(
             scope = MainScope(),
-            started = SharingStarted.Eagerly,
+            started = SharingStarted.WhileSubscribed(5_000),
             initialValue = null,
         )
 }
