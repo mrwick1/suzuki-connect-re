@@ -1160,6 +1160,38 @@ After the protocol.py changes:
 - The "second source path" inconsistency (a534/a535 differ slightly between `IncomingSms`/`CallReceiverBroadcast` vs `NotificationService` builders). Worth verifying which one the bike actually displays correctly — needs a phone-event capture during a paired session.
 - The `b` parameter in `NotificationService.o()` (what becomes byte 25 of a535) — caller-provided, but the call sites compute it from notification metadata. Could trace upward but low priority.
 
+## 2026-05-24 — K.* static state sweep
+
+Last unmapped chunk of "mystery globals" — the `com.google.android.gms.measurement.internal.K` class is Suzuki's session-state singleton (despite the misleading ProGuard package). Ran `tools/find_field_writes.py` on every K.* we've seen referenced.
+
+### Inventory (all app-internal; none are protocol-on-the-wire)
+
+| Field | Type | Purpose | Set by | Read by |
+|-------|------|---------|--------|---------|
+| `K.f` | boolean | **In-call mute flag** — when true, notification listener skips processing (suppresses SMS/notification frames during an active call) | `CallReceiverBroadcast.d` (cellular call) → true; `NotificationService.q` (WhatsApp call) → true/false depending on `str2` | `NotificationService.onNotificationPosted` line 629 (break/skip when true) |
+| `K.g` | boolean | **Bike type flag** — `true` for Access/Burgman family (cluster name starts with `'A'`), `false` for Gixxer/Avenis/others (name starts with `'B'`) | `services/d.java` connection handler, decided from cluster's BLE advertised name char[1] | `C0940y.java` (selects a533 builder variant), various model-conditional code |
+| `K.i` | `BleDevice` | Current connected BleDevice reference | Mappls SDK + a couple of view holders (writes are bookkeeping) | `C0855q0.c` (onDisconnected reconnect path) |
+| `K.j` | int | Some counter, missed-call-adjacent (4 writes across Mappls navigation receiver + CallReceiverBroadcast + u0.run) | mostly Mappls SDK | Cross-checked with `C0862u0.java:56` resetting it to 0 — call-state tracking |
+| `K.k` | int | **Missed-call sequence counter** — incremented for each missed call (with 1-second debounce via K.o). Becomes byte 3 of a534. | `NotificationService.p` line 720-721, `NotificationService.f` (reset) | `CallReceiverBroadcast.e(K.k, ...)` (passed as missed_count) |
+| `K.m` | int | **WhatsApp notification count** — mirrors `e.m0` (SMS count) for the WhatsApp path. Becomes byte 4 of a535 in WhatsApp variant. | `NotificationService.n` line 368 (`K.m = iD`), `NotificationService.onNotificationPosted` (zero-reset) | passed to `o()` builder as `i2` param |
+| `K.n` | long | Last messaging-notification timestamp (millis) | `NotificationService.o` line 379, `onNotificationPosted` | (read by various rate-limit logic) |
+| `K.o` | long | Last missed-call timestamp (millis) — used for 1-sec debounce on K.k++ | `NotificationService.p` line 766 | `NotificationService.p` line 719 (`if (K.o + 1000 < currentTimeMillis())`) |
+| `K.s` | boolean | **Fresh vs reconnect cluster flag** (already mapped) — `true` if connecting to a NEW cluster, `false` if reconnecting | `services/d.java` lines 64-66 | a536 `IdentityFrame.encode()` byte 27: 'F' (fresh) or 'R' (reconnect) |
+| `K.t` | `androidx.lifecycle.I` (MutableLiveData) | Observable cluster-name wrapper — broadcasts current cluster name to UI observers. The field itself is set once in `onCreate`; the value updates via `.setValue()` (method call, not field write — that's why our field-write tool only sees 2 writes) | `HomeScreenActivity.onCreate`, `NotificationService.onCreate` (one-time init) | Many UI observers (`.d()` getValue) and value updaters (`.setValue()`) — not field-level writes |
+
+### Implications
+
+- **Nothing protocol-relevant uncovered.** All K.* fields are app-internal state for UI / rate-limiting / notification suppression. They don't appear on the wire as their own bytes.
+- The two fields that DO end up in TX frames are `K.k` (→ a534 byte 3 = missed_count) and `K.m` (→ a535 byte 4 = message_count when WhatsApp). Both already exposed by our `protocol.py` `MissedCallFrame.missed_count` and `SmsFrame.message_count` fields — no library changes needed.
+- The "in-call mute" behavior of `K.f` is interesting for Phase 2 design: a replacement app would want similar logic (don't send SMS frames during an active call) to match cluster UX. But this is policy, not protocol — easy to replicate.
+
+### What this closes
+
+- All remaining mystery K.* statics catalogued. No more "what is K.f / K.t" open questions.
+- Confirmed our `MissedCallFrame.missed_count` and `SmsFrame.message_count` fields correctly correspond to the app's internal counters.
+
+**M1 status check**: I think this might genuinely be the last static-analysis thread of substance. Everything that touches the wire is now decoded and library-implemented; everything app-internal is catalogued. Remaining open items all require either the bike physically (BLE-bond test, ride capture, forge tools running) or a different problem domain (Frida hooks, mitmproxy SSL bypass).
+
 ## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
 
 ### What we did
