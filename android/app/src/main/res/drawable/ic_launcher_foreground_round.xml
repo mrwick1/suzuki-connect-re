@@ -1,0 +1,32 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+        Round-icon variant. Same cluster mark as the rectangular adaptive icon,
+        kept tighter (gauge ring r=26 instead of 30) so the gauge bezel does not
+        get clipped by the round mask on launchers that render circular shortcuts
+        at the very edge of the 108-dp viewport.
+    -->
+
+    <!-- Gauge ring -->
+    <path
+        android:strokeColor="#22D3EE"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0z" />
+
+    <!-- Cardinal ticks -->
+    <path
+        android:strokeColor="#22D3EE"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,24 L54,29 M84,54 L79,54 M54,84 L54,79 M24,54 L29,54" />
+
+    <!-- Nav chevron, slightly scaled to fit the smaller ring -->
+    <path
+        android:fillColor="#22D3EE"
+        android:pathData="M54,40 L68,64 L60,64 L60,70 L48,70 L48,64 L40,64 Z" />
+</vector>

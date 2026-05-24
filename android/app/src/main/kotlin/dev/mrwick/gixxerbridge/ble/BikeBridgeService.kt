@@ -2,16 +2,19 @@ package dev.mrwick.gixxerbridge.ble
 
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import dev.mrwick.gixxerbridge.GixxerApp
+import dev.mrwick.gixxerbridge.MainActivity
 import dev.mrwick.gixxerbridge.R
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
@@ -79,6 +82,16 @@ class BikeBridgeService : LifecycleService() {
 
         settings = Settings(applicationContext)
         bleClient = BleClient(applicationContext)
+
+        // Keep the foreground notification text in sync with the connection lifecycle so
+        // the user can glance at the shade and know whether the bike link is live. Tapping
+        // the notification opens MainActivity (wired in buildNotification via PendingIntent).
+        lifecycleScope.launch {
+            bleClient.state.collect { state ->
+                NotificationManagerCompat.from(this@BikeBridgeService)
+                    .notify(NOTIFICATION_ID, buildNotification(state))
+            }
+        }
         frameWriter = FrameWriter()
         phoneState = PhoneState(applicationContext).also { it.start() }
         idleClock = IdleClockGenerator()
@@ -333,20 +346,53 @@ class BikeBridgeService : LifecycleService() {
     }
 
     private fun startInForeground() {
-        val notification: Notification = NotificationCompat.Builder(this, GixxerApp.CHANNEL_BIKE_SERVICE)
-            .setContentTitle(getString(R.string.bike_service_notification_title))
-            .setSmallIcon(R.drawable.ic_notification)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .build()
-            .apply { flags = flags or Notification.FLAG_ONGOING_EVENT }
-
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            notification,
+            buildNotification(ConnectionState.Idle),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
+    }
+
+    /**
+     * Build the foreground-service notification reflecting the current [ConnectionState].
+     *
+     * Title/body change with state so a glance at the shade tells the rider whether we're
+     * connecting, connected, or auto-reconnecting after a drop. Tapping opens MainActivity.
+     */
+    private fun buildNotification(state: ConnectionState): Notification {
+        val title = when (state) {
+            ConnectionState.Idle,
+            ConnectionState.Connecting,
+            ConnectionState.Discovering,
+            -> "Connecting to bike…"
+            ConnectionState.Ready -> "Bike connected"
+            is ConnectionState.Disconnected -> "Disconnected — auto-reconnecting"
+            is ConnectionState.Failed -> "Connection failed"
+        }
+        val text = when (state) {
+            ConnectionState.Ready -> "Tap to view dashboard"
+            is ConnectionState.Failed -> state.reason
+            else -> ""
+        }
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            this,
+            0,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(this, GixxerApp.CHANNEL_BIKE_SERVICE)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setContentIntent(pi)
+            .build()
+            .apply { flags = flags or Notification.FLAG_ONGOING_EVENT }
     }
 
     /**

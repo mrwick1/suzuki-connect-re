@@ -96,6 +96,7 @@ fun SettingsScreen(
                 SwitchRow("Require unlock on app launch", appLock, vm::setAppLockEnabled)
             }
         }
+        item { DndAccessPermissionRow() }
         item {
             Section("Maintenance") {
                 var t by remember(service) { mutableStateOf(service.toString()) }
@@ -121,6 +122,7 @@ fun SettingsScreen(
         item {
             SafetySection(safetyVm)
         }
+        item { SendSmsPermissionRow() }
         item {
             Section("Developer") {
                 SwitchRow("Demo mode (simulated bike telemetry)", demoMode, vm::setDemoMode)

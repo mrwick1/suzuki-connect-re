@@ -4,7 +4,17 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
+    <!--
+        Status-bar icon. Android renders this as a flat white silhouette over the
+        notification shade and tints it with the system accent in status bar, so
+        we deliberately use a single solid path and avoid strokes / multi-color
+        layers. The shape (gauge dot + upward chevron) keeps the cluster motif
+        recognisable at 16-18 dp.
+    -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M14.88,16.29L13,18.17V14.41M13,5.83L14.88,7.71L13,9.58M17.71,7.71L12,2H11V9.58L6.41,5L5,6.41L10.59,12L5,17.58L6.41,19L11,14.41V22H12L17.71,16.29L13.41,12L17.71,7.71Z" />
+        android:pathData="M12,3 L19,17 L13.5,17 L13.5,21 L10.5,21 L10.5,17 L5,17 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,1.5 m-1,0 a1,1 0,1 1,2 0 a1,1 0,1 1,-2 0z" />
 </vector>

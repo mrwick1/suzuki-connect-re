@@ -103,6 +103,10 @@ interface RideDao {
     @Query("DELETE FROM rides WHERE id = :id")
     suspend fun deleteRide(id: Long)
 
+    /** Delete every ride row; cascades to samples + locations via FK. */
+    @Query("DELETE FROM rides")
+    suspend fun deleteAllRides()
+
     /** Insert one sample row; returns the new auto-generated id. */
     @Insert suspend fun insertSample(sample: RideSampleEntity): Long
 
@@ -204,6 +208,15 @@ class RideStore(private val dao: RideDao) {
 
     /** Delete a ride and its samples (cascade). */
     suspend fun deleteRide(id: Long) = dao.deleteRide(id)
+
+    /**
+     * Delete every ride and its samples / locations (cascade).
+     *
+     * Used by the "Reset all data" action in [dev.mrwick.gixxerbridge.ui.about.AboutScreen].
+     * Does NOT touch the manual fuel-fill log — that lives in a separate table
+     * and is wiped by [dev.mrwick.gixxerbridge.data.FuelFillDao] separately.
+     */
+    suspend fun deleteAllRides() = dao.deleteAllRides()
 
     /** Return the most-recent in-progress ride, or null. */
     suspend fun rideInProgress(): RideEntity? = dao.getRideInProgress()

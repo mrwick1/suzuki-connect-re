@@ -1,6 +1,7 @@
 package dev.mrwick.gixxerbridge.ui.inspector
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,13 +30,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.ble.FrameEvent
 import dev.mrwick.gixxerbridge.protocol.FrameType
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
-import dev.mrwick.gixxerbridge.util.Hex
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,12 +79,45 @@ fun InspectorScreen(vm: InspectorViewModel) {
             },
         )
         FilterChipsRow(typeFilter, vm::toggleTypeFilter)
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-            items(filtered, key = { "${it.tMillis}-${it.bytes.contentHashCode()}" }) { event ->
-                FrameRow(event)
-                HorizontalDivider()
+        if (filtered.isEmpty()) {
+            EmptyState(hasFilter = typeFilter.isNotEmpty(), hasAnyEvents = events.isNotEmpty())
+        } else {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                items(filtered, key = { "${it.tMillis}-${it.bytes.contentHashCode()}" }) { event ->
+                    FrameRow(event)
+                    HorizontalDivider()
+                }
             }
         }
+    }
+}
+
+/**
+ * Friendly placeholder shown when there are no frames to display.
+ *
+ * Distinguishes "filter hides everything" from "no frames at all" so the user can
+ * tell whether to clear the filter or check the service/bike state.
+ */
+@Composable
+private fun EmptyState(hasFilter: Boolean, hasAnyEvents: Boolean) {
+    val message = when {
+        hasAnyEvents && hasFilter ->
+            "No frames match the current filter — toggle a chip above to widen the view."
+        else ->
+            "Frame stream is empty — start the service & make sure the bike is on."
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -143,7 +181,7 @@ private fun FrameRow(event: FrameEvent) {
         Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                Hex.encode(event.bytes),
+                colorizedHexLine(event.bytes),
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
             )
@@ -152,5 +190,33 @@ private fun FrameRow(event: FrameEvent) {
                 Text(event.note, style = MaterialTheme.typography.labelSmall)
             }
         }
+    }
+}
+
+/**
+ * Render [bytes] as space-separated lowercase hex with the type byte (index 1) tinted
+ * per frame-type so the eye can sniff out a531/a533/etc at a glance while scrolling.
+ *
+ * Header byte (0) and terminator byte (29) are dimmed; everything else uses default text color.
+ */
+private fun colorizedHexLine(bytes: ByteArray): AnnotatedString = buildAnnotatedString {
+    for ((i, b) in bytes.withIndex()) {
+        val color = when (i) {
+            1 -> when (b.toInt() and 0xFF) {
+                0x31 -> Color(0xFF22D3EE)            // a531 NAV: cyan
+                0x32, 0x34 -> Color(0xFFFBBF24)      // a532 CALL / a534 MISSED: amber
+                0x33 -> Color(0xFF64748B)            // a533 HEARTBEAT: subtle gray
+                0x35 -> Color(0xFF10B981)            // a535 SMS: green
+                0x36 -> Color(0xFFA78BFA)            // a536 IDENTITY: magenta-ish
+                0x37 -> Color(0xFF22D3EE)            // a537 TELEMETRY: bright cyan
+                else -> Color(0xFF94A3B8)
+            }
+            0, 29 -> Color(0xFF94A3B8)               // header + terminator dimmed
+            else -> Color.Unspecified
+        }
+        withStyle(SpanStyle(color = color)) {
+            append("%02x".format(b))
+        }
+        if (i < bytes.size - 1) append(" ")
     }
 }

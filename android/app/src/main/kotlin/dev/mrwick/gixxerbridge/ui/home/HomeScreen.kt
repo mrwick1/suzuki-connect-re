@@ -46,6 +46,8 @@ fun HomeScreen(onOpenPairing: () -> Unit) {
 
         ClusterPreview()
 
+        ActiveRideCard()
+
         LastParkedCard()
 
         RideSummaryCard()

@@ -3,9 +3,36 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:translateX="22" android:translateY="22">
-        <path
-            android:fillColor="#22D3EE"
-            android:pathData="M32,0L0,32L16,32L16,64L48,64L48,32L64,32Z" />
-    </group>
+    <!--
+        Cluster-inspired mark. All geometry sits inside the 72×72 safe area
+        (x,y in 18..90). Center is (54, 54).
+
+        Layers, back to front:
+          1. Outer ring  - the cluster gauge bezel (stroke, cyan)
+          2. Tick marks  - four cardinal hash marks around the ring
+          3. Nav arrow   - upward turn chevron inside the ring (filled, cyan)
+    -->
+
+    <!-- 1. Gauge ring: r=30, stroke 4. Outer edge at 34 from center => 18..90 bbox. -->
+    <path
+        android:strokeColor="#22D3EE"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0z" />
+
+    <!-- 2. Cardinal tick marks (top/right/bottom/left), short cyan strokes. -->
+    <path
+        android:strokeColor="#22D3EE"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,20 L54,26 M88,54 L82,54 M54,88 L54,82 M20,54 L26,54" />
+
+    <!-- 3. Upward navigation chevron inside the ring. Apex at (54,38), base at y=70,
+            half-width 16, with a notched tail to read as an arrow, not a triangle.
+            Shape stays within ~22..86 vertically and 38..70 horizontally — well inside
+            the safe area and visually centered. -->
+    <path
+        android:fillColor="#22D3EE"
+        android:pathData="M54,38 L70,66 L60,66 L60,72 L48,72 L48,66 L38,66 Z" />
 </vector>
