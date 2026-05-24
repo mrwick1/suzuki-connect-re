@@ -1272,6 +1272,62 @@ The standard `device.attach(name) → session.create_script → script.load` flo
 
 Both gitignored (PII).
 
+## 2026-05-24 — Post-ride deeper analysis (via new `tools/ride_summary.py`)
+
+### Built `tools/ride_summary.py`
+
+A one-shot ride-summary tool that decodes every BLE write+notify in a pcap and prints structured stats: capture window, frame-type distribution, a531 nav (maneuver IDs + status digits), a532/a534/a535 event timeline, a536 reconnect timeline, a537 telemetry (odo / speed / fuel / trip), a533 environmental fields (battery / cell signal / weather / temp). Invoked with `python tools/ride_summary.py captures/ride-<tag>.pcap`.
+
+### New findings from running it on the ride pcap
+
+**Finding A — WhatsApp call also captured ("Amma" at t=14:01)**
+
+Beyond the cellular call from "Me" at t=13:39, the ride also captured a WhatsApp call from "Amma":
+```
+CallFrame(number='Amma', is_whatsapp=True, state=49)
+```
+First-ever live capture of an a532 WhatsApp variant. `is_whatsapp=True` confirms our `'W'` marker at byte 22 decode is correct.
+
+**Finding B — Fuel-economy decode is implausibly high for Gixxer SF 150**
+
+Across 159 a537 frames, fuel_econ_kml values ranged 131.2 to 371.2 (median 310.4). A real-world Gixxer SF 150 averages 40-55 km/L. Our default-petrol formula (13.11 fixed-point /10, from `HomeScreenActivity.onClusterDataRecev`) gives values that are 5-10× too high.
+
+Hypothesis: the Gixxer-SF-150 firmware uses a model-specific encoding that diverges from the default petrol formula we extracted. The decompiled source had 3 formulas (Access-TFT, e-ACCESS, default petrol); Gixxer might be a 4th unwritten variant that the app's default branch happens to mis-decode for this bike. OR the cluster sends a different field (e.g., instantaneous mpg or some other metric) that just happens to land in the same bytes.
+
+To verify: capture a known-fuel-economy moment (after a full-tank reset, ride a known distance, compare cluster display vs computed value). Until then, the `TelemetryFrame.fuel_econ_kml` field should be treated as an opaque scaled value for Gixxer bikes, not a kml number.
+
+**Finding C — Weather API DID fire this ride (unlike M0)**
+
+a533 byte 22 (temperature_F+115) ranged 199-202 → 84-87°F → 29-31°C. Realistic ambient temp for the ride.
+a533 byte 21 (weather code) split as: 85 frames code 1 ("sunny") + 308 frames code 2 ("cloudy"). Weather updated mid-ride from sunny to cloudy.
+
+This validates the Mappls weather API → C.q/C.r → a533 pipeline end-to-end against live data.
+
+### Maneuver ID 39 — bike-side mystery (cannot resolve via static analysis alone)
+
+The ride sent maneuver ID 39 to the bike 118 times. Static analysis findings:
+
+- **No `ic_step_39.xml`** in any of the 4 APK splits (base + arm64_v8a + en + xxhdpi). Verified via `unzip -l` grep.
+- **No phone-side remap entry for 39** in `C0897z.java` (the in-app turn-strip ViewPager adapter). The class remaps 9/10→8, 26-28→15, 29-31→16, 65→67, 72→65-71 (based on `e.b0` state), but 39 falls through to the default `imageView.setImageResource(getResources().getIdentifier("ic_step_39"))` which returns 0 (no such resource). Phone in-app strip renders nothing for maneuver 39.
+- **`A0.D()` sends the RAW Mappls ID** to the bike unmodified (`bytes[2] = (byte) i`). No phone-side remap is applied to the wire byte. So the bike sees `39` and its firmware decides what to render.
+- **Mappls SDK has no symbolic names** for maneuver IDs — all are anonymous integers after obfuscation. Can't infer "39 = slight-right" or similar from source.
+
+**Conclusion**: We cannot tell from static analysis whether the bike's cluster shows anything for maneuver 39. The cluster firmware has its own icon table independent of the phone's `ic_step_*` resources. To resolve: during a future nav session, visually observe the cluster when ride_summary.py shows maneuver 39 events — either an icon appears (cluster firmware has 39 mapped) or nothing/fallback appears.
+
+This same uncertainty applies to other "gap" IDs in the bike's protocol space (9, 26-31, 38, 42-49, etc.) — they may all have cluster-firmware-side icons we can't enumerate without opening the cluster.
+
+### What this closes / opens
+
+**Closes:**
+- Why status='5' fires 26% of frames (DESTINATION REACHED + sticky flag — see earlier section)
+- Why we didn't see status='3' (no via-points configured this ride)
+- Validation of a532 WhatsApp variant and a534 missed-call template against live data
+
+**Opens:**
+- Fuel-economy formula for Gixxer SF 150 — currently produces ~5-10× expected values. Worth a focused capture+verify session.
+- Maneuver 39 cluster rendering — empirical-only question; needs visual cluster observation during nav.
+- Reverse the `e.b0` state values (20-26) which gate the 72→65-71 remap in C0897z — currently unknown what triggers each.
+
 ## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
 
 ### What we did
