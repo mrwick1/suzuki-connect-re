@@ -564,7 +564,6 @@ No cloud needed. No additional message types to discover. The data has been in f
 **Static source analysis catches what dynamic black-box guessing misses.** We spent the entire session trying to infer the protocol from byte patterns in captures, and built increasingly elaborate (and wrong) hypotheses. Reading the decompiled source for 15 minutes gave us the complete answer.
 
 For future projects: **decompile FIRST, capture SECOND.** Use captures to verify hypotheses derived from source, not to guess at structures.
-- [ ] Find which fields in A0.java's template (`p0`/`m0`/`n0`/`q0`/`o0`) are TIME, DISTANCE, UNITS, ARROW. Each is likely a small string that gets concatenated into the 30-byte frame.
 - [ ] Run `tools/forge_network.py` (built by subagent during this session) once bike is on next time, to test the OLD hypothesis (a533 pos 21/22). May fail — see above — but worth one test.
 - [ ] Capture an actual ride to get turn-arrow message variations.
 - [ ] mitmproxy + Frida SSL bypass to settle fuel/odo/trip data source.
@@ -573,3 +572,52 @@ For future projects: **decompile FIRST, capture SECOND.** Use captures to verify
 
 - [ ] Fix `provoke_and_listen.py` to increment the a533 counter (positions 11-13).
 - [ ] More comprehensive byte-position mapping across all captures.
+
+## 2026-05-24 — `a531` nav frame fully decoded from source
+
+### What we did
+
+Hit the same JADX-fails-on-big-method wall on `A0.C(com.mappls.sdk.navigation.model.a)` (2230 instructions) as on `HomeScreenActivity.onClusterDataRecev`. Re-ran JADX with `--show-bad-code --comments-level debug --single-class com.suzuki.application.fragment.A0` — that flag combination decompiled the previously-skipped method successfully. Same trick will likely unblock `HomeScreenActivity` too (haven't tried yet).
+
+### Full a531 byte layout (confirmed)
+
+The 30-byte frame the app writes to the bike (per `A0.D()` + `A0.C()`):
+
+| Pos | Source | Length | Semantic |
+|-----|--------|--------|----------|
+| 0 | literal `?` → 0xA5 | 1 | Header |
+| 1 | literal `'1'` | 1 | Constant (0x31) |
+| 2 | literal `'1'` → maneuver ID `i` | 1 | **Maneuver/arrow ID** (mapped from `aVar.f`, the Mappls maneuver lookup value, via the `e0` translation table) |
+| 3 | literal `'0'` → 0xFF | 1 | Sentinel |
+| 4-7 | `p0` (4 ASCII) | 4 | **Distance to next maneuver** (formatted number, leading zeros). Computed from `aVar.c` rounded to nearest 10. |
+| 8 | `m0` (1 ASCII) | 1 | **Unit for p0**: `'K'` if Mappls returned "km", `'M'` if "m" |
+| 9-14 | `n0` (6 ASCII) | 6 | **ETA**, 6-char format. 24h: "001730" (HHMM, zero-padded). 12h: "0530PM" (HHMMAA). Source: `aVar.e`. e-ACCESS / Access-TFT / Burgman bikes: if `n0[0]=='0'`, position 9 is overwritten with `0x20` (space). |
+| 15-17 | literal `"000"` → 0xFF×3 | 3 | Sentinel |
+| 18-21 | `q0` (4 ASCII) | 4 | **Distance to go (DTG, total remaining)** formatted number. From `aVar.d`. |
+| 22 | `o0` (1 ASCII) | 1 | **Unit for q0**: `'K'`/`'M'`. NOTE: condition reads `if (!strB.contains("km")) o0="K"; else if (strB.contains("m")) o0="M"` — looks like a copy-paste bug vs `m0`'s correct check; may produce swapped/inverted values vs intuition. Verify against a real ride capture. |
+| 23 | `str` / `A0.H1` (1 ASCII) | 1 | **Nav status digit**: `'1'`=normal, `'0'`=exit/airplane-mode, `'2'`=X-flag (recalc?), `'3'`=b0-flag, `'4'`=GPS-lost, `'5'`=a0-flag, `'6'`=v0-flag |
+| 24 | `str2` / `A0.I1` (1 ASCII) | 1 | **Continuation flag**: `'0'` = terminate navigation |
+| 25-27 | literal `"000"` → 0xFF×3 | 3 | Sentinel |
+| 28 | computed | 1 | **XOR checksum** (`SuzukiApplication.a(bytes)`) |
+| 29 | literal `'0'` → 0x7F | 1 | End marker |
+
+Source: `decompiled/jadx-retry/sources/com/suzuki/application/fragment/A0.java` lines 455-533 (`D`), 488-770 (`C`'s assignments to these fields).
+
+### Defaults
+
+When `this.a0 == true` (some flag, semantic still unknown):
+- `p0` is reset to `"0000"`
+- `q0` is reset to `"0000"`
+
+These would effectively zero out the distance fields. Likely "no active maneuver" / "no nav" defaults.
+
+### What's STILL unknown
+
+- The `a0` flag's full semantic (what state triggers the "0000" reset).
+- The `e0` table mapping `aVar.f` (Mappls maneuver-lookup ID) → maneuver-ID byte we already documented in NOTES.md. Worth cross-referencing this code path against the documented arrow mapping to confirm consistency.
+- Status digits `'2'`/`'3'`/`'5'`/`'6'` semantic (X / b0 / a0 / v0 flags — all booleans in A0, but what UI events set them?).
+- Whether `HomeScreenActivity.onClusterDataRecev` (still un-decompiled) handles MORE message types beyond a531/a537. Same JADX flag trick should crack it.
+
+### Tooling lesson
+
+JADX's `--show-bad-code --comments-level debug --single-class <FQN>` combo can decompile methods that the default decompile (`jadx -d outdir base.apk`) silently skips. Worth re-running selectively on any class whose Java output contains "Method not decompiled" or "instruction units count: N".

@@ -110,9 +110,9 @@ public final void D(int i, int i2, String str, String str2) {
 }
 ```
 
-### Decoded field positions in `a531` (CONFIRMED 2026-05-23 by template-to-capture mapping)
+### Decoded field positions in `a531` (FULLY CONFIRMED from source 2026-05-24)
 
-Template field lengths derived from the captured NO-SIM and WITH-SIM messages, mapped against `A0.D()`'s template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"`:
+Template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"` from `A0.D()`. All instance-field semantics now traced via `A0.C(com.mappls.sdk.navigation.model.a aVar)` (re-decompiled with `jadx --show-bad-code --comments-level debug --single-class`):
 
 | Byte position(s) | Field | Content |
 |---|---|---|
@@ -120,17 +120,19 @@ Template field lengths derived from the captured NO-SIM and WITH-SIM messages, m
 | 1 | type | `0x31` `'1'` (constant for a531) |
 | 2 | maneuver ID | The Mappls maneuver int — or `0x2e` (`'.'`=46) if signal degraded (see "degraded mode" below) |
 | 3 | pad | `0xFF` (constant — forced override) |
-| 4-7 | `p0` | 4-char ASCII number. Examples: `"0080"`, `"0110"`. Unknown semantic (possibly trip-elapsed minutes, temperature, or similar). |
-| 8 | `m0` | 1-char ASCII. Always `"M"` in captures. Possibly a unit/separator. |
-| 9-14 | `n0` | 6-char ASCII. Examples: `"0517PM"`, `"0641PM"`. **CURRENT TIME** in 4-digit `HHMM` + `AM`/`PM` format. |
+| 4-7 | `p0` | **Distance to next maneuver** (4-char ASCII number, leading zeros). From `aVar.c` rounded to nearest 10. Examples: `"0080"` (80 of m0-units), `"0110"`. Sub-10 km values include a decimal point (e.g. `"05.6"`). |
+| 8 | `m0` | **Unit for p0**: `"K"` (km) if Mappls returned "km", `"M"` (meters) otherwise. |
+| 9-14 | `n0` | **ETA** (6-char ASCII). 24h locale: `"001730"` (HHMM, zero-padded to 6). 12h locale: `"0530PM"` (HHMMAA). Source: `aVar.e`. NOT current time — was misread in 2026-05-23 notes. For e-ACCESS / Access-TFT / Burgman bikes only: if `n0[0]=='0'`, position 9 gets overwritten to `0x20` (space). |
 | 15-17 | pad | `0xFF` (constant — code forces `bytes[15..17] = -1`) |
-| 18-21 | `q0` | 4-char ASCII number. **DISTANCE TO NEXT INSTRUCTION** (zero-padded). Examples: `"05.6"` (with decimal point), `"0348"` (integer). |
-| 22 | `o0` | 1-char ASCII unit. **`"K"` = km, `"M"` = meters**. |
-| **23** | **`str` (H1)** | **SIGNAL-STATUS digit. Confirmed: `'0'` = no signal (triggers "Searching for network"), `'1'` = good signal (cluster shows arrows).** |
-| 24 | `str2` (I1) | Secondary status digit. Both captures showed `'1'`. Other values possible per A0.H1 logic. |
+| 18-21 | `q0` | **Total distance-to-go (DTG)** (4-char ASCII number). From `aVar.d`. Same format rules as `p0`. Examples: `"0348"`, `"05.6"`. |
+| 22 | `o0` | **Unit for q0**: `"K"` or `"M"`. NOTE: source check at line 696 reads `if (!strB.contains("km")) o0="K"; else if (strB.contains("m")) o0="M"` — looks like a copy-paste bug vs `m0`'s correct check. May produce inverted/swapped units. Verify against live ride capture. |
+| **23** | **`str` (H1)** | **Nav status digit**. `'1'`=normal (good signal), `'0'`=exit/airplane-mode, `'2'`=X-flag (recalc?), `'3'`=b0-flag, `'4'`=GPS-lost, `'5'`=a0-flag, `'6'`=v0-flag. Drives the "Searching for network" UX on the cluster when not `'1'`/`'3'`/`'5'`. |
+| 24 | `str2` (I1) | Secondary status / continuation flag. `'0'` = terminate navigation (cluster will exit nav view). Other values keep nav active. |
 | 25-27 | pad | `0xFF` (constant — code forces `bytes[25..27] = -1`) |
 | 28 | checksum | `SuzukiApplication.a(bytes)` = `sum(bytes[1:28]) mod 256` |
 | 29 | terminator | `0x7F` (constant) |
+
+When `this.a0 == true` (some "no active maneuver" flag — semantic TBD), the code resets `p0` and `q0` to `"0000"` before building the frame. So all-zeros distances = nav idle / no current step.
 
 ### "Degraded mode" override (from `A0.D()` source)
 
@@ -162,13 +164,15 @@ Set `bytes[23] = 0x31` (`'1'`) in our forged a531 messages, and set `bytes[2]` t
 
 `forge_network.py` (existing) targets the OLD wrong hypothesis (a533 pos 21/22) and will NOT work. Needs replacement with a tool that forges a531 pos 23 instead.
 
-### `a531` template field map (TBD — needs further tracing)
+### `a531` template field map (RESOLVED 2026-05-24)
 
-The template `"?110" + p0 + m0 + n0 + "000" + q0 + o0 + str + str2 + "00000"` has 5 instance fields (`p0`, `m0`, `n0`, `q0`, `o0`) of unknown lengths. From captured payloads we know roughly:
-- The chars after `?110` and before `"000"` carry: 4-char number ("0080"), then "M", then time-like 4 chars ("0517"), then "PM" — so `p0` ≈ "0080", `m0` = "M", `n0` = "0517PM" or similar.
-- Distance + units appears at positions ~18-24 — that's likely `q0` + `o0`.
+All five instance fields are now semantically mapped — see the table above. Source: `A0.C()` after re-decompilation with `--show-bad-code`. Summary:
 
-These need to be confirmed by tracing where each field gets set in C.java / A0.java.
+- `p0` (4 chars, pos 4-7) = distance to next maneuver (`aVar.c`)
+- `m0` (1 char, pos 8)    = unit for `p0` (`K`/`M`)
+- `n0` (6 chars, pos 9-14) = ETA (`aVar.e`, padded to 6)
+- `q0` (4 chars, pos 18-21) = total distance-to-go (`aVar.d`)
+- `o0` (1 char, pos 22)   = unit for `q0` (`K`/`M`, with possible swap bug)
 
 ### Maneuver-ID → arrow-icon mapping
 
