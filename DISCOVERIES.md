@@ -621,3 +621,79 @@ These would effectively zero out the distance fields. Likely "no active maneuver
 ### Tooling lesson
 
 JADX's `--show-bad-code --comments-level debug --single-class <FQN>` combo can decompile methods that the default decompile (`jadx -d outdir base.apk`) silently skips. Worth re-running selectively on any class whose Java output contains "Method not decompiled" or "instruction units count: N".
+
+## 2026-05-24 — `HomeScreenActivity.onClusterDataRecev` decompiled + RX protocol closed
+
+### What we did
+
+Same `jadx --show-bad-code --comments-level debug --single-class com.suzuki.activity.HomeScreenActivity` trick — decompiled the 961-instruction method that the default JADX run had silently skipped.
+
+### Negative finding (large): the bike sends ONE message type, not many
+
+Expected to find a switch/dispatch on message-type byte handling multiple framings (a531 / a533 / a536 / a537 / other). **Instead, every single cluster-data parser in the app gates on `bArr[1] == 0x37` (= ASCII `'7'`, a537).**
+
+Verified across all 6 EventBus subscribers of `C0944c` (the cluster-data event):
+
+```
+com/suzuki/activity/HomeScreenActivity.java:269   if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+com/suzuki/activity/NavigationActivity.java:190   if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+com/suzuki/activity/RouteActivity.java:284        if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+com/suzuki/activity/CreateProfileActivity.java:396 if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+com/suzuki/activity/RiderProfileActivity.java:147 if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+com/suzuki/application/fragment/C.java:817        if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+```
+
+`55` is `0x37` = a537. There are **zero** RX handlers for a531 / a533 / a536.
+
+### What this means
+
+Confirms the protocol direction:
+
+```
+Phone → Bike (writes on 0xFFF1):
+  a531 = nav frame (turn arrow + distance + ETA + status)
+  a533 = (still TBD — heartbeat?)
+  a536 = user identity / pairing
+
+Bike → Phone (notify on 0xFFF2):
+  a537 ONLY — all telemetry (speed, odo, trip A, trip B, fuel, fuel economy)
+```
+
+The bike never echoes a531/a533/a536 back. They're write-only commands from the phone.
+
+**Caveat**: this is static-source evidence ("Suzuki's own app only listens for a537"). It doesn't prove the bike can't physically send other framings — just that if it did, the official app would ignore them. To 100% confirm, snoop HCI on the bike side, but for the purpose of building Phase 2/3 clients, treating bike→phone as a537-only is safe.
+
+### HomeScreenActivity.onClusterDataRecev semantic detail
+
+Parses (same a537 format already documented in NOTES.md):
+- bytes 5-10: odometer → `this.T` + `com.suzuki.pojo.e.h` + `e.D0`
+- byte 24: fuel/battery byte, with **dual semantic by bike type**:
+  - Petrol bikes: ASCII `'1'`-`'6'` → fuel bars (1-6). `'0'` (or anything outside `'1'`-`'6'`) → V=0 → triggers **"Low Fuel Alert"** TTS prompt
+  - e-ACCESS: raw byte → `U = unsignedByte - 64` → if `U < 16` → triggers **"Low Battery Alert"** TTS prompt
+- bytes 25-27: 24-bit big-endian fuel/energy consumption, **three model-specific decodings**:
+
+| Bike model | Formula | Unit |
+|------------|---------|------|
+| Access-TFT / Burgman-TFT | `int24 / 10.0 / 2048.0` | proprietary fixed-point |
+| e-ACCESS ("Energy Consumption") | `int24 / 10000.0` | kWh/km (likely) |
+| **Default (incl. Gixxer SF 150)** | top 13 bits = int km/L, bottom 11 bits = fraction/2048, then `/ 10.0` | km/L |
+
+So for our SF 150, fuel-economy decode is: `((bytes25-27 >> 11) + (bytes25-27 & 0x7FF) / 2048.0) / 10.0`. Sentinel `0xFFFFFF` (engine off) decodes to nonsense (~819 km/L) — code does not guard against this.
+
+Then odometer-delta running totals are written to Realm every 12 ticks (≈60s @ 5s notify rate) and every 720 ticks (≈1hr).
+
+### Confirmed: byte 25 alone is NOT engine coolant temperature
+
+This was a wrong M0+ hypothesis that's been hanging around. Byte 25 is the **high byte of the 24-bit fuel-economy field**. Variation we attributed to coolant temp was actually fuel-economy variation (or `0xFF` sentinel noise during engine-off captures).
+
+### What's STILL unknown
+
+- The TX (phone → bike) `a533` message format — likely a heartbeat / keepalive given the timing, but contents not yet decoded.
+- The TX `a536` message format — likely user-identity / pairing handshake. Decompiled `services/a.java` and `services/b.java` (the `BleWriteCallback` subclasses) might reveal where these get built.
+- Whether the bike has any non-cluster BLE services we haven't enumerated (already did the GATT walk in M1.6 — see NOTES.md; the answer was "no").
+
+### What this closes
+
+The "find missing RX message types" question is resolved (statically). Phase 1's RX-side protocol surface is **complete**: a537 carries everything the phone displays from the bike. Phase 3 Branch B (telemetry dashboard) needs only an a537 parser — no other message types to handle.
+
+Phase 1 remaining work is now TX-side (decode a533, a536 — both still partially unknown) plus live-ride validation of the a531 decode (especially the `o0` unit-swap bug).

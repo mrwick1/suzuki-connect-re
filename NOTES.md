@@ -27,18 +27,26 @@
 - Suzuki's callback classes only extend two FastBle callback types:
   - `callback.a` (`BleGattCallback` — connection state) — `C0853p0`, `C0855q0`, `services/d`
   - `callback.b` (`BleWriteCallback` — write confirmation) — `services/a`, `services/b`
-- **No class explicitly extends `BleNotifyCallback`** — the notify subscription is set up somewhere we haven't found yet (possibly via lambda / anonymous inner class to a `.notify(...)` call we missed). Once found, it will be the code that parses incoming `0xA5...0x7F` bytes from the bike and writes them to Realm.
+- **No class explicitly extends `BleNotifyCallback`** — the notify subscription is set up via lambda inside `MyBleService.a(BleDevice)`, which calls `FastBle.BleManager.notify(device, "0000fff0...", "0000fff2...", callback)` on the 4th service (`0xFFF0`) / 2nd characteristic (`0xFFF2`).
 
-### Data flow (confirmed direction)
+### Data flow (FULLY MAPPED 2026-05-23/24)
 
 ```
-Bike --[BLE notify]--> phone (FastBle) --[??? handler ???]--> Realm DB --> Activity/Fragment UI
-                                                                ^
-                              fuel/odo/trip values stored here, read by FuelConsumptionActivity,
-                              TripDetailsActivity, etc.
+Bike  --[notify on 0xFFF2]-->  FastBle BleManager
+                                    │
+                                    ▼ (callback Bundle "notify_value" → Handler.what=19)
+                              androidx.localbroadcastmanager.content.a   ← wraps in C0944c event
+                                    │
+                                    ▼ EventBus.post(C0944c)
+                              6× onClusterDataRecev subscribers (HomeScreenActivity,
+                              NavigationActivity, RouteActivity, RiderProfileActivity,
+                              CreateProfileActivity, application.fragment.C)
+                                    │
+                                    ▼ all gate on bArr[1]==0x37 (a537 only)
+                              parse → Realm DB + com.suzuki.pojo.e static fields → UI
 ```
 
-The "???" is the FastBle notify subscription + parser that we haven't located yet. This is the next thing to find to fully close the data-flow question.
+Fuel/odo/trip/speed/fuel-economy all originate from the `0xFFF2` notify stream (a537 frames), parsed by the subscribers above, and stored into Realm + `com.suzuki.pojo.e.*` static state for the UI to read.
 
 ## App identity (M1)
 
@@ -365,11 +373,11 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 
 | Type byte | Count | Rate | Decoded sample | Purpose (hypothesis) |
 |-----------|-------|------|----------------|---------------------|
-| `0x37` ('7') | 163 | every ~5 sec | `.7[22 digit ID]N4[X]..[Y].` | **Bike heartbeat + slow telemetry**: long ID (looks like vehicle/session ID), then a `N4X` field where the byte at position 25 (the `X`) encodes **engine coolant temperature in degrees C**. Confirmed in 2026-05-23 trigger test (see DISCOVERIES.md): position 25 fell monotonically while engine off (bike cooling), then rose monotonically immediately after Arjun started the engine, in the 83-89 °C range typical for warm operating temp. In the static M0 capture this byte was constant; the variation only appears in live sessions with state changes. |
+| `0x37` ('7') | 163 | every ~5 sec | `.7<speed><odo><tripA><tripB><fuel><FE>.` | **Bike → phone telemetry frame**. Carries speed, odometer, Trip A, Trip B, fuel bars, fuel economy. See "Confirmed a537 notify frame layout" below for the full decode. RETRACTED: earlier hypothesis that byte 25 was engine coolant temperature is wrong — byte 25 is the high byte of a 24-bit fuel-economy fixed-point value (see DISCOVERIES.md 2026-05-24). |
 
 ### Confirmed `a537` notify frame layout (DECODED FROM SOURCE 2026-05-23)
 
-**Source**: `onClusterDataRecev(C0944c)` methods in `NavigationActivity`, `C.java` (fragment), `RouteActivity`, `RiderProfileActivity`, `CreateProfileActivity`. Each subscriber parses bytes from the BLE notify channel. The largest and most complete parser is at `HomeScreenActivity.onClusterDataRecev` (961 instruction units) but JADX failed to decompile its body — we reconstructed the schema from the smaller subscribers.
+**Source**: `onClusterDataRecev(C0944c)` methods in `HomeScreenActivity`, `NavigationActivity`, `C.java` (fragment), `RouteActivity`, `RiderProfileActivity`, `CreateProfileActivity`. As of 2026-05-24 all six are decompiled (HomeScreenActivity required `jadx --show-bad-code --comments-level debug --single-class`). All gate on `bArr[1] == 0x37` — no other RX message types exist in the app.
 
 ```
 pos: 0    1     2-4       5-10        11-16       17-22       23  24       25-27      28      29
@@ -408,12 +416,41 @@ The Trip A "90491.1 km" value is odd — but our parsers were derived from `Navi
 
 The bike does NOT push notifies on its own. It begins streaming `a537` heartbeats only AFTER the Central writes the first `a536` (identity) message. A passive listener that just subscribes and waits will receive nothing. This was tested in the 2026-05-23 experiment: 30+ seconds of pure subscribe-and-wait produced zero notifications; once we sent the captured identity write, notifications started immediately at the 5-sec heartbeat cadence.
 
-### Open: what other notify message types exist?
+### RESOLVED 2026-05-24: bike → phone is a537-ONLY
 
-In all sessions to date (M0 18-min + 2026-05-23 ~3-min experiments), only `a537` notify has been observed. Triggering horn / rev / indicator did NOT produce different notify types. Possibilities:
-- Other types exist but only push during events we haven't triggered (riding, braking hard, fault conditions, trip end, low fuel, etc.)
-- Other types exist but the bike pushes them via the write channel (response to specific phone commands) — needs Frida hooks on phone to see
-- These transient events simply don't push BLE events at all in this firmware
+After re-decompiling `HomeScreenActivity.onClusterDataRecev` with the JADX show-bad-code trick, all 6 EventBus subscribers of the cluster-data event were grep-confirmed to gate on `bArr[1] == 0x37`:
+
+```
+HomeScreenActivity:269, NavigationActivity:190, RouteActivity:284,
+CreateProfileActivity:396, RiderProfileActivity:147, com/suzuki/application/fragment/C:817
+   all read:  if (bArr[0]==-91 && bArr[1]==55 && bArr[29]==127)
+```
+
+Zero RX handlers for `a531` / `a533` / `a536`. The Suzuki app does not know how to receive any framing other than `a537`. So either:
+- The bike physically only sends a537 (most likely — matches our captures), OR
+- The bike sends other framings that Suzuki's own app silently discards (would be useless for us anyway since the official client doesn't decode them)
+
+Either way, **for Phase 2/3 client work, treat bike→phone as a537-only**. Open question moves to TX side (decode `a533` heartbeat content, decode `a536` identity payload).
+
+### Byte 24 has dual semantic by bike model
+
+Per `HomeScreenActivity.onClusterDataRecev` (lines 279-350):
+- **Petrol bikes (incl. Gixxer SF 150)**: byte 24 is ASCII `'1'`-`'6'` → fuel bars. Anything else (including `'0'`) → V=0 → triggers "Low Fuel" TTS alert.
+- **e-ACCESS (EV)**: byte 24 is a raw integer; the app computes `unsignedByte - 64` and treats `< 16` as "Low Battery" → triggers TTS alert.
+
+So the same byte position carries different encodings depending on which Suzuki bike is paired.
+
+### Byte 25-27 (fuel/energy consumption) has 3 model-specific decodings
+
+| Bike model | Formula on 24-bit big-endian value | Unit |
+|------------|------------------------------------|------|
+| Access-TFT Edition / Burgman Street-TFT Edition | `int24 / 10.0 / 2048.0` | proprietary |
+| e-ACCESS (when `okhttp3...d.G().contains("Energy Consumption")`) | `int24 / 10000.0` | kWh/km (likely) |
+| **Default (incl. Gixxer SF 150) — petrol** | `(top13bits + bottom11bits / 2048.0) / 10.0` | km/L |
+
+Engine-off sentinel = `0xFFFFFF`. The code does NOT guard against this — decodes to ~819 km/L garbage. Treat any `bytes[25..27] == 0xFFFFFF` as "no data."
+
+**This kills the old M0+ hypothesis that byte 25 alone encoded engine coolant temperature.** Byte 25 is just the high byte of a 24-bit fixed-point number; the X→W→V→U variation we observed during the engine-off capture was noise within the 0xFF sentinel region.
 
 ### Confirmed: checksum algorithm
 
