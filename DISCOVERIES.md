@@ -908,6 +908,59 @@ a533 is now **100% decoded** end-to-end. Every byte position mapped to a semanti
 
 **Lesson recorded**: when JADX shows a field with only its default-value assignment but captures prove a different runtime value, the assignment is somewhere ProGuard hid it — likely in a renamed class moved out of the app's package. Use androguard or similar to grep at the dex bytecode level (`iput-object` / `sput-object` instructions) rather than the Java decompile. Tool: `tools/find_field_writes.py`.
 
+## 2026-05-24 — Network/cloud audit + MQTT verdict
+
+### What we did
+
+The earlier M1 commit (`26838d6 — map Suzuki Connect cloud API architecture from source`) claimed "only 2 cloud endpoints exist." That claim was based on a narrow grep of the Retrofit interface classes (`com.suzuki.interfaces.{f,g}`). Today, broader sweep to verify or correct.
+
+Also followed up on the `MqttService` reference we saw in the `androidx/appcompat/app/z.java` BroadcastReceiver (which turned out to host the `BATTERY_CHANGED` handler that sets `c.G`).
+
+### Results
+
+**MQTT verdict: DEAD CODE.**
+
+- `org.eclipse.paho.android.service.MqttService` IS registered in `AndroidManifest.xml` (verified with `tools/dump_manifest.py` via androguard).
+- BUT no Suzuki code instantiates an `MqttClient`, calls `MqttService.class`, or contains any broker URL.
+- Zero hits across the entire `com.suzuki.*` tree for `tcp://`, `ssl://`, `mqtt://`, `mqtts://`, `MqttConnect`, `MqttClient(`, `new IMqtt`, or any `.connect()`-shaped MQTT call.
+- The Paho receiver in `z.java` `case default` is the library's own `NetworkConnectionIntentReceiver` — it waits for an MQTT client that never gets created, so the receiver branch is effectively dead code at runtime.
+
+**Cloud endpoint inventory (final, validated):**
+
+| URL | Method | Used by | Purpose |
+|-----|--------|---------|---------|
+| `https://projects.mapmyindia.com/autolicverify/{BTID}/expiry/date/` | GET | `RunnableC0828e.java`, `DashboardFragment$16.java` | Subscription expiry check |
+| `https://projects.mapmyindia.com/autolicverify/updatePlan?session_device=...&planType=...` | POST | `RunnableC0828e.java` | Plan upgrade |
+
+Plus deep-link URLs (NOT API — just browser handoffs):
+- `https://maps.mapmyindia.com/@<lat>,<lng>` — open parked location in Mappls
+- `https://www.suzukimotorcycle.co.in/...` — Suzuki India homepage / Help
+- `https://play.google.com/...` — Play Store
+- `https://drive.google.com/...` — user manual link
+- `https://mappls.com/...` — Mappls promo
+
+And: the bundled Mappls SDK (`com.mappls.sdk.*`) talks to many internal Mappls servers (map tiles, routing, geocoding, directions). Those are part of the navigation library and orthogonal to bike telemetry/control. Suzuki app code doesn't see them.
+
+**WebSockets: none.** No `ws://` / `wss://` references in `com.suzuki.*`.
+
+### Bonus: hidden receivers turn out to be stubs
+
+The manifest declares 9 Suzuki components total. Three I hadn't catalogued before — `BleConnection`, `MapShortDistBroadcast`, `DataFromBle` — turn out to be **logging-only skeleton receivers** (single `Log.d` call each, no real handling). They're not hidden side-channels for telemetry; they look like scaffolding that was never implemented or debug instrumentation.
+
+Full Suzuki manifest inventory now in NOTES.md.
+
+### What this closes
+
+- "Are there other cloud endpoints we missed?" → **No.** Only the 2 license endpoints, confirmed via grep across the entire `com.suzuki.*` tree (not just Retrofit interfaces).
+- "Does Suzuki Connect use MQTT?" → **No.** Library is bundled but unused.
+- "Are there any non-BLE, non-HTTP channels for telemetry?" → **No.** No WebSockets, no MQTT, no hidden receivers carrying data.
+
+**Bike control / telemetry flows exclusively through the single BLE service (0xFFF0 / chars 0xFFF1 write, 0xFFF2 notify).** The cloud is just for license bookkeeping. This is the cleanest "phone-mediated control" architecture imaginable — and it means a phone-app replacement (Phase 2) needs only the BLE protocol library we built today (`tools/protocol.py`) plus a separate token for the license API if license bookkeeping matters (it might not — would need to test whether the bike functions normally without an active subscription).
+
+### Tools created
+
+- `tools/dump_manifest.py` — pretty-prints the binary `AndroidManifest.xml` from an APK via androguard + lxml.
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.

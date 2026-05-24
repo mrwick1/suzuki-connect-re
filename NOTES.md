@@ -2,7 +2,7 @@
 
 > Living spec for the BLE protocol between the Suzuki Connect Android app and the Suzuki Gixxer SF 150 (2023). Grown milestone-by-milestone.
 
-## Cloud API architecture (M1 — confirmed from decompiled source)
+## Cloud API architecture (M1 — confirmed from decompiled source, re-audited 2026-05-24)
 
 **Suzuki Connect's cloud API is minimal and Mappls-hosted:**
 
@@ -14,6 +14,41 @@
 - **Auth**: OAuth-style. Gets `TokenResponse` with `access_token` + `expires_in`; stored in SharedPreferences `AppPrefs.ACCESS_TOKEN`. Sent as `authorization` header.
 
 **There is NO cloud API for fuel/odometer/trip/last-location data.** The decompiled source has only the two license-management endpoints above. So **fuel/odo/trip data must come from BLE** (not cloud).
+
+### Re-audited 2026-05-24 (broader sweep)
+
+The "only 2 endpoints" claim has been **fully validated** by a more thorough audit:
+
+- **All Suzuki-code HTTP base URLs** (grep'd as quoted string literals across the entire `com.suzuki.*` source tree):
+  - `https://projects.mapmyindia.com/` — only API host. 2 endpoints (above).
+  - `https://maps.mapmyindia.com/@<lat>,<lng>` — deep link to open parked location in browser/Mappls app. NOT an API call.
+  - `https://www.suzukimotorcycle.co.in/...`, `https://mappls.com/...`, `https://play.google.com/...`, `https://drive.google.com/...` — Help / About / Play Store / user manual deep links. All browser handoffs, no API.
+
+- **No WebSockets** (`ws://` / `wss://`) referenced in Suzuki code.
+
+- **MQTT is DEAD CODE.** `org.eclipse.paho.android.service.MqttService` is registered in `AndroidManifest.xml` because the Paho library is bundled in the dependency tree, but no Suzuki code instantiates `MqttClient`, calls `MqttService.class`, or contains any broker URL (`tcp://`, `ssl://`, `mqtt://`, `mqtts://` — all return zero hits in `com.suzuki.*`). The Paho `BroadcastReceiver` we found in `androidx/appcompat/app/z.java` is just the library's own `NetworkConnectionIntentReceiver` waiting for an MQTT client that never gets created.
+
+- **Mappls SDK** (`com.mappls.sdk.*`) talks to many internal Mappls servers (map tiles, routing, search, geocoding, directions) — those are part of the bundled navigation library and orthogonal to bike telemetry/control. Suzuki does not see those calls; the SDK handles them opaquely.
+
+**Conclusion**: bike control / data flow has only one channel (BLE on 0xFFF1/0xFFF2). The cloud is used solely for license verification + plan updates. Nothing else flows through the network.
+
+### Manifest-declared Suzuki receivers (catalogued 2026-05-24)
+
+For completeness, every Suzuki-owned `<receiver>` / `<service>` in the manifest:
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| `com.suzuki.services.MyBleService` | service (foreground) | BLE bridge — the central write path (`MyBleService.f()`) and notify subscription |
+| `com.suzuki.services.NotificationService` | service (BIND_NOTIFICATION_LISTENER_SERVICE) | Reads Android notifications → builds a532/a534/a535 frames |
+| `com.suzuki.broadcaster.IncomingSms` | receiver | Catches SMS → builds a535 frame |
+| `com.suzuki.broadcaster.CallReceiverBroadcast` | receiver | Catches call events → builds a532/a534 frames |
+| `com.suzuki.activity.NotificationReceiver` | receiver | Internal notification dismissal handler |
+| `com.suzuki.utils.SuzukiRideWidgetReceiver` | receiver | Home-screen widget refresh |
+| `com.suzuki.broadcaster.BleConnection` | receiver | **Stub** — only logs received broadcasts, no real handling |
+| `com.suzuki.broadcaster.MapShortDistBroadcast` | receiver | **Stub** — only logs received broadcasts |
+| `com.suzuki.broadcaster.DataFromBle` | receiver | **Stub** — only logs received broadcasts |
+
+The last three are skeleton/debug receivers that don't do anything useful (single `Log.d` call each). No hidden side-channel for telemetry through them.
 
 ### Local storage
 
