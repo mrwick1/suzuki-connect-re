@@ -75,6 +75,10 @@ class Settings(context: Context) {
     val mirrorAllowlist: Flow<Set<String>> =
         ds.data.map { it[Keys.MIRROR_ALLOWLIST] ?: DEFAULT_ALLOWLIST }
 
+    /** When true, the bike service synthesises fake a537 telemetry (no bike required). */
+    val demoMode: Flow<Boolean> =
+        ds.data.map { it[Keys.DEMO_MODE] ?: false }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }
@@ -133,6 +137,11 @@ class Settings(context: Context) {
         ds.edit { it[Keys.MIRROR_ALLOWLIST] = packages }
     }
 
+    /** Toggle demo-mode (synthetic telemetry stream). */
+    suspend fun setDemoMode(v: Boolean) {
+        ds.edit { it[Keys.DEMO_MODE] = v }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -147,6 +156,7 @@ class Settings(context: Context) {
         val SERVICE_INTERVAL_KM = intPreferencesKey("service_interval_km")
         val LAST_SERVICE_ODO_KM = intPreferencesKey("last_service_odo_km")
         val MIRROR_ALLOWLIST = stringSetPreferencesKey("mirror_allowlist")
+        val DEMO_MODE = booleanPreferencesKey("demo_mode")
     }
 
     companion object {

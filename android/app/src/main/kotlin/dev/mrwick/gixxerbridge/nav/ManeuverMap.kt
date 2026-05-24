@@ -1,5 +1,9 @@
 package dev.mrwick.gixxerbridge.nav
 
+import android.content.Context
+import android.util.Log
+import java.io.File
+
 /**
  * Maps Google Maps direction text -> Mappls maneuver IDs (the byte that
  * drives the cluster icon).
@@ -83,14 +87,132 @@ object ManeuverMap {
         }
     }
 
-    // Stub for bitmap classification — empty table for now; production builds it empirically.
+    // -----------------------------------------------------------------------
+    // Perceptual-hash table — empirically populated at runtime by
+    // [ManeuverClassifier]. Survives process restarts via [initPersistence].
+    // -----------------------------------------------------------------------
+
+    private const val TAG = "ManeuverMap"
+
+    /**
+     * Filename inside `Context.filesDir` used to persist the hash table.
+     * One entry per line: `<hex-hash> <maneuver-id>`. Newest-write-wins.
+     */
+    internal const val PERSIST_FILENAME = "maneuver_hash_table.tsv"
+
+    // Synchronized via the object's monitor (all accesses go through the object).
     private val bitmapHashToManeuver: MutableMap<Long, Int> = HashMap()
 
-    /** Register a perceptual hash -> maneuver-id mapping (used by classifier seed). */
+    // File handle becomes non-null after initPersistence(); writes are best-effort
+    // append-only so the table survives process death. Null in unit tests.
+    @Volatile
+    private var persistFile: File? = null
+
+    /**
+     * Wire the persisted hash-table file. Idempotent. Safe to call once per
+     * application lifetime — e.g. from `Application.onCreate` or the service's
+     * `onCreate`. Loads any previously-saved entries into memory.
+     *
+     * No-op (with a debug log) if persistence was already initialized to the
+     * same directory.
+     *
+     * ASSUMED: `Context.filesDir` is writable and persistent; this matches all
+     * Android documentation but a few mis-configured ROMs disagree.
+     */
+    @Synchronized
+    fun initPersistence(context: Context) {
+        val file = File(context.filesDir, PERSIST_FILENAME)
+        if (persistFile?.absolutePath == file.absolutePath) {
+            Log.d(TAG, "initPersistence: already wired to ${file.absolutePath}")
+            return
+        }
+        persistFile = file
+        loadFromDisk(file)
+    }
+
+    /**
+     * Register a perceptual hash -> maneuver-id mapping. Persists the new
+     * entry to disk if [initPersistence] has been called.
+     *
+     * Same hash registered with a different id overwrites the prior mapping
+     * in-memory and appends a new line on disk (loader uses last-write-wins).
+     */
+    @Synchronized
     fun registerBitmapHash(hash: Long, maneuverId: Int) {
-        bitmapHashToManeuver[hash] = maneuverId
+        val prior = bitmapHashToManeuver.put(hash, maneuverId)
+        if (prior == maneuverId) return
+        appendToDisk(hash, maneuverId)
     }
 
     /** Look up a perceptual hash; returns `null` when no mapping is known. */
+    @Synchronized
     fun fromBitmapHash(hash: Long): Int? = bitmapHashToManeuver[hash]
+
+    /**
+     * Hamming-tolerant nearest-neighbour lookup. Scans the full table
+     * (O(n), n bounded by the small set of distinct Maps turn icons —
+     * couple dozen at most), returns the id of the closest hash whose
+     * distance is `<= tolerance`, or null if nothing is close enough.
+     *
+     * Used by [ManeuverClassifier] so anti-aliased / color-variant renders
+     * of the same icon still resolve.
+     */
+    @Synchronized
+    fun fromBitmapHashNearest(hash: Long, tolerance: Int): Int? {
+        if (bitmapHashToManeuver.isEmpty()) return null
+        var bestId: Int? = null
+        var bestDist = Int.MAX_VALUE
+        for ((k, v) in bitmapHashToManeuver) {
+            val d = BitmapHasher.hammingDistance(hash, k)
+            if (d < bestDist) {
+                bestDist = d
+                bestId = v
+            }
+        }
+        return if (bestDist <= tolerance) bestId else null
+    }
+
+    /** Test-only: drop in-memory table and detach persistence. */
+    @Synchronized
+    internal fun resetForTest() {
+        bitmapHashToManeuver.clear()
+        persistFile = null
+    }
+
+    /** Test-only: snapshot of the current in-memory table size. */
+    @Synchronized
+    internal fun bitmapHashTableSizeForTest(): Int = bitmapHashToManeuver.size
+
+    // ---- persistence internals -------------------------------------------
+
+    private fun loadFromDisk(file: File) {
+        if (!file.exists()) return
+        try {
+            file.bufferedReader().useLines { lines ->
+                for (raw in lines) {
+                    val line = raw.trim()
+                    if (line.isEmpty() || line.startsWith("#")) continue
+                    val parts = line.split('\t', ' ', limit = 2)
+                    if (parts.size != 2) continue
+                    val hash = parts[0].toLongOrNull(16) ?: continue
+                    val id = parts[1].trim().toIntOrNull() ?: continue
+                    // Last-write-wins: later lines for the same hash overwrite earlier ones.
+                    bitmapHashToManeuver[hash] = id
+                }
+            }
+            Log.i(TAG, "Loaded ${bitmapHashToManeuver.size} bitmap-hash entries from ${file.name}")
+        } catch (t: Throwable) {
+            // Persistence is best-effort; never fail the app over a corrupt cache file.
+            Log.w(TAG, "Failed to load hash table from ${file.name}: $t")
+        }
+    }
+
+    private fun appendToDisk(hash: Long, maneuverId: Int) {
+        val file = persistFile ?: return
+        try {
+            file.appendText("${java.lang.Long.toHexString(hash)}\t$maneuverId\n")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to persist hash entry: $t")
+        }
+    }
 }

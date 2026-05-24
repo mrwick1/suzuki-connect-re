@@ -28,6 +28,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val serviceIntervalKm = settings.serviceIntervalKm
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.DEFAULT_SERVICE_INTERVAL_KM)
+    val demoMode = settings.demoMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setRiderName(name: String) {
         viewModelScope.launch { settings.setRiderName(name) }
@@ -55,5 +57,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setServiceIntervalKm(km: Int) {
         viewModelScope.launch { settings.setServiceIntervalKm(km) }
+    }
+
+    fun setDemoMode(v: Boolean) {
+        viewModelScope.launch { settings.setDemoMode(v) }
     }
 }

@@ -15,6 +15,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.ble.BikeBridgeService
 import dev.mrwick.gixxerbridge.ble.ConnectionState
+import dev.mrwick.gixxerbridge.data.Settings
+import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
+import kotlinx.coroutines.launch
 
 /** Landing screen: connection status, big start/stop button, links to pairing. */
 @Composable
@@ -27,6 +30,8 @@ fun HomeScreen(onOpenPairing: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("GixxerBridge", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+
+        ServiceDueBanner()
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -93,4 +98,56 @@ private fun stateColor(s: ConnectionState): Color = when (s) {
     is ConnectionState.Failed -> Color(0xFFEF4444)
     ConnectionState.Idle -> Color(0xFF94A3B8)
     else -> Color(0xFFFCD34D)
+}
+
+/**
+ * Red banner that appears when the bike's odo has clocked past the user's
+ * service interval. Tap "Mark serviced" to bump [Settings.lastServiceOdoKm]
+ * to the current reading.
+ *
+ * ASSUMED: it's OK to construct a [Settings] instance per composition — the
+ * underlying DataStore is process-wide so this is just a thin handle. Matches
+ * the existing pattern elsewhere in the UI layer.
+ */
+@Composable
+private fun ServiceDueBanner() {
+    val context = LocalContext.current
+    val settings = remember { Settings(context.applicationContext) }
+    val intervalKm by settings.serviceIntervalKm.collectAsStateWithLifecycle(
+        initialValue = Settings.DEFAULT_SERVICE_INTERVAL_KM,
+    )
+    val lastServiced by settings.lastServiceOdoKm.collectAsStateWithLifecycle(initialValue = 0)
+    val telemetry by TelemetryRepository.latest.collectAsStateWithLifecycle()
+    val currentOdo = telemetry?.odometerKm ?: 0
+
+    if (currentOdo <= 0 || (currentOdo - lastServiced) < intervalKm) return
+
+    val nextServiceOdo = lastServiced + intervalKm
+    val scope = rememberCoroutineScope()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF7F1D1D)),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Service due!",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Logged $currentOdo km, last serviced at $lastServiced km " +
+                    "(next service was due at $nextServiceOdo km).",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = {
+                scope.launch { settings.setLastServiceOdoKm(currentOdo) }
+            }) {
+                Text("Mark serviced")
+            }
+        }
+    }
 }

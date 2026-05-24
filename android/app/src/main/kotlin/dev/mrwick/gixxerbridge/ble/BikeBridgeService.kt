@@ -12,15 +12,21 @@ import androidx.lifecycle.lifecycleScope
 import dev.mrwick.gixxerbridge.GixxerApp
 import dev.mrwick.gixxerbridge.R
 import dev.mrwick.gixxerbridge.app.AppGraph
+import dev.mrwick.gixxerbridge.data.GixxerDatabase
+import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.nav.IdleClockGenerator
 import dev.mrwick.gixxerbridge.nav.MapsNavSource
 import dev.mrwick.gixxerbridge.nav.NavMux
+import dev.mrwick.gixxerbridge.nav.WelcomeFrame
 import dev.mrwick.gixxerbridge.protocol.IdentityFrame
 import dev.mrwick.gixxerbridge.protocol.NavFrame
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
+import dev.mrwick.gixxerbridge.system.DndController
+import dev.mrwick.gixxerbridge.telemetry.DemoTelemetrySource
 import dev.mrwick.gixxerbridge.telemetry.PhoneState
+import dev.mrwick.gixxerbridge.telemetry.RideLogger
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.weather.WeatherCache
 import dev.mrwick.gixxerbridge.weather.WeatherProvider
@@ -51,6 +57,9 @@ class BikeBridgeService : LifecycleService() {
     private lateinit var heartbeatLoop: HeartbeatLoop
     private lateinit var idleClock: IdleClockGenerator
     private lateinit var navMux: NavMux
+    private lateinit var dnd: DndController
+    private lateinit var rideLogger: RideLogger
+    private val demoSource = DemoTelemetrySource()
 
     override fun onCreate() {
         super.onCreate()
@@ -61,6 +70,7 @@ class BikeBridgeService : LifecycleService() {
         frameWriter = FrameWriter()
         phoneState = PhoneState(applicationContext).also { it.start() }
         idleClock = IdleClockGenerator()
+        dnd = DndController(applicationContext)
         weatherCache = WeatherCache(
             provider = WeatherProvider(),
             latLngProvider = {
@@ -88,6 +98,22 @@ class BikeBridgeService : LifecycleService() {
         AppGraph.frameWriter = frameWriter
         AppGraph.navMux = navMux
 
+        // Ride persistence: TelemetryRepository.latest -> Room via RideLogger.
+        rideLogger = RideLogger(
+            store = RideStore(GixxerDatabase.get(applicationContext).rideDao()),
+            telemetry = TelemetryRepository.latest,
+        )
+        rideLogger.attach(lifecycleScope)
+
+        // Demo mode: when ON, synthesise a fake a537 stream so the Dashboard /
+        // Trips screens work without a bike. When OFF, stop the source — real
+        // BLE telemetry (if any) takes over via the notifications collector below.
+        lifecycleScope.launch {
+            settings.demoMode.distinctUntilChanged().collect { on ->
+                if (on) demoSource.start(lifecycleScope) else demoSource.stop()
+            }
+        }
+
         // Publish connection state to AppGraph for UI
         lifecycleScope.launch {
             bleClient.state.collect { AppGraph.publishConnectionState(it) }
@@ -104,13 +130,60 @@ class BikeBridgeService : LifecycleService() {
             }
         }
 
-        // On Ready: send identity once, then start heartbeat + nav drains
+        // On Ready: send identity, fire one-shot welcome frame, flip DND.
+        // On Disconnected: restore the user's previous DND filter.
+        //
+        // "Fresh" is defined as: this Ready transition wasn't immediately preceded
+        // by another Ready (i.e. it's not a no-op re-emission). We treat every
+        // Idle->...->Ready cycle as fresh; the auto-reconnect path also passes
+        // through Disconnected/Connecting on the way back, so we'd consider those
+        // fresh too. ASSUMED: this is acceptable — rider sees a "Hi" once per
+        // bike-key-on event, which is the intended UX, not "only on first-ever".
         lifecycleScope.launch {
+            var lastWasReady = false
             bleClient.state.collect { state ->
-                if (state is ConnectionState.Ready) {
-                    val name = settings.riderName.first()
-                    val identity = IdentityFrame(name = name, isFresh = true).encode()
-                    frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.URGENT, identity, "identity"))
+                when (state) {
+                    is ConnectionState.Ready -> {
+                        val isFresh = !lastWasReady
+                        lastWasReady = true
+
+                        val name = settings.riderName.first()
+                        val identity = IdentityFrame(name = name, isFresh = isFresh).encode()
+                        frameWriter.enqueue(
+                            FrameWriter.Entry(FrameWriter.Priority.URGENT, identity, "identity"),
+                        )
+
+                        if (isFresh) {
+                            // Welcome a531 — NavMux will supersede on the next tick.
+                            val (wcode, tbyte) = weatherCache.currentEncoded()
+                            val welcome = WelcomeFrame.build(
+                                name = name,
+                                tempCelsius = tempFromByte(tbyte),
+                                suzukiWeatherCode = wcode,
+                            ).encode()
+                            frameWriter.enqueue(
+                                FrameWriter.Entry(FrameWriter.Priority.URGENT, welcome, "welcome"),
+                            )
+
+                            if (settings.autoDndOnConnect.first()) dnd.activate()
+                        }
+                    }
+
+                    is ConnectionState.Disconnected,
+                    is ConnectionState.Failed,
+                    -> {
+                        lastWasReady = false
+                        dnd.restore()
+                        // End any active ride; the watchdog would catch this in
+                        // <= 10 min, but ending immediately on disconnect gives
+                        // cleaner per-key-on ride boundaries.
+                        rideLogger.endRide()
+                    }
+
+                    ConnectionState.Idle,
+                    ConnectionState.Connecting,
+                    ConnectionState.Discovering,
+                    -> { /* no-op */ }
                 }
             }
         }
@@ -160,9 +233,17 @@ class BikeBridgeService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        demoSource.stop()
+        // Best-effort: close out any open ride before lifecycleScope is cancelled.
+        if (::rideLogger.isInitialized) {
+            lifecycleScope.launch { rideLogger.endRide() }
+        }
         phoneState.stop()
         weatherCache.stop()
         bleClient.disconnect()
+        // Make sure we never leave the phone stuck in PRIORITY-only DND if the
+        // service is torn down without going through Disconnected first.
+        if (::dnd.isInitialized) dnd.restore()
         AppGraph.bleClient = null
         AppGraph.frameWriter = null
         AppGraph.navMux = null

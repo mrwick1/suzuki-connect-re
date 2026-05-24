@@ -88,12 +88,11 @@ object GoogleMapsParser {
         // ASSUMED: Maps' nav_description text is in the device locale; for non-en
         // locales the text-pattern map in ManeuverMap will miss and fall to
         // GENERIC_ARROW. Empirical locale tuning deferred to Phase 3 polish.
-        val maneuverId = ManeuverMap.fromText(instruction)
-
-        // Bitmap classification not yet wired; left for future improvement.
-        // If we got a maneuverBitmap, future code will perceptual-hash + lookup
-        // via ManeuverMap.fromBitmapHash(). Suppress unused-var warnings.
-        @Suppress("UNUSED_VARIABLE") val _bitmap: Bitmap? = maneuverBitmap
+        //
+        // Per assumptions log A2: if we managed to extract a Bitmap, route through
+        // ManeuverClassifier which does perceptual-hash lookup first and falls back
+        // to text — and self-trains the hash table from confident text matches.
+        val maneuverId = ManeuverClassifier.classify(maneuverBitmap, instruction)
 
         return ParsedNavData(
             maneuverId = maneuverId,

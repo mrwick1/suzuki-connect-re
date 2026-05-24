@@ -41,6 +41,7 @@ fun SettingsScreen(
     val nowPlaying by vm.nowPlayingOnCluster.collectAsStateWithLifecycle()
     val dnd by vm.autoDndOnConnect.collectAsStateWithLifecycle()
     val service by vm.serviceIntervalKm.collectAsStateWithLifecycle()
+    val demoMode by vm.demoMode.collectAsStateWithLifecycle()
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -102,6 +103,11 @@ fun SettingsScreen(
         item {
             Section("Notifications mirrored to bike") {
                 Button(onClick = onOpenAllowlist) { Text("Edit allowlist") }
+            }
+        }
+        item {
+            Section("Developer") {
+                SwitchRow("Demo mode (simulated bike telemetry)", demoMode, vm::setDemoMode)
             }
         }
     }
