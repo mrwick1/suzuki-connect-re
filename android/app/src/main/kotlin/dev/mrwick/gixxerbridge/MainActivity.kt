@@ -36,6 +36,8 @@ import dev.mrwick.gixxerbridge.ui.settings.PairingScreen
 import dev.mrwick.gixxerbridge.ui.settings.PairingViewModel
 import dev.mrwick.gixxerbridge.ui.settings.SettingsScreen
 import dev.mrwick.gixxerbridge.ui.settings.SettingsViewModel
+import dev.mrwick.gixxerbridge.ui.stats.StatsScreen
+import dev.mrwick.gixxerbridge.ui.stats.StatsViewModel
 import dev.mrwick.gixxerbridge.ui.trips.TripDetailScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsViewModel
@@ -43,7 +45,8 @@ import dev.mrwick.gixxerbridge.app.AppGraph
 
 /**
  * Entry activity. FragmentActivity for biometric prompt compatibility (see ui/lock).
- * Hosts a 5-tab bottom-nav + sub-routes for pairing, allowlist, trip detail, composer.
+ * Hosts a 5-tab bottom-nav (Home / Dashboard / Stats / Trips / Settings) + sub-routes
+ * for pairing, allowlist, trip detail, composer, inspector.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -67,10 +70,15 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        // ACCESS_FINE_LOCATION is needed at runtime on ALL API levels here, not
+        // just for legacy BLE — RideLocationTracker uses FusedLocationProviderClient
+        // to record GPS tracks for ride GPX export. The runtime prompt is the
+        // only signal the user gives; without it RideLocationTracker.start() no-ops.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             blePermLauncher.launch(arrayOf(
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.ACCESS_FINE_LOCATION,
             ))
         } else {
             blePermLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
@@ -81,12 +89,12 @@ class MainActivity : AppCompatActivity() {
 private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
     data object Home : Tab("home", "Home", Icons.Default.Home)
     data object Dashboard : Tab("dashboard", "Dashboard", Icons.Default.Speed)
+    data object Stats : Tab("stats", "Stats", Icons.Default.BarChart)
     data object Trips : Tab("trips", "Trips", Icons.Default.Route)
-    data object Inspector : Tab("inspector", "Inspector", Icons.Default.Code)
     data object Settings : Tab("settings", "Settings", Icons.Default.Settings)
 }
 
-private val tabs = listOf(Tab.Home, Tab.Dashboard, Tab.Trips, Tab.Inspector, Tab.Settings)
+private val tabs = listOf(Tab.Home, Tab.Dashboard, Tab.Stats, Tab.Trips, Tab.Settings)
 
 @Composable
 private fun AppShell() {
@@ -137,7 +145,17 @@ private fun AppShell() {
                     })
                     TripDetailScreen(rideId, vm)
                 }
-                composable(Tab.Inspector.route) {
+                composable(Tab.Stats.route) {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val app = ctx.applicationContext as android.app.Application
+                    val vm: StatsViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                            StatsViewModel(app) as T
+                    })
+                    StatsScreen(vm)
+                }
+                composable("inspector") {
                     val vm: InspectorViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
@@ -148,8 +166,11 @@ private fun AppShell() {
                 composable(Tab.Settings.route) {
                     SettingsScreen(
                         vm = viewModel(),
+                        safetyVm = viewModel(),
                         onOpenPairing = { nav.navigate("pairing") },
                         onOpenAllowlist = { nav.navigate("allowlist") },
+                        onOpenInspector = { nav.navigate("inspector") },
+                        onOpenAbout = { nav.navigate("about") },
                     )
                 }
                 composable("pairing") {
@@ -160,6 +181,9 @@ private fun AppShell() {
                 }
                 composable("composer") {
                     FrameComposerScreen(vm = viewModel())
+                }
+                composable("about") {
+                    dev.mrwick.gixxerbridge.ui.about.AboutScreen()
                 }
             }
         }

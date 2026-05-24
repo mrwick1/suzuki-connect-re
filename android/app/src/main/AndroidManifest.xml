@@ -9,7 +9,11 @@
     <!-- BLE on Android <12 still needs these (no-op on 12+) -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
+    <!-- GPS for ride track recording (FusedLocationProviderClient).
+         Was previously declared with maxSdkVersion=30 for legacy BLE only;
+         now needed at runtime on all API levels for ride GPX export. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <!-- Foreground service (BLE link) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -29,6 +33,11 @@
 
     <!-- Optional: phone location for weather (single-shot, only when user requests location-aware weather) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Safety: SOS path sends an SMS to the configured emergency contact when a crash is detected.
+         Per Phase 1 research (A9), Play Store doesn't allow SEND_SMS for non-default-SMS apps; this
+         app is sideloaded so the user grants it manually. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <!-- BLE hardware required -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
@@ -61,6 +70,16 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- Full-screen "Are you OK?" prompt shown on suspected crash. Launched from the
+             service with FLAG_ACTIVITY_NEW_TASK; not exported. -->
+        <activity
+            android:name=".safety.SosScreen"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:theme="@style/Theme.GixxerBridge" />
+
         <!-- Captures Google Maps nav notifications + calls + SMS + arbitrary allowlisted apps -->
         <service
             android:name=".notifications.NotificationCaptureService"
@@ -79,6 +98,17 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- FileProvider for sharing exported GPX files via ACTION_SEND. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
 
     </application>
 

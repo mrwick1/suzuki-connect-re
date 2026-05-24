@@ -123,6 +123,12 @@ adb pull /data/misc/bluetooth/logs/btsnoop_hci.log captures/<name>.pcap
 
 # Inspect a capture
 tshark -r captures/<name>.pcap -Y 'btatt' -T fields -e frame.time_relative -e btatt.opcode -e btatt.value
+
+# Validate Phase 2 assumption A1 (Maps nav notification shape) on this phone.
+# Writes captures/maps-notification-dump-<ts>.md. Use --watch while you start
+# a Google Maps navigation to capture the live turn notification; --save-raw
+# also archives the full dumpsys blob for offline grep.
+python tools/dump_maps_notification.py [--watch] [--save-raw]
 ```
 
 ## Immediate next-session priorities

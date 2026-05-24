@@ -72,10 +72,13 @@ object NotificationDispatcher {
         val title = sbn.notification?.extras?.getString(android.app.Notification.EXTRA_TITLE) ?: return
         val text = sbn.notification?.extras?.getString(android.app.Notification.EXTRA_TEXT)?.lowercase() ?: ""
         if ("incoming" in text || "calling" in text || "ringing" in title.lowercase()) {
+            // Dedup: Android re-posts the same call notification on update; we only want one cluster ping per call.
+            if (!Dedup.firstTime("call:$title")) return
             val frame = CallFrame(number = title.take(20), isWhatsapp = false, state = 0x31).encode()
             scope.launch { AppGraph.frameWriter?.enqueue(FrameWriter.Entry(FrameWriter.Priority.URGENT, frame, "call")) }
             callsSeen[title] = System.currentTimeMillis()
         } else if ("missed" in text || "missed" in title.lowercase()) {
+            if (!Dedup.firstTime("missed:$title")) return
             val frame = MissedCallFrame(name = title.take(18), missedCount = 1, isWhatsapp = false).encode()
             scope.launch { AppGraph.frameWriter?.enqueue(FrameWriter.Entry(FrameWriter.Priority.URGENT, frame, "missed")) }
         }
@@ -84,6 +87,10 @@ object NotificationDispatcher {
     private fun handleSms(sbn: StatusBarNotification, isSms: Boolean) {
         val extras = sbn.notification?.extras ?: return
         val sender = extras.getString(android.app.Notification.EXTRA_TITLE)?.take(20) ?: return
+        val body = extras.getString(android.app.Notification.EXTRA_TEXT).orEmpty()
+        // Dedup on (package + sender + first 32 chars of body). Stops Spotify/WhatsApp
+        // from re-firing every 1s when they update progress / read-receipts.
+        if (!Dedup.firstTime("${sbn.packageName}:$sender:${body.take(32)}")) return
         // ASSUMED: count = 1 per notification; future improvement is to read EXTRA_NUMBER if present
         // ASSUMED: Android exposes the badge count via the magic key "android.number" on N+ but
         // doesn't expose a Notification.EXTRA_NUMBER constant — using the string literal.

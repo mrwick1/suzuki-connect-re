@@ -79,6 +79,14 @@ class Settings(context: Context) {
     val demoMode: Flow<Boolean> =
         ds.data.map { it[Keys.DEMO_MODE] ?: false }
 
+    /** Phone number (E.164 or local digits) for the SOS contact; null if not configured. */
+    val emergencyContactPhone: Flow<String?> =
+        ds.data.map { decodeNullableString(it[Keys.EMERGENCY_CONTACT_PHONE]) }
+
+    /** When true, [dev.mrwick.gixxerbridge.safety.CrashDetector] runs while the bike service is alive. Default off — opt-in only. */
+    val crashDetectionEnabled: Flow<Boolean> =
+        ds.data.map { it[Keys.CRASH_DETECTION_ENABLED] ?: false }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }
@@ -142,6 +150,16 @@ class Settings(context: Context) {
         ds.edit { it[Keys.DEMO_MODE] = v }
     }
 
+    /** Set the emergency-contact phone number; pass null/empty to clear. */
+    suspend fun setEmergencyContactPhone(v: String?) {
+        ds.edit { it[Keys.EMERGENCY_CONTACT_PHONE] = encodeNullableString(v) }
+    }
+
+    /** Toggle crash detection (opt-in; default false). */
+    suspend fun setCrashDetectionEnabled(v: Boolean) {
+        ds.edit { it[Keys.CRASH_DETECTION_ENABLED] = v }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -157,6 +175,8 @@ class Settings(context: Context) {
         val LAST_SERVICE_ODO_KM = intPreferencesKey("last_service_odo_km")
         val MIRROR_ALLOWLIST = stringSetPreferencesKey("mirror_allowlist")
         val DEMO_MODE = booleanPreferencesKey("demo_mode")
+        val EMERGENCY_CONTACT_PHONE = stringPreferencesKey("emergency_contact_phone")
+        val CRASH_DETECTION_ENABLED = booleanPreferencesKey("crash_detection_enabled")
     }
 
     companion object {

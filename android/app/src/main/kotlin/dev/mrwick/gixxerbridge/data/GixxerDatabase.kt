@@ -8,13 +8,14 @@ import androidx.room.RoomDatabase
 /**
  * Singleton Room database for ride history.
  *
- * Schema version is 1; destructive migration is enabled — this is acceptable
- * pre-1.0 because the only persisted user data here is ride history (which can
- * be re-captured). Settings/profile live in DataStore, not in Room.
+ * Schema version is 2 (v2 adds [RideLocationEntity] for GPS tracks);
+ * destructive migration is enabled — this is acceptable pre-1.0 because the
+ * only persisted user data here is ride history (which can be re-captured).
+ * Settings/profile live in DataStore, not in Room.
  */
 @Database(
-    entities = [RideEntity::class, RideSampleEntity::class],
-    version = 1,
+    entities = [RideEntity::class, RideSampleEntity::class, RideLocationEntity::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class GixxerDatabase : RoomDatabase() {

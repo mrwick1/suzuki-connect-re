@@ -1,6 +1,7 @@
 package dev.mrwick.gixxerbridge.telemetry
 
 import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.location.RideLocationTracker
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -26,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 class RideLogger(
     private val store: RideStore,
     private val telemetry: StateFlow<TelemetryFrame?>,
+    private val locationTracker: RideLocationTracker? = null,
     private val silenceTimeoutMs: Long = 10 * 60 * 1000L, // 10 min
 ) {
     private val mutex = Mutex()
@@ -33,6 +35,7 @@ class RideLogger(
     private var lastSampleMillis: Long = 0
     private var startOdo: Int = 0
     private var lastFuel: Int? = null
+    private var trackerStarted: Boolean = false
 
     /** Begin observing telemetry; runs until [scope] is cancelled. */
     fun attach(scope: CoroutineScope) {
@@ -52,6 +55,24 @@ class RideLogger(
         scope.launch {
             telemetry.collect { frame -> if (frame != null) onSample(frame) }
         }
+        // GPS sink: pipe location samples into the store for the active ride.
+        // Distinct null skip handled inline; we just check rideId at write time.
+        locationTracker?.let { tracker ->
+            scope.launch {
+                tracker.samples.collect { sample ->
+                    if (sample == null) return@collect
+                    val id = rideId ?: return@collect
+                    store.appendLocation(
+                        rideId = id,
+                        tMillis = sample.tMillis,
+                        lat = sample.lat,
+                        lng = sample.lng,
+                        altitudeM = sample.altitudeM,
+                        accuracyM = sample.accuracyM,
+                    )
+                }
+            }
+        }
     }
 
     private suspend fun onSample(frame: TelemetryFrame) {
@@ -66,6 +87,11 @@ class RideLogger(
                     fuelBars = frame.fuelBars,
                 )
                 rideId = new
+                // First-sample-of-ride hook: spin up GPS tracking.
+                // No-op if FINE_LOCATION not granted (tracker self-guards).
+                if (!trackerStarted) {
+                    trackerStarted = locationTracker?.start() ?: false
+                }
                 new
             }
             store.appendSample(
@@ -97,6 +123,10 @@ class RideLogger(
                 fuelBarsEnd = lastFuel,
             )
             rideId = null
+            if (trackerStarted) {
+                locationTracker?.stop()
+                trackerStarted = false
+            }
         }
     }
 

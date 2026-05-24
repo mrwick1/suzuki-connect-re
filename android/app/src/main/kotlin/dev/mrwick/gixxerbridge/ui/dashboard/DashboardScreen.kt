@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
+import dev.mrwick.gixxerbridge.ui.cluster.ClusterPreview
 
 /** Live telemetry dashboard: speed, fuel bars, trips, odometer from the bike's a537 stream. */
 @Composable
@@ -39,6 +40,7 @@ fun DashboardScreen(vm: DashboardViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        ClusterPreview()
         SpeedCard(t)
         FuelCard(t)
         TripCard(t)

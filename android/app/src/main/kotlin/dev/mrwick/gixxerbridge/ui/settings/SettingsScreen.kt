@@ -25,13 +25,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.ui.about.AboutCardLink
+import dev.mrwick.gixxerbridge.ui.safety.SafetySection
+import dev.mrwick.gixxerbridge.ui.safety.SafetyViewModel
 
 /** Settings screen: rider identity, bike pairing, cluster toggles, phone behavior, maintenance. */
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel,
+    safetyVm: SafetyViewModel,
     onOpenPairing: () -> Unit,
     onOpenAllowlist: () -> Unit,
+    onOpenInspector: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
 ) {
     val riderName by vm.riderName.collectAsStateWithLifecycle()
     val bikeMac by vm.bikeMac.collectAsStateWithLifecycle()
@@ -100,16 +106,23 @@ fun SettingsScreen(
                 )
             }
         }
+        item { NotificationAccessRow() }
         item {
             Section("Notifications mirrored to bike") {
                 Button(onClick = onOpenAllowlist) { Text("Edit allowlist") }
             }
         }
         item {
+            SafetySection(safetyVm)
+        }
+        item {
             Section("Developer") {
                 SwitchRow("Demo mode (simulated bike telemetry)", demoMode, vm::setDemoMode)
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onOpenInspector) { Text("Open frame inspector") }
             }
         }
+        item { AboutCardLink(onClick = onOpenAbout) }
     }
 }
 

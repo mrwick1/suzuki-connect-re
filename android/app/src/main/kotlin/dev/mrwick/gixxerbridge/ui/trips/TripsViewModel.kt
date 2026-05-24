@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideEntity
+import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.data.RideStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,4 +43,15 @@ class TripsViewModel(context: Context) : ViewModel() {
     fun delete(rideId: Long) {
         viewModelScope.launch { store.deleteRide(rideId) }
     }
+
+    /**
+     * Fetch GPS locations recorded during [rideId], oldest-first.
+     * Called from TripDetailScreen's Share-GPX flow.
+     */
+    suspend fun locationsFor(rideId: Long): List<RideLocationEntity> =
+        store.getLocations(rideId)
+
+    /** Direct access to the underlying ride entity for export (snapshot fetch). */
+    suspend fun rideFor(rideId: Long): RideEntity? =
+        rides.value.firstOrNull { it.id == rideId }
 }

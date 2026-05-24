@@ -1,6 +1,8 @@
 package dev.mrwick.gixxerbridge.ble
 
 import android.app.Notification
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
@@ -15,6 +17,7 @@ import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.data.Settings
+import dev.mrwick.gixxerbridge.location.RideLocationTracker
 import dev.mrwick.gixxerbridge.nav.IdleClockGenerator
 import dev.mrwick.gixxerbridge.nav.MapsNavSource
 import dev.mrwick.gixxerbridge.nav.NavMux
@@ -23,6 +26,9 @@ import dev.mrwick.gixxerbridge.protocol.IdentityFrame
 import dev.mrwick.gixxerbridge.protocol.NavFrame
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
+import dev.mrwick.gixxerbridge.safety.CrashDetector
+import dev.mrwick.gixxerbridge.safety.SosController
+import dev.mrwick.gixxerbridge.safety.SosScreen
 import dev.mrwick.gixxerbridge.system.DndController
 import dev.mrwick.gixxerbridge.telemetry.DemoTelemetrySource
 import dev.mrwick.gixxerbridge.telemetry.PhoneState
@@ -30,6 +36,7 @@ import dev.mrwick.gixxerbridge.telemetry.RideLogger
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.weather.WeatherCache
 import dev.mrwick.gixxerbridge.weather.WeatherProvider
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
@@ -58,7 +65,11 @@ class BikeBridgeService : LifecycleService() {
     private lateinit var idleClock: IdleClockGenerator
     private lateinit var navMux: NavMux
     private lateinit var dnd: DndController
+    private lateinit var lastParked: dev.mrwick.gixxerbridge.location.LastParkedTracker
     private lateinit var rideLogger: RideLogger
+    private lateinit var sos: SosController
+    private lateinit var crashDetector: CrashDetector
+    private var crashDetectorJob: Job? = null
     private val demoSource = DemoTelemetrySource()
 
     override fun onCreate() {
@@ -71,6 +82,7 @@ class BikeBridgeService : LifecycleService() {
         phoneState = PhoneState(applicationContext).also { it.start() }
         idleClock = IdleClockGenerator()
         dnd = DndController(applicationContext)
+        lastParked = dev.mrwick.gixxerbridge.location.LastParkedTracker(applicationContext)
         weatherCache = WeatherCache(
             provider = WeatherProvider(),
             latLngProvider = {
@@ -99,9 +111,12 @@ class BikeBridgeService : LifecycleService() {
         AppGraph.navMux = navMux
 
         // Ride persistence: TelemetryRepository.latest -> Room via RideLogger.
+        // GPS track recording starts/stops with the ride; tracker no-ops without
+        // ACCESS_FINE_LOCATION so it's safe to always wire here.
         rideLogger = RideLogger(
             store = RideStore(GixxerDatabase.get(applicationContext).rideDao()),
             telemetry = TelemetryRepository.latest,
+            locationTracker = RideLocationTracker(applicationContext),
         )
         rideLogger.attach(lifecycleScope)
 
@@ -111,6 +126,25 @@ class BikeBridgeService : LifecycleService() {
         lifecycleScope.launch {
             settings.demoMode.distinctUntilChanged().collect { on ->
                 if (on) demoSource.start(lifecycleScope) else demoSource.stop()
+            }
+        }
+
+        // Safety: SOS controller is always available (used by Settings test button
+        // and by the auto-fire path below). CrashDetector is opt-in — only run while
+        // settings.crashDetectionEnabled is true.
+        sos = SosController(applicationContext)
+        crashDetector = CrashDetector(
+            history = TelemetryRepository.history,
+            onCrashSuspected = ::onCrashSuspected,
+        )
+        lifecycleScope.launch {
+            settings.crashDetectionEnabled.distinctUntilChanged().collect { on ->
+                crashDetectorJob?.cancel()
+                crashDetectorJob = if (on) {
+                    lifecycleScope.launch { crashDetector.run() }
+                } else {
+                    null
+                }
             }
         }
 
@@ -178,6 +212,9 @@ class BikeBridgeService : LifecycleService() {
                         // <= 10 min, but ending immediately on disconnect gives
                         // cleaner per-key-on ride boundaries.
                         rideLogger.endRide()
+                        // Snapshot phone GPS as the bike's likely parking spot.
+                        // Rider can later see "Bike was last parked here" on Home.
+                        lifecycleScope.launch { lastParked.snapshotOnDisconnect() }
                     }
 
                     ConnectionState.Idle,
@@ -266,6 +303,54 @@ class BikeBridgeService : LifecycleService() {
             notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
+    }
+
+    /**
+     * Called by [CrashDetector] when a sudden-deceleration pattern is observed.
+     *
+     * Posts a high-priority "Crash detected — tap if OK" notification, launches the
+     * full-screen [SosScreen] prompt (gives the rider a 10-second window to cancel),
+     * then 10s later checks [SosScreen.okPressed]. If the rider didn't dismiss it,
+     * fires the SOS SMS.
+     *
+     * ASSUMED: SosScreen launches reliably from the service context. On modern
+     * Android, full-screen intents from services without USE_FULL_SCREEN_INTENT or
+     * a foreground activity may be downgraded to a heads-up notification — we still
+     * post the notification as a fallback path so the rider can tap it.
+     */
+    private fun onCrashSuspected() {
+        // Reset the "I'm OK" flag before arming a new prompt.
+        SosScreen.okPressed = false
+
+        val n = NotificationCompat.Builder(applicationContext, GixxerApp.CHANNEL_BIKE_SERVICE)
+            .setContentTitle("Crash detected — tap if you're OK")
+            .setContentText("SOS will fire in ${SosScreen.COUNTDOWN_SECONDS} seconds otherwise.")
+            .setSmallIcon(R.drawable.ic_notification)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(SosController.NOTIF_ID_CRASH_PROMPT, n)
+
+        // Launch the full-screen prompt activity.
+        val intent = Intent(applicationContext, SosScreen::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        try {
+            startActivity(intent)
+        } catch (t: Throwable) {
+            Log.w(tag, "failed to launch SosScreen: ${t.message}")
+        }
+
+        lifecycleScope.launch {
+            delay(SosScreen.COUNTDOWN_SECONDS * 1_000L)
+            // Cancel the in-tray prompt either way.
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(SosController.NOTIF_ID_CRASH_PROMPT)
+            if (!SosScreen.okPressed) {
+                val contact = settings.emergencyContactPhone.first()
+                sos.fire(contact, sos.lastKnownLocation())
+            }
+        }
     }
 
     /** Decode the a533 byte 22 encoding back to °C, for the idle clock generator. */

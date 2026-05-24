@@ -53,7 +53,36 @@ data class RideSampleEntity(
     val fuelEconKml: Double?,
 )
 
-/** Room DAO over [rides] and [ride_samples]. */
+/**
+ * One GPS sample captured during an active ride, used to export the ride track
+ * as a GPX file. Independent of [RideSampleEntity] because telemetry samples
+ * arrive on the bike's BLE cadence (~1 Hz) while GPS samples come from the
+ * phone's [com.google.android.gms.location.FusedLocationProviderClient]
+ * (~0.2 Hz at PRIORITY_BALANCED_POWER_ACCURACY).
+ */
+@Entity(
+    tableName = "ride_locations",
+    foreignKeys = [
+        ForeignKey(
+            entity = RideEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["rideId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("rideId")],
+)
+data class RideLocationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val rideId: Long,
+    val tMillis: Long,
+    val lat: Double,
+    val lng: Double,
+    val altitudeM: Double?,
+    val accuracyM: Float?,
+)
+
+/** Room DAO over [rides], [ride_samples], and [ride_locations]. */
 @Dao
 interface RideDao {
     /** Insert a ride row; returns the new auto-generated id. */
@@ -84,6 +113,13 @@ interface RideDao {
     /** Fetch the most-recent ride that has no end timestamp, or null. */
     @Query("SELECT * FROM rides WHERE endedAtMillis IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
     suspend fun getRideInProgress(): RideEntity?
+
+    /** Insert one GPS location for a ride; returns the new auto-generated id. */
+    @Insert suspend fun insertLocation(loc: RideLocationEntity): Long
+
+    /** Fetch all GPS locations for a ride, oldest-first. */
+    @Query("SELECT * FROM ride_locations WHERE rideId = :rideId ORDER BY tMillis ASC")
+    suspend fun getLocations(rideId: Long): List<RideLocationEntity>
 }
 
 /**
@@ -177,4 +213,32 @@ class RideStore(private val dao: RideDao) {
 
     /** Fetch all samples for a ride, oldest-first. */
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)
+
+    /**
+     * Append one GPS location to a ride. Independent of [appendSample]; no
+     * aggregate refresh because GPS sampling cadence is irrelevant to the
+     * speed/odometer aggregates already maintained by [appendSample].
+     */
+    suspend fun appendLocation(
+        rideId: Long,
+        tMillis: Long,
+        lat: Double,
+        lng: Double,
+        altitudeM: Double?,
+        accuracyM: Float?,
+    ) {
+        dao.insertLocation(
+            RideLocationEntity(
+                rideId = rideId,
+                tMillis = tMillis,
+                lat = lat,
+                lng = lng,
+                altitudeM = altitudeM,
+                accuracyM = accuracyM,
+            )
+        )
+    }
+
+    /** Fetch all GPS locations for a ride, oldest-first. */
+    suspend fun getLocations(rideId: Long): List<RideLocationEntity> = dao.getLocations(rideId)
 }

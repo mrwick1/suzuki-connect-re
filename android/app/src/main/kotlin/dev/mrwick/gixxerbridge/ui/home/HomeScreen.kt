@@ -3,6 +3,8 @@ package dev.mrwick.gixxerbridge.ui.home
 import android.content.Intent
 import android.os.Build
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -17,6 +19,8 @@ import dev.mrwick.gixxerbridge.ble.BikeBridgeService
 import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
+import dev.mrwick.gixxerbridge.ui.cluster.ClusterPreview
+import dev.mrwick.gixxerbridge.ui.home.LastParkedCard
 import kotlinx.coroutines.launch
 
 /** Landing screen: connection status, big start/stop button, links to pairing. */
@@ -26,12 +30,21 @@ fun HomeScreen(onOpenPairing: () -> Unit) {
     val ctx = LocalContext.current
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("GixxerBridge", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
 
         ServiceDueBanner()
+
+        ClusterPreview()
+
+        LastParkedCard()
+
+        QuickDestinationsCard()
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(20.dp)) {
