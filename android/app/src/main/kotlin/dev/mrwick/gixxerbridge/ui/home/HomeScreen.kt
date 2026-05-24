@@ -2,11 +2,15 @@ package dev.mrwick.gixxerbridge.ui.home
 
 import android.content.Intent
 import android.os.Build
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -48,16 +52,55 @@ fun HomeScreen(onOpenPairing: () -> Unit) {
 
         QuickDestinationsCard()
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+        val isFailed = state is ConnectionState.Failed
+        val isIdle = state is ConnectionState.Idle
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .let { if (isFailed) it.clickable {
+                    val intent = Intent(ctx, BikeBridgeService::class.java)
+                    ctx.stopService(intent)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        ContextCompat.startForegroundService(ctx, intent)
+                    } else {
+                        ctx.startService(intent)
+                    }
+                } else it },
+        ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("Connection", style = MaterialTheme.typography.labelLarge)
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = stateLabel(state),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = stateColor(state),
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isFailed) {
+                        Icon(
+                            Icons.Default.Error,
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(
+                        text = stateLabel(state),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = stateColor(state),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                if (isIdle) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Tap Start GixxerBridge below to connect.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                    )
+                } else if (isFailed) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Tap to retry",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFEF4444),
+                    )
+                }
             }
         }
 

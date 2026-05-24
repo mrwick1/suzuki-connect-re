@@ -9,20 +9,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
@@ -33,14 +37,34 @@ import kotlin.math.max
 
 /** Trips list screen: one card per persisted ride, tap to open detail, swipe-less delete. */
 @Composable
-fun TripsScreen(vm: TripsViewModel, onOpenRide: (Long) -> Unit) {
+fun TripsScreen(
+    vm: TripsViewModel,
+    onOpenRide: (Long) -> Unit,
+    onOpenSettings: () -> Unit = {},
+) {
     val rides by vm.rides.collectAsStateWithLifecycle()
     if (rides.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "No rides yet — take the bike for a spin.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(24.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DirectionsBike,
+                    contentDescription = null,
+                    tint = Color(0xFF334155),
+                    modifier = Modifier.size(96.dp),
+                )
+                Text(
+                    "No rides yet — take the bike for a spin.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF94A3B8),
+                )
+                TextButton(onClick = onOpenSettings) {
+                    Text("or enable Demo mode to explore the app")
+                }
+            }
         }
         return
     }

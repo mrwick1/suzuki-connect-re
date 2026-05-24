@@ -87,6 +87,10 @@ class Settings(context: Context) {
     val crashDetectionEnabled: Flow<Boolean> =
         ds.data.map { it[Keys.CRASH_DETECTION_ENABLED] ?: false }
 
+    /** When true, the first-run onboarding wizard has been completed. Default false. */
+    val onboardingComplete: Flow<Boolean> =
+        ds.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }
@@ -160,6 +164,11 @@ class Settings(context: Context) {
         ds.edit { it[Keys.CRASH_DETECTION_ENABLED] = v }
     }
 
+    /** Mark the first-run onboarding wizard as complete (true) or reset (false). */
+    suspend fun setOnboardingComplete(v: Boolean) {
+        ds.edit { it[Keys.ONBOARDING_COMPLETE] = v }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -177,6 +186,7 @@ class Settings(context: Context) {
         val DEMO_MODE = booleanPreferencesKey("demo_mode")
         val EMERGENCY_CONTACT_PHONE = stringPreferencesKey("emergency_contact_phone")
         val CRASH_DETECTION_ENABLED = booleanPreferencesKey("crash_detection_enabled")
+        val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
     }
 
     companion object {

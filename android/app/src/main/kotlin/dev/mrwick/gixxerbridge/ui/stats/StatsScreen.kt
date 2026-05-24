@@ -14,9 +14,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -52,7 +57,11 @@ import java.util.Locale
  * re-compute on actual data changes, not on every recomposition.
  */
 @Composable
-fun StatsScreen(vm: StatsViewModel) {
+fun StatsScreen(
+    vm: StatsViewModel,
+    onOpenSettings: () -> Unit = {},
+    onOpenMileage: () -> Unit = {},
+) {
     val rides by vm.rides.collectAsStateWithLifecycle()
     val recentSamples by vm.recentSamples.collectAsStateWithLifecycle()
     val lastNSamples by vm.lastNSamples.collectAsStateWithLifecycle()
@@ -74,11 +83,26 @@ fun StatsScreen(vm: StatsViewModel) {
 
     if (rides.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "No rides yet — take the bike for a spin to populate stats.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF94A3B8),
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(24.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DirectionsBike,
+                    contentDescription = null,
+                    tint = Color(0xFF334155),
+                    modifier = Modifier.size(96.dp),
+                )
+                Text(
+                    "No rides yet — take the bike for a spin to populate stats.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF94A3B8),
+                )
+                TextButton(onClick = onOpenSettings) {
+                    Text("or enable Demo mode to explore the app")
+                }
+            }
         }
         return
     }
@@ -115,6 +139,11 @@ fun StatsScreen(vm: StatsViewModel) {
         )
 
         PersonalBestsCard(bests)
+
+        OutlinedButton(
+            onClick = onOpenMileage,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Add fuel fill / view true mileage") }
     }
 }
 

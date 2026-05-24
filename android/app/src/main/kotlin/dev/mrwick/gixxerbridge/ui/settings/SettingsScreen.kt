@@ -38,6 +38,7 @@ fun SettingsScreen(
     onOpenAllowlist: () -> Unit,
     onOpenInspector: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    onOpenMileage: () -> Unit = {},
 ) {
     val riderName by vm.riderName.collectAsStateWithLifecycle()
     val bikeMac by vm.bikeMac.collectAsStateWithLifecycle()
@@ -104,6 +105,8 @@ fun SettingsScreen(
                     label = { Text("Service interval (km)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onOpenMileage) { Text("Fuel log / true mileage") }
             }
         }
         item { NotificationAccessRow() }

@@ -1,6 +1,8 @@
 package dev.mrwick.gixxerbridge.ui.about
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -75,6 +77,19 @@ fun AboutScreen() {
                         "Personal interoperability project.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = {
+                        val intent = Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/mrwick/gixxer-bridge"),
+                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                        runCatching { context.startActivity(intent) }
+                    },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                ) {
+                    Text("View on GitHub", style = MaterialTheme.typography.labelMedium)
+                }
             }
         }
     }

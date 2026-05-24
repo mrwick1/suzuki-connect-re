@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.appcompat.app.AppCompatActivity
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTheme
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
@@ -30,6 +31,14 @@ import dev.mrwick.gixxerbridge.ui.inspector.InspectorScreen
 import dev.mrwick.gixxerbridge.ui.inspector.InspectorViewModel
 import dev.mrwick.gixxerbridge.ui.lock.AppLockGate
 import dev.mrwick.gixxerbridge.ui.lock.AppLockViewModel
+import dev.mrwick.gixxerbridge.ui.mileage.MileageScreen
+import dev.mrwick.gixxerbridge.ui.mileage.MileageViewModel
+import dev.mrwick.gixxerbridge.ui.onboarding.OnboardingScreen
+import dev.mrwick.gixxerbridge.ui.onboarding.OnboardingViewModel
+import dev.mrwick.gixxerbridge.data.Settings
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.flow.first
 import dev.mrwick.gixxerbridge.ui.settings.AllowlistScreen
 import dev.mrwick.gixxerbridge.ui.settings.AllowlistViewModel
 import dev.mrwick.gixxerbridge.ui.settings.PairingScreen
@@ -57,10 +66,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                val lockVm: AppLockViewModel = viewModel(factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application))
-                AppLockGate(lockVm) {
-                    AppShell()
+            GixxerTheme {
+                OnboardingGate {
+                    val lockVm: AppLockViewModel = viewModel(factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application))
+                    AppLockGate(lockVm) {
+                        AppShell()
+                    }
                 }
             }
         }
@@ -83,6 +94,50 @@ class MainActivity : AppCompatActivity() {
         } else {
             blePermLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
         }
+    }
+}
+
+/**
+ * Full-screen overlay that hides [content] until the first-run wizard is
+ * complete. Mirrors the [AppLockGate] pattern.
+ *
+ * - While loading the flag (one DataStore read), shows a blank+spinner so we
+ *   don't flash the app shell.
+ * - When the flag is false, shows [OnboardingScreen]; completion flips the
+ *   flag and this gate dismisses on the next recomposition.
+ * - When true, just renders [content].
+ */
+@Composable
+private fun OnboardingGate(content: @Composable () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val settings = remember { Settings(ctx.applicationContext) }
+    // null = still loading; we want to avoid showing the app shell briefly
+    // before the gate kicks in for a never-onboarded user.
+    val onboardingDone by produceState<Boolean?>(initialValue = null) {
+        value = try {
+            settings.onboardingComplete.first()
+        } catch (_: Throwable) {
+            // ASSUMED: if DataStore read fails for any reason, fall open so the
+            // user isn't stuck on a spinner forever. Onboarding can be replayed
+            // from settings later if we add a "reset onboarding" toggle.
+            true
+        }
+        // After the initial read we don't need to keep observing — the wizard
+        // setter triggers recomposition through the OnboardingViewModel path,
+        // and the gate flips below via a second collector.
+        settings.onboardingComplete.collect { value = it }
+    }
+    when (onboardingDone) {
+        null -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        false -> {
+            val vm: OnboardingViewModel = viewModel()
+            OnboardingScreen(vm)
+        }
+        true -> content()
     }
 }
 
@@ -133,7 +188,11 @@ private fun AppShell() {
                         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
                             TripsViewModel(ctx.applicationContext) as T
                     })
-                    TripsScreen(vm, onOpenRide = { rideId -> nav.navigate("trip/$rideId") })
+                    TripsScreen(
+                        vm,
+                        onOpenRide = { rideId -> nav.navigate("trip/$rideId") },
+                        onOpenSettings = { nav.navigate(Tab.Settings.route) },
+                    )
                 }
                 composable("trip/{rideId}") { backStackEntry ->
                     val rideId = backStackEntry.arguments?.getString("rideId")?.toLongOrNull() ?: 0L
@@ -153,7 +212,21 @@ private fun AppShell() {
                         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
                             StatsViewModel(app) as T
                     })
-                    StatsScreen(vm)
+                    StatsScreen(
+                        vm,
+                        onOpenSettings = { nav.navigate(Tab.Settings.route) },
+                        onOpenMileage = { nav.navigate("mileage") },
+                    )
+                }
+                composable("mileage") {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val app = ctx.applicationContext as android.app.Application
+                    val vm: MileageViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                            MileageViewModel(app) as T
+                    })
+                    MileageScreen(vm)
                 }
                 composable("inspector") {
                     val vm: InspectorViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
@@ -171,6 +244,7 @@ private fun AppShell() {
                         onOpenAllowlist = { nav.navigate("allowlist") },
                         onOpenInspector = { nav.navigate("inspector") },
                         onOpenAbout = { nav.navigate("about") },
+                        onOpenMileage = { nav.navigate("mileage") },
                     )
                 }
                 composable("pairing") {
