@@ -990,6 +990,86 @@ Reflashing the cluster firmware remains the same "wildly disproportionate to the
 
 If we ever revisit, the first concrete step is the WPC database query — cheaper than the dealer trip, cheaper than the teardown.
 
+## 2026-05-24 — Connection handshake fully mapped + auth verdict
+
+### What we did
+
+Read both `C.K()` (3986 instr units) and `C.L()` (4882 instr units) — the two giant methods in the C fragment we hadn't explored. **Neither contains handshake logic** — both are giant UI dispatchers (nested switches on bike model × color variant, with each leaf setting an `R.drawable.<bike_model>_<color>` image). That rules out one hypothesis cleanly.
+
+Then traced the actual handshake by following the FastBle `BleGattCallback` subclass:
+
+- `com.suzuki.activity.C0855q0` extends `com.clj.fastble.callback.a` (= `BleGattCallback`)
+- Connect entry point: `DeviceListingScanActivity.m(bleDevice)` → `BleManager.connect(bleDevice, new C0855q0(this, 1))`
+- On `onConnectSuccess` (`C0855q0.b()`), case `default` (fresh pair via DeviceListingScanActivity):
+  1. Set MTU via `.k(bleDevice, new J(0))`
+  2. Save cluster name + MAC to `BLE_DEVICE` SharedPreferences
+  3. Set `K.s = true` (FRESH) if cluster name differs from `prev_cluster`, else `K.s = false` (RECONNECT)
+  4. Broadcast `Intent("status")` with `status=true`
+  5. After 500 ms delay → `MyBleService.a(bleDevice)` (subscribe to `0xFFF2` notify)
+- On `onConnectSuccess`, case `0` (reconnect via HomeScreenActivity background):
+  1. Set MTU, broadcast `closeDialogActivity`, finish DeviceListingScanActivity if open
+  2. Sleep 500 ms → `MyBleService.a(bleDevice)`
+
+### Complete handshake sequence
+
+```
+1. User opens DeviceListingScanActivity → BLE scan
+2. User taps bike entry
+3. DeviceListingScanActivity.m(bleDevice) → BleManager.connect(...)
+4. onConnectSuccess (C0855q0.b case=default)
+     - MTU negotiated
+     - Cluster name/MAC saved to SharedPreferences
+     - K.s set based on whether this matches the last paired cluster name
+     - 500 ms delay
+5. MyBleService.a(bleDevice) — subscribes to 0xFFF2 notify
+     (At this point bike is silent — does NOT push a537 yet)
+6. C0940y TimerTask scheduled at 1 Hz (scheduled in r.java when connection-state event fires)
+7. First C0940y tick (delay 0ms):
+     - Build a536 frame: "?6" + user.name + 0xFF×5 + ('F' if K.s else 'R') + chk + 0x7F
+     - Send via MyBleService.f(bytes, 36)
+8. Bike receives a536 → starts streaming a537 (telemetry) every ~5 s on 0xFFF2
+9. Subsequent C0940y ticks (1s cadence):
+     - Send a533 heartbeat (with current battery + speed + time + SMS/call flags)
+     - If active nav: A0.D() also sends a531 frames (~2.7 Hz)
+10. Event-driven frames fire as needed:
+     - Incoming call → a532
+     - Missed call → a534
+     - SMS / WhatsApp notification → a535
+```
+
+### MAJOR finding: NO protocol-level authentication
+
+**The Suzuki Connect protocol has zero application-layer authentication.** From the source:
+
+- No key exchange, no challenge-response, no HMAC, no signed messages
+- `K.s` (fresh vs reconnect) is **purely cosmetic** — it just toggles byte 27 of a536 between `'F'` and `'R'`. The bike does not gate behavior on this byte; it's a hint for the cluster's UI to display "first-time pairing" vs "welcome back" type prompts (if it even uses it).
+- The only "identity" sent is the user's display name in a536, which is plaintext and trivial to forge
+- The "pairing" is just Android's standard BLE GATT connection — there's no Suzuki-specific auth on top
+
+**What this implies (hypotheses to verify, NOT facts):**
+
+- **Hypothesis A**: Anyone within BLE range of a Suzuki Connect cluster can connect and send a531/a532/a533/a534/a535/a536 frames. The cluster would parse and act on them. No spoofing protection.
+- **Hypothesis B**: The bike might still gate on BLE-level bonding (the cluster could require Just Works bonding before accepting writes on 0xFFF1). This is a separate layer below the Suzuki protocol — we haven't verified.
+- **Hypothesis C**: The cluster might enforce per-cluster MAC pairing (only respond to one phone MAC at a time, learned during the first connection). Also unverified.
+
+**To verify**: write a custom Python (bleak) script that scans for the bike's BLE name, connects, subscribes to `0xFFF2`, sends a fabricated a536 identity, and observes whether a537 telemetry starts streaming back. If yes → no MAC pinning, no BLE-bond requirement. If no → there's some bonding/pinning layer we need to understand. We have `tools/passive_listen.py` already; this would be a small follow-on script.
+
+**Phase 2 / Phase 3 implication**: a replacement Android app needs only the BLE protocol library — no auth handshake to replicate. If hypotheses A and B both hold, a Linux laptop or ESP32 could fully replace the phone with no Suzuki app at all.
+
+### What this closes
+
+- "How does the app pair with a new bike?" → mapped end-to-end
+- "Is there an auth handshake?" → no application-layer one. BLE-layer bonding TBD.
+- "What does C.K() / C.L() do?" → giant UI dispatchers for bike-model imagery, not protocol
+- "When does the bike start sending a537?" → after the phone sends its first a536
+
+### What's still open
+
+- BLE-bonding requirement (Hypothesis B above) — test with custom client
+- MAC pinning (Hypothesis C above) — same test
+- Whether the cluster keeps multiple "trusted phones" — would matter for a multi-user setup
+- The `H(bleDevice, 0).run()` Runnable's second `Handler.postDelayed` call (with `bluetoothGatt`) — what's the follow-up action 500 ms after `MyBleService.a()`?
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.

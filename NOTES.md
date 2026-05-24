@@ -370,11 +370,11 @@ Captured via direct GATT walk from laptop on M0 with bike key ON, Suzuki Connect
 
 ### Implications for the plan
 
-- **M4 (encryption layer)**: still TBD. With only one write+notify pair, encryption (if any) wraps the entire message payload — there's no separate "auth channel" we missed. M3 Frida hook on `BluetoothGattCharacteristic.setValue` plus M2 wire capture cross-reference will reveal whether 0xFFF1 writes are encrypted.
-- **M5 (nav protocol decode)**: target characteristic for nav is `0xFFF1`. All writes we see on it during a nav session ARE nav messages (no need to filter handles — there's only one write char).
-- **M7 (telemetry surface) / Phase 3 Branch B**: the bike does NOT expose separate "telemetry" characteristics — there are no `unused` notify chars to subscribe to. Any extra telemetry must be **multiplexed within the single 0xFFF2 notify stream**. M7 therefore becomes "what message types appear on 0xFFF2 that the app doesn't visibly act on?" rather than "subscribe to many unused chars." This makes Phase 3 Branch B (telemetry dashboard) substantially more constrained — only what Suzuki chose to push over notify is visible.
-- **Gate 5 (full BLE surface enumerated)**: M1.6 deliverable already met by this walk. Will be expanded with `app-used` analysis once M1 APK decompile is done.
-- **Gate 2 (send valid third-party message)**: no PKOC, so no public-key handshake to defeat. The auth layer (if any) is whatever Suzuki coded above `setValue()` — should be discoverable in M4.
+- **M4 (encryption layer)**: RESOLVED 2026-05-24. Payloads are plaintext ASCII. No encryption layer at the protocol level. No HMAC. No challenge-response. No session key. The 1-byte checksum is `sum(bytes[1:28]) mod 256` — confirmed across 5,619 captured frames in `tests/test_protocol.py` + `tools/validate_pcap.py`. M4 collapses to "verify nothing further" rather than "decrypt something."
+- **M5 (nav protocol decode)**: RESOLVED 2026-05-24. `a531` (nav frame) is fully decoded — see DISCOVERIES.md and the `NavFrame` dataclass in `tools/protocol.py`.
+- **M7 (telemetry surface) / Phase 3 Branch B**: RESOLVED 2026-05-24. Bike → phone is `a537`-ONLY (no other message types). a537 carries speed + odo + Trip A + Trip B + fuel bars + fuel economy. Fully decoded — `TelemetryFrame` in `tools/protocol.py`. Branch B is "subscribe to 0xFFF2 + decode a537 + display."
+- **Gate 5 (full BLE surface enumerated)**: complete. One service (0xFFF0) with one write char (0xFFF1) and one notify char (0xFFF2). 7 message types total, all decoded.
+- **Gate 2 (send valid third-party message)**: RESOLVED 2026-05-24. No application-layer auth — no PKOC, no HMAC, no session key, no signed messages. To send a valid frame: construct the 30 bytes with our `protocol.py` library (checksum auto-computed) and write to 0xFFF1. Whether BLE-layer bonding is required is still TBD (Hypothesis B in DISCOVERIES.md 2026-05-24 "Connection handshake" section) — needs a custom-client test.
 
 ## Message types and structure (M0 preliminary, M5 will refine)
 
@@ -518,7 +518,7 @@ That is, sum the bytes from position 1 (type byte) through position 27 (last bod
 
 1. **Turn-arrow / nav-instruction encoding**: We expected to see explicit turn-type bytes (TURN_LEFT etc.). We don't — but the bike DOES show turn instructions when we navigate. Hypothesis: turn type + distance is embedded in `a531` payload fields we haven't decoded yet (one of the byte regions we currently read as "distance" might be a compound `<direction><distance>`). To be resolved in M5 with targeted captures.
 
-2. **Variable checksum on identical visible content**: Of the 36 `a536` ("ARJUN") messages, all have identical visible payloads, BUT two distinct trailing checksums (`46 f7 7f` and `52 03 7f`) — split by capture timeline (early vs late). Pure-payload CRC would give a single answer. This means the checksum involves **hidden state** — most likely a session counter or per-session HMAC key established at pairing. **This is the hardest problem for Gate 2**: we cannot construct valid messages unless we can reproduce the checksum, which requires understanding the hidden state. Resolved in M4.
+2. ~~**Variable checksum on identical visible content**~~ — **RESOLVED 2026-05-24 (was wrong)**. The two distinct trailing checksums seen on a536 frames (`46 f7 7f` and `52 03 7f`) were NOT evidence of hidden state. Byte 27 of a536 is `'F'` (0x46, fresh cluster connection) vs `'R'` (0x52, reconnect to known cluster) — set per the `K.s` flag in `services/d.java`. Byte 27 changes by `0x52 - 0x46 = +0x0C`, so checksum changes by `+0x0C` too: `0xF7 + 0x0C = 0x103 mod 256 = 0x03`. The two checksums match exactly what a simple `sum(bytes[1:28]) mod 256` predicts. No hidden state, no session counter, no HMAC. Fully reproducible by `tools/protocol.py`'s `IdentityFrame.encode()`.
 
 ## Where do the app's fuel/odo/trip values come from? (OPEN — verification in progress)
 
