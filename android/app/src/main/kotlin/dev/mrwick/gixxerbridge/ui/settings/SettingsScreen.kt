@@ -52,6 +52,7 @@ fun SettingsScreen(
     val dnd by vm.autoDndOnConnect.collectAsStateWithLifecycle()
     val service by vm.serviceIntervalKm.collectAsStateWithLifecycle()
     val demoMode by vm.demoMode.collectAsStateWithLifecycle()
+    val keepScreenOn by vm.keepScreenOn.collectAsStateWithLifecycle()
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -94,6 +95,7 @@ fun SettingsScreen(
                 SwitchRow("Auto-start GixxerBridge after boot", autoStart, vm::setAutoStartOnBoot)
                 SwitchRow("Auto-DND when bike connects", dnd, vm::setAutoDndOnConnect)
                 SwitchRow("Require unlock on app launch", appLock, vm::setAppLockEnabled)
+                SwitchRow("Keep screen on while connected", keepScreenOn, vm::setKeepScreenOnWhileConnected)
             }
         }
         item { DndAccessPermissionRow() }
@@ -128,6 +130,10 @@ fun SettingsScreen(
                 SwitchRow("Demo mode (simulated bike telemetry)", demoMode, vm::setDemoMode)
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenInspector) { Text("Open frame inspector") }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = { vm.resetOnboarding() }) {
+                    Text("Reset onboarding (replay wizard)")
+                }
             }
         }
         item { AboutCardLink(onClick = onOpenAbout) }

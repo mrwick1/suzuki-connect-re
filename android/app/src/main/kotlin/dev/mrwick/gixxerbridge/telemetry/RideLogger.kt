@@ -116,12 +116,27 @@ class RideLogger(
         mutex.withLock {
             val id = rideId ?: return
             val last = telemetry.value
-            store.endRide(
-                rideId = id,
-                endedAtMillis = System.currentTimeMillis(),
-                endOdoKm = last?.odometerKm ?: startOdo,
-                fuelBarsEnd = lastFuel,
-            )
+            val endOdo = last?.odometerKm ?: startOdo
+            val distance = endOdo - startOdo
+            val now = System.currentTimeMillis()
+            val durationMs = now - lastSampleMillis  // proxy for ride duration
+
+            // Discard noise: if the bike was on for <30 s AND moved <1 km, this is
+            // probably a key-on-and-off blip (or Demo mode flapping) — drop the
+            // record entirely rather than polluting the trip log with empty rows.
+            // ASSUMED: 1 km + 30 s is the right threshold; bump if real ride starts
+            // get discarded.
+            val shouldDiscard = distance < 1 && durationMs < MIN_RIDE_DURATION_MS
+            if (shouldDiscard) {
+                store.deleteRide(id)
+            } else {
+                store.endRide(
+                    rideId = id,
+                    endedAtMillis = now,
+                    endOdoKm = endOdo,
+                    fuelBarsEnd = lastFuel,
+                )
+            }
             rideId = null
             if (trackerStarted) {
                 locationTracker?.stop()
@@ -133,5 +148,8 @@ class RideLogger(
     private companion object {
         // Watchdog wakeup cadence. One minute is the original spec.
         const val WATCHDOG_TICK_MS = 60_000L
+        // Minimum elapsed time + distance below which a "ride" is treated as
+        // noise and silently dropped on end (instead of polluting the log).
+        const val MIN_RIDE_DURATION_MS = 30_000L
     }
 }

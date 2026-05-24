@@ -341,6 +341,10 @@ class BikeBridgeService : LifecycleService() {
         AppGraph.bleClient = null
         AppGraph.frameWriter = null
         AppGraph.navMux = null
+        // Reset the public connection-state flow so the Home screen's
+        // start/stop button text reflects "service is gone" (Idle) instead of
+        // sticking on the last observed state (e.g. Disconnected/Failed/Ready).
+        AppGraph.publishConnectionState(ConnectionState.Idle)
         TelemetryRepository.reset()
         super.onDestroy()
     }

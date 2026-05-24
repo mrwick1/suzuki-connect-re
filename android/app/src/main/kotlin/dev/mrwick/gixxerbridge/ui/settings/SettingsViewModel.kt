@@ -30,6 +30,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.DEFAULT_SERVICE_INTERVAL_KM)
     val demoMode = settings.demoMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val keepScreenOn = settings.keepScreenOnWhileConnected
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setRiderName(name: String) {
         viewModelScope.launch { settings.setRiderName(name) }
@@ -61,5 +63,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setDemoMode(v: Boolean) {
         viewModelScope.launch { settings.setDemoMode(v) }
+    }
+
+    /** Toggle the "keep screen on while connected" preference. */
+    fun setKeepScreenOnWhileConnected(v: Boolean) {
+        viewModelScope.launch { settings.setKeepScreenOnWhileConnected(v) }
+    }
+
+    /** Clear the onboarding-complete flag so the first-run wizard replays on next app launch. */
+    fun resetOnboarding() {
+        viewModelScope.launch { settings.setOnboardingComplete(false) }
     }
 }

@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.ui.inspector
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.FilterChip
@@ -30,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -37,10 +41,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.ble.FrameEvent
+import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.protocol.FrameType
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -63,10 +70,35 @@ fun InspectorScreen(vm: InspectorViewModel) {
         if (!paused && filtered.isNotEmpty()) listState.animateScrollToItem(filtered.size - 1)
     }
 
+    val context = LocalContext.current
+
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("BLE Frame Inspector") },
             actions = {
+                IconButton(onClick = {
+                    val snapshot = events
+                    if (snapshot.isEmpty()) {
+                        Toast.makeText(context, "Nothing to save — frame buffer is empty", Toast.LENGTH_SHORT).show()
+                        return@IconButton
+                    }
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                    val cache = File(context.cacheDir, "inspector-$stamp.csv")
+                    cache.writeText(CsvExporter.framesToCsv(snapshot))
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        cache,
+                    )
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Save inspector log"))
+                }) {
+                    Icon(Icons.Default.Download, contentDescription = "Save log")
+                }
                 IconButton(onClick = { vm.togglePause() }) {
                     Icon(
                         imageVector = if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,

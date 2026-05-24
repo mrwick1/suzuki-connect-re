@@ -91,6 +91,10 @@ class Settings(context: Context) {
     val onboardingComplete: Flow<Boolean> =
         ds.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }
 
+    /** When true, the foreground UI keeps the screen awake while the bike is connected. Default off — opt-in. */
+    val keepScreenOnWhileConnected: Flow<Boolean> =
+        ds.data.map { it[Keys.KEEP_SCREEN_ON] ?: false }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }
@@ -169,6 +173,11 @@ class Settings(context: Context) {
         ds.edit { it[Keys.ONBOARDING_COMPLETE] = v }
     }
 
+    /** Toggle whether the foreground UI keeps the screen awake while connected. */
+    suspend fun setKeepScreenOnWhileConnected(v: Boolean) {
+        ds.edit { it[Keys.KEEP_SCREEN_ON] = v }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -187,6 +196,7 @@ class Settings(context: Context) {
         val EMERGENCY_CONTACT_PHONE = stringPreferencesKey("emergency_contact_phone")
         val CRASH_DETECTION_ENABLED = booleanPreferencesKey("crash_detection_enabled")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
+        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_while_connected")
     }
 
     companion object {

@@ -51,6 +51,10 @@ class TripsViewModel(context: Context) : ViewModel() {
     suspend fun locationsFor(rideId: Long): List<RideLocationEntity> =
         store.getLocations(rideId)
 
+    /** Fetch telemetry samples for [rideId], oldest-first. Used by Share-CSV. */
+    suspend fun samplesFor(rideId: Long): List<RideSampleEntity> =
+        store.getSamples(rideId)
+
     /** Direct access to the underlying ride entity for export (snapshot fetch). */
     suspend fun rideFor(rideId: Long): RideEntity? =
         rides.value.firstOrNull { it.id == rideId }

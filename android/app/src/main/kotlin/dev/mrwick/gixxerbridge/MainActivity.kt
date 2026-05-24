@@ -29,6 +29,7 @@ import dev.mrwick.gixxerbridge.ui.dashboard.DashboardViewModel
 import dev.mrwick.gixxerbridge.ui.home.HomeScreen
 import dev.mrwick.gixxerbridge.ui.inspector.InspectorScreen
 import dev.mrwick.gixxerbridge.ui.inspector.InspectorViewModel
+import dev.mrwick.gixxerbridge.ui.KeepScreenOnEffect
 import dev.mrwick.gixxerbridge.ui.lock.AppLockGate
 import dev.mrwick.gixxerbridge.ui.lock.AppLockViewModel
 import dev.mrwick.gixxerbridge.ui.mileage.MileageScreen
@@ -71,6 +72,9 @@ class MainActivity : AppCompatActivity() {
                     val lockVm: AppLockViewModel = viewModel(factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application))
                     AppLockGate(lockVm) {
                         AppShell()
+                        // Drives FLAG_KEEP_SCREEN_ON on this activity's window based on
+                        // the user's pref + live connection state. Cleared on dispose.
+                        KeepScreenOnEffect()
                     }
                 }
             }
