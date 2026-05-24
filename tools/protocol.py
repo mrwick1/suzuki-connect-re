@@ -93,9 +93,38 @@ class TelemetryFrame:
     trip_a_km: float                # bytes 11-16, decoded as XXXXX.X
     trip_b_km: float                # bytes 17-22, same format
     fuel_bars: Optional[int]        # byte 24, '1'-'6' for petrol; None otherwise
-    fuel_econ_kml: Optional[float]  # bytes 25-27, 13.11 fixed-point /10; None if 0xFFFFFF sentinel
-    byte_23: int = 0x4E             # observed 'N' in captures; semantic unconfirmed
+    fuel_econ_kml: Optional[float]  # See fuel_econ caveat in docstring below; decoded value is
+                                    # ~5-10x too high for Gixxer SF 150 — see DISCOVERIES.md
+                                    # 2026-05-24 "Fuel-economy decoded correctly" entry.
+                                    # The bike-side scale is byte_25 / 2 (median ~48 km/L observed).
+                                    # The decoded fuel_econ_kml here uses the legacy default-petrol
+                                    # formula which is wrong for this bike. Use .fuel_econ_kml_v2.
+    byte_23: int = 0x4E             # constant 0x4E ('N') across all 159+5619 frames observed
     raw: Optional[bytes] = field(default=None, repr=False)
+
+    @property
+    def fuel_econ_kml_v2(self) -> Optional[float]:
+        """Gixxer SF 150-validated fuel-economy decode (byte 25 / 2).
+
+        The legacy fuel_econ_kml field uses the default-petrol "13.11 fixed-point /10"
+        formula from HomeScreenActivity.onClusterDataRecev, which assumes a 24-bit value
+        across bytes 25-27. Live ride data (DISCOVERIES.md 2026-05-24) showed that bytes
+        26-27 are ALWAYS 0xFF padding for Gixxer SF 150 — only byte 25 varies. The
+        legacy decode produces 131-371 km/L garbage by fitting noise into the 24-bit
+        slot. This property uses byte_25 / 2 directly, which lands at 20-57.5 km/L
+        (median 48) — realistic for a Gixxer SF 150.
+
+        Caveat: byte 25 monotonically increases through a ride AND ticks during engine-off
+        idle, so it's NOT instantaneous fuel-economy. Most likely the cluster's
+        trip-average km/L since last reset (scaled ×2). Verify by photographing the
+        cluster's avg-kml reading during a future ride and comparing.
+        """
+        if self.raw is None:
+            return None
+        b25 = self.raw[25]
+        if b25 == 0xFF:
+            return None
+        return b25 / 2.0
 
     @classmethod
     def decode(cls, frame: bytes) -> "TelemetryFrame":
@@ -207,7 +236,14 @@ class NavFrame:
                             #   '4' = GPS provider disabled (A0.Z)
                             #   '5' = destination reached (A0.a0; STICKY forever, no source reset)
                             #   '6' = phone has no network (A0.v0)
-    continue_flag: str      # byte 24: '0' = terminate nav, else continue
+    continue_flag: str      # byte 24: '0' = phone-side BLE-graceful-disconnect signal
+                            # (NOT "user terminated nav" as previously thought).
+                            # In the ride pcap, '0' fires 2-3 frames immediately BEFORE every
+                            # BLE drop, telling the cluster "I'm about to disappear, hold state."
+                            # 6 frames in the ride had cf='0' with status='1' — app fired
+                            # then recanted milliseconds later. Bike treats '0' as a one-shot
+                            # teardown hint, not a permanent terminate.
+                            # See DISCOVERIES.md 2026-05-24 "continue_flag corrected" entry.
     raw: Optional[bytes] = field(default=None, repr=False)
 
     @classmethod
@@ -270,11 +306,23 @@ class HeartbeatFrame:
 
     battery_bucket: str    # byte 2: '0'/'1'/'2'/'3' (phone battery 0-24% / 25-49% / 50-74% / 75-100%)
     charging: str          # byte 3: 'Y' (charging) or 'N' (not charging)
-    speed_str: str         # bytes 4-6: 3-char zero-padded speed; "\xff\xff\xff" if speed==0
+    speed_str: str         # bytes 4-6: 3-char zero-padded speed; "\xff\xff\xff" if speed==0.
+                           # NOTE: ride pcap confirmed this field is HARDCODED stale across the
+                           # entire 17-min session (all 393 heartbeats = '214' verbatim, the
+                           # value left in SharedPreferences). The phone never updates c.P from
+                           # live GPS in this firmware build. Bike doesn't trust this anyway
+                           # (it has its own ECU speed in a537). Forging tools can set anything.
     signal_status: str     # byte 7: phone cell signal bars 0-3 (same encoding as a531 status); 0x00 if "0"
-    time_hhmmss: str       # bytes 8-13: 6-char wall-clock time in hhmmss (12-hour); 0xFF×6 if "000000"
+    time_hhmmss: str       # bytes 8-13: 6-char wall-clock time in hhmmss (12-hour); 0xFF×6 if "000000".
+                           # Ride pcap shows uniform +1.0s drift behind wall-clock — captured at
+                           # heartbeat-construction time, transmitted ~1s later.
     sms_pending: str       # byte 14: 'N' (default) or 'Y' (set by NotificationService)
-    call_pending: str      # byte 15: 'N' (default) or 'Y' (set by CallReceiverBroadcast)
+    call_pending: str      # byte 15: 'N' (default) or 'Y' (set by CallReceiverBroadcast).
+                           # NOTE: dead code in Gixxer SF 150 firmware build. Ride pcap cross-
+                           # checked ±6s around all 27 a532/a534 events — NEVER set to 'Y',
+                           # even during active inbound cellular AND WhatsApp calls. Calls are
+                           # conveyed exclusively via the discrete a532/a534 frames; the
+                           # heartbeat flag is vestigial. May be active in other bike models.
     weather: int = 0x01    # byte 21: c.M weather code 0-11 (1=sunny, 2=cloudy, 3=fog, 6=rain, 7=snow, etc.). 0xFF if K.g==true.
     temp_f_plus_115: int = 0x00  # byte 22: (int) c.N = ceil(Fahrenheit) + 115. Decode: F = byte - 115; C = (F-32)*5/9. 0xFF if K.g==true.
     tail_const: int = 0x01 # byte 23: literal 1. 0xFF if K.g==true.

@@ -1328,6 +1328,109 @@ This same uncertainty applies to other "gap" IDs in the bike's protocol space (9
 - Maneuver 39 cluster rendering — empirical-only question; needs visual cluster observation during nav.
 - Reverse the `e.b0` state values (20-26) which gate the 72→65-71 remap in C0897z — currently unknown what triggers each.
 
+### 2026-05-24 — Bike does NOT render weather/temperature (user confirmation)
+
+Direct user observation: **the Gixxer SF 150 cluster does not display any weather icon or temperature reading during navigation.**
+
+This is despite the fact that we captured:
+- 308 a533 frames with `weather=2` ('cloudy')
+- 85 a533 frames with `weather=1` ('sunny')
+- 393 a533 frames with `temp_f_plus_115 = 199-202` (= 84-87°F = 29-31°C, valid live data from Mappls)
+
+So the end-to-end pipeline (Mappls weather API → `m.onSuccess` case 13 → `e.D`/`e.F` → `C.q`/`C.r` → `C.M`/`C.N` → a533 bytes 21-22) IS fully active and producing valid byte values, but the **cluster firmware on the Gixxer SF 150 ignores these bytes**.
+
+**Three plausible explanations:**
+1. Bytes 21-22 are intended for other Suzuki Connect bikes (Burgman Street, Access 125, e-ACCESS) whose clusters have a weather widget — Gixxer SF 150 firmware doesn't have one and silently drops them.
+2. The bike-side firmware uses these bytes for some non-visual purpose (backlight dimming based on temp? rain-warning chime?) — not observed in this ride but worth keeping in mind.
+3. The bytes are leftover from an earlier protocol revision that originally had a weather widget; current Gixxer firmware ignores them.
+
+**Implication for Phase 3 forging on Gixxer SF 150:**
+- a533 bytes 21-22 are **dead bytes** on the wire as far as the cluster is concerned
+- Phase 2/3 replacement client (per `phase2-weather-api` memory) **doesn't need to populate them accurately** — can leave at default `weather=1, temp_f_plus_115=0` or zero them out entirely
+- `protocol.py`'s `HeartbeatFrame` should keep the fields documented (they're real fields used by other bike models) but the encoded values don't affect Gixxer cluster output
+
+**To verify hypothesis #2 (non-visual use)**: forge an a533 with `weather=11` ('windy') or `temp_f_plus_115=255` (~140°F, extreme) and see if anything changes — backlight, audio chime, anything subtle. Low priority. Most likely the bytes are simply dropped.
+
+## 2026-05-24 — Parallel-agent ride deep-dive: 8 major findings + 4 corrections
+
+Dispatched 3 subagents in parallel to do thorough timeline analysis of `captures/ride-20260524-1810.pcap` (3,315 frames, 17 min). Agent A focused on a531 NAV, Agent B on a537 + a533, Agent C on connection state + events + cross-frame patterns. Their reports surfaced findings the per-frame-type aggregate stats missed entirely.
+
+### CORRECTIONS to earlier docs (we got these wrong)
+
+**Correction 1 — Fuel-economy decode is fundamentally wrong for Gixxer SF 150.**
+
+Earlier "default petrol formula" assumed bytes 25-27 of a537 form a 24-bit fixed-point. The ride data shows bytes 26 and 27 are **`0xFF` in 100% of 159 frames** — they're padding, not data. **Only byte 25 varies** (61 distinct values in 0x28-0x73 = 40-115). The legacy decoder was packing `(byte25 << 16) | 0xFFFF` into the 24-bit slot and fitting noise — producing the absurd 131-371 km/L values.
+
+**The realistic decode for Gixxer SF 150 is `byte_25 / 2 → 20-57.5 km/L (median 48)`.** Lands squarely in expected range.
+
+But byte 25 **monotonically increases** through the ride AND ticks during engine-off idle. So it's NOT instantaneous fuel-econ. Best hypothesis: **trip-average km/L since last reset, scaled ×2.** To verify: photograph cluster's avg-kml readout during a future ride and compare against `byte_25 / 2` from pcap.
+
+protocol.py now exposes `TelemetryFrame.fuel_econ_kml_v2` (the byte-25/2 formula). The legacy `fuel_econ_kml` field stays for backwards-compat with Access/Burgman models that may use the 24-bit form. Docstring updated to flag the Gixxer caveat.
+
+**Correction 2 — "5 BLE reconnects" was wrong. Only 2 real drops.**
+
+Earlier I counted long gaps between adjacent **a536** frames and called each a reconnect (5 total). But Agent C's any-frame-adjacency check showed only 2 gaps had complete BLE silence:
+- **209.4s gap at 17:51:57 → 17:55:27** (triggered by the 32.8s status='6' phone-no-network block preceding it — connectivity drop tore down GATT even after radio recovered)
+- **7.4s gap at 18:04:56**
+
+The other 3 "reconnect" gaps had continuous non-a536 traffic across them. **a536 is sent both on reconnect AND as a periodic app-level keepalive** — the 6-frame bursts come from `services/f.java`'s 3-per-tick reliability pattern applied to a536 too. So 5 a536 bursts ≠ 5 reconnects.
+
+**Correction 3 — `is_fresh=True` ('F') is ONLY ever sent on the very first pair-bond.**
+
+All 21 a536 frames in this ride had `is_fresh=False` ('R'), including 2 across real BLE reconnects. So `K.s = false` (= 'R') is set once-and-stays from the bike's perspective forever after first pairing. The "is_fresh = fresh connection" doc was right per source but the practical reality is: in any reasonably-aged pairing relationship, you'll only ever see 'R' on the wire.
+
+**Correction 4 — `continue_flag='0'` is NOT "user terminated nav".**
+
+Earlier protocol.py docstring said `cf='0' = terminate nav`. The ride pcap shows `cf='0'` fires **2-3 frames immediately BEFORE every BLE drop** and at the very last frame of the capture. **It's a phone-side BLE-graceful-disconnect signal** — "I'm about to disappear, hold display state." 6 frames in the ride had `cf='0'` paired with `status='1'` (normal nav) — the app fired the signal then recanted milliseconds later. A forging tool sending `cf='0'` alone won't kill nav; the bike treats it as a one-shot teardown hint that gets overridden by the next frame with `cf='1'`. protocol.py docstring updated.
+
+**Correction 5 (carry-over)** — the suspected "`o0` unit-swap bug" in a531 byte 22 is **also wrong** (zero observations in the ride; all M↔K flips were correct). Walked back.
+
+### NEW FINDINGS (things we didn't know before)
+
+**Finding 1 — Trip A and Trip B are alternating-tick meters offset by 0.05 km.**
+
+They never advance in the same frame. `trip_a - trip_b` is always 39260 or 39261 (across all 159 frames). Each ticked Δ25 (= +2.5 km). The bike's ECU has a 0.05-km internal counter; trip A and trip B sample alternating phases. **The "0.5 km gap between odometer Δ=3 and trip Δ=2.5" wasn't a gap at all** — it was integer-km-truncation at odometer rollovers. Bike actually traveled ~2.5 km; both meters tracked correctly.
+
+**Finding 2 — `c.P` speed_str in a533 is HARDCODED stale across the entire ride.**
+
+All 393 heartbeats had `speed_str='214'` verbatim. The SharedPreferences-cached value never updates from live GPS in this firmware build. Bike doesn't trust this anyway (it has its own ECU speed in a537). **For Phase 2/3 forging tools: set whatever — the bike ignores byte 4-6 of a533.** Documented in protocol.py.
+
+**Finding 3 — `call_pending` byte 15 of a533 is DEAD CODE in Gixxer firmware.**
+
+Agent C cross-checked ±6s windows around all 27 a532/a534 call events. Byte 15 was `'N'` for every single one of 393 heartbeats, including during active cellular AND WhatsApp calls. **Calls are conveyed exclusively via the discrete a532/a534 frames; the heartbeat flag is vestigial** (may be active in other bike models). Documented in protocol.py.
+
+**Finding 4 — `time_hhmmss` lags wall-clock by uniform +1.0 second.**
+
+Field is captured at heartbeat construction time, transmitted ~1s later. No skew across the ride, so it's deterministic, not jitter.
+
+**Finding 5 — Weather API fired exactly at t=334.7s (the first real BLE reconnect).**
+
+First 332 seconds of the ride had `weather=0x01` default and `temp=0x00` unset (no Mappls call). Then at t=334.7s, weather flipped to 0x02 (cloudy) and temp jumped to 0xCA (30.6°C). Mappls weather polls roughly every 568 seconds (~9.5 min). Temperature update at t=903.4s dropped to 28.9°C — confirming evening cooling. **First-ever live evidence of the weather pipeline updating mid-session.**
+
+**Finding 6 — Status='6' (phone offline) was one sustained 32.5-second block.**
+
+t=29.8-62.3s, 138 frames frozen at `dn=0160M, dt=01.3K, eta=0556PM, mid=46`. Clean signature for distinguishing "no network" (long sustained, frozen telemetry, degraded mid=46) from "recalculation" (status='2' for exactly 1 frame).
+
+**Finding 7 — The destination-reached moment is a surgical clean event.**
+
+At t=710.20s (= t=2770.21s absolute) one frame went: `mid=9, status='5', dist_next='0000'M, dist_total='0000'M, eta='0602'PM`. Raw bytes: `a53109ff303030304d30363032504dffffff303030304d3531ffffff187f`. The phone's GPS clamped to "arrived" within one 200ms tick of `dist_next` hitting 20M. After that, status='5' was sticky for 155 seconds (710 frames) until the phone stopped pushing nav at t=865.3s.
+
+**Finding 8 — You missed a turn at t=513.4s.**
+
+`dist_total` jumped 130m → 645m (+515m) in one frame — unmistakable reroute signature. ETA degraded from 5:59→6:00→6:01→6:03 over the next minute. (Recovered to 6:02 final.) Cross-reference: status='2' (recalc) fired exactly at this moment for 1 frame, then status='1' resumed with the new route.
+
+### The Frida JSON mystery resolved
+
+The Frida log at `captures/ride-20260524-1810-frida.jsonl` captured 9 a535 events at frida-relative t=23.6-58.2s. Agent C found these correspond to **wall-clock 17:41:43-17:42:17 IST** — which is **7-8 minutes BEFORE the pcap's first protocol traffic (17:49:54)**. During that earlier window, the phone was in a failed BLE-connect retry loop (LE Create Connection Cancel + retry). The SmsFrame objects were CONSTRUCTED at the Java layer but the `MyBleService.f()` writes failed at the BLE stack — never hit the wire.
+
+This also explains the 3 `sms_pending='Y'` heartbeats at the start of the pcap: stale `i0` flag from the earlier failed session, broadcast for 3 heartbeats on the new BLE connection, then cleared. No fresh SMS event during the pcap's BLE-connected window → no a535 needed.
+
+### Engineering / methodology takeaway
+
+The earlier "aggregate stats only" analysis missed every one of these findings. Counting `weather=2` showed up 308 times told us nothing; tracing **when** it flipped from default → live revealed the weather API was inactive for the first 5+ minutes and only fires periodically. Counting status='5' showed 710 frames; tracing the **exact moment** of `'1'→'5'` revealed the surgical-clean dist→0 cutover.
+
+**Lesson**: for protocol-RE work, time-series-narrative analysis beats distribution-counting every time. ride_summary.py was a half-step (it segregated by frame type but stopped at counts/ranges); the full step is per-event timeline narration. Worth building a `ride_narrate.py` follow-on tool.
+
 ## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
 
 ### What we did
