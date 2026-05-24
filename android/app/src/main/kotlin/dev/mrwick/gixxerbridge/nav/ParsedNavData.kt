@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.nav
 
+import androidx.compose.runtime.Immutable
 import dev.mrwick.gixxerbridge.protocol.NavFrame
 import java.time.LocalTime
 import java.util.Locale
@@ -12,6 +13,7 @@ import java.util.Locale
  * ASCII; unit fields are single-char ('K' or 'M'). [streetName] is for
  * inspector / logging only and is not transmitted.
  */
+@Immutable
 data class ParsedNavData(
     val maneuverId: Int,            // Mappls maneuver id; 8 = generic arrow
     val distNext: String,           // 4-char ASCII, e.g. "0220" or "01.2"

@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Looper
+import androidx.compose.runtime.Immutable
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * @property altitudeM Metres above WGS-84 ellipsoid, or null if unavailable.
  * @property accuracyM Horizontal 1-sigma accuracy in metres, or null if unavailable.
  */
+@Immutable
 data class LocationSample(
     val tMillis: Long,
     val lat: Double,

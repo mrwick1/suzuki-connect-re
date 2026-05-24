@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.ble
 
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,6 +29,7 @@ class FrameStream {
 }
 
 /** A single TX or RX BLE event with its raw bytes and timestamp. */
+@Immutable
 data class FrameEvent(
     val direction: Direction,
     val bytes: ByteArray,

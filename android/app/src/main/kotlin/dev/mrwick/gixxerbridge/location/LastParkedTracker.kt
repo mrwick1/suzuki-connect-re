@@ -3,6 +3,7 @@ package dev.mrwick.gixxerbridge.location
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.LocationManager
+import androidx.compose.runtime.Immutable
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.doublePreferencesKey
@@ -72,6 +73,7 @@ class LastParkedTracker(private val context: Context) {
 }
 
 /** A previously captured parked-location snapshot. */
+@Immutable
 data class LastParked(val lat: Double, val lng: Double, val tMillis: Long) {
     /** Google Maps deep-link to this point — share or open in any maps app. */
     fun mapsUrl(): String = "https://maps.google.com/?q=$lat,$lng"
