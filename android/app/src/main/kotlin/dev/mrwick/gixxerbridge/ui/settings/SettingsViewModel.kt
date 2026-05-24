@@ -3,6 +3,7 @@ package dev.mrwick.gixxerbridge.ui.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.mrwick.gixxerbridge.data.Greetings
 import dev.mrwick.gixxerbridge.data.Settings
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -11,6 +12,7 @@ import kotlinx.coroutines.launch
 /** ViewModel for [SettingsScreen]; exposes DataStore-backed prefs and suspend setters. */
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = Settings(app)
+    private val greetingsStore = Greetings(app)
 
     val riderName = settings.riderName
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.DEFAULT_RIDER_NAME)
@@ -32,6 +34,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val keepScreenOn = settings.keepScreenOnWhileConnected
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val themeAccent = settings.themeAccent
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.DEFAULT_ACCENT)
+    val greetings = greetingsStore.list
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Greetings.DEFAULT_GREETINGS)
 
     fun setRiderName(name: String) {
         viewModelScope.launch { settings.setRiderName(name) }
@@ -73,5 +79,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** Clear the onboarding-complete flag so the first-run wizard replays on next app launch. */
     fun resetOnboarding() {
         viewModelScope.launch { settings.setOnboardingComplete(false) }
+    }
+
+    /** Set the named theme accent (must be a key in `ACCENT_PALETTE`). */
+    fun setThemeAccent(name: String) {
+        viewModelScope.launch { settings.setThemeAccent(name) }
+    }
+
+    /** Replace the full cluster-greeting pool. */
+    fun setGreetings(items: List<String>) {
+        viewModelScope.launch { greetingsStore.setList(items) }
     }
 }

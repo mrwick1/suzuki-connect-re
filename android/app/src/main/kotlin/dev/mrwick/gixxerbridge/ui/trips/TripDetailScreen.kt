@@ -14,11 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -86,10 +90,42 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             return@Column
         }
         if (ride != null) {
+            var showRename by remember(ride.id) { mutableStateOf(false) }
+            val dateString = remember(ride.startedAtMillis) {
+                SimpleDateFormat("EEE, MMM d yyyy · HH:mm", Locale.US)
+                    .format(Date(ride.startedAtMillis))
+            }
+            val nameOrFallback = ride.name?.takeIf { it.isNotBlank() } ?: dateString
+            // Tap the title to rename. Always show the date below as
+            // unambiguous context, even when a name is set.
             Text(
-                SimpleDateFormat("EEE, MMM d yyyy · HH:mm", Locale.US).format(Date(ride.startedAtMillis)),
+                nameOrFallback,
                 style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.clickable { showRename = true },
             )
+            if (nameOrFallback != dateString) {
+                Text(
+                    dateString,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF94A3B8),
+                )
+            } else {
+                Text(
+                    "Tap title to rename",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF94A3B8),
+                )
+            }
+            if (showRename) {
+                RenameRideDialog(
+                    current = ride.name.orEmpty(),
+                    onDismiss = { showRename = false },
+                    onConfirm = { newName ->
+                        vm.rename(ride.id, newName)
+                        showRename = false
+                    },
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 "Max speed: ${ride.maxSpeedKmh} km/h",
@@ -116,14 +152,19 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                             ).show()
                             return@launch
                         }
-                        val gpx = GpxExporter.toGpx(ride, locations)
-                        val cache = File(context.cacheDir, "ride-${ride.id}.gpx")
-                        cache.writeText(gpx)
-                        val uri = FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            cache,
-                        )
+                        // PERF: GPX serialisation + file write off the main
+                        // thread (audit finding 4.1). For long rides this can
+                        // be tens of ms; chooser launch is back on Main after.
+                        val uri = withContext(Dispatchers.IO) {
+                            val gpx = GpxExporter.toGpx(ride, locations)
+                            val cache = File(context.cacheDir, "ride-${ride.id}.gpx")
+                            cache.writeText(gpx)
+                            FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                cache,
+                            )
+                        }
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "application/gpx+xml"
                             putExtra(Intent.EXTRA_STREAM, uri)
@@ -143,14 +184,19 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                             ).show()
                             return@launch
                         }
-                        val csv = CsvExporter.rideSamplesToCsv(ride, rideSamples)
-                        val cache = File(context.cacheDir, "ride-${ride.id}.csv")
-                        cache.writeText(csv)
-                        val uri = FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            cache,
-                        )
+                        // PERF: CSV serialisation + file write off the main
+                        // thread (audit finding 4.1). Long rides can have
+                        // thousands of sample rows.
+                        val uri = withContext(Dispatchers.IO) {
+                            val csv = CsvExporter.rideSamplesToCsv(ride, rideSamples)
+                            val cache = File(context.cacheDir, "ride-${ride.id}.csv")
+                            cache.writeText(csv)
+                            FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                cache,
+                            )
+                        }
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/csv"
                             putExtra(Intent.EXTRA_STREAM, uri)
@@ -203,6 +249,42 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             }
         }
     }
+}
+
+/**
+ * Modal dialog for renaming a ride. Submitting an empty string clears the
+ * name (falls back to date in the row). 60-char cap mirrors typical chat
+ * title limits — long enough for "Sunday morning coffee run with the boys"
+ * but short enough not to overflow the row.
+ */
+@Composable
+private fun RenameRideDialog(
+    current: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit,
+) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename ride") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.take(60) },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text.trim().ifBlank { null }) }) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 /** Square Canvas card that plots the ride's GPS samples as an equal-aspect polyline. */

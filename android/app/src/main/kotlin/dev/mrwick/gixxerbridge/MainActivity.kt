@@ -17,7 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.appcompat.app.AppCompatActivity
+import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTheme
+import dev.mrwick.gixxerbridge.ui.theme.accentColorFor
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
@@ -34,11 +36,12 @@ import dev.mrwick.gixxerbridge.ui.inspector.InspectorViewModel
 import dev.mrwick.gixxerbridge.ui.KeepScreenOnEffect
 import dev.mrwick.gixxerbridge.ui.lock.AppLockGate
 import dev.mrwick.gixxerbridge.ui.lock.AppLockViewModel
+import dev.mrwick.gixxerbridge.ui.maintenance.ServiceHistoryScreen
+import dev.mrwick.gixxerbridge.ui.maintenance.ServiceHistoryViewModel
 import dev.mrwick.gixxerbridge.ui.mileage.MileageScreen
 import dev.mrwick.gixxerbridge.ui.mileage.MileageViewModel
 import dev.mrwick.gixxerbridge.ui.onboarding.OnboardingScreen
 import dev.mrwick.gixxerbridge.ui.onboarding.OnboardingViewModel
-import dev.mrwick.gixxerbridge.data.Settings
 import androidx.compose.ui.Alignment
 import androidx.compose.material3.CircularProgressIndicator
 import kotlinx.coroutines.flow.first
@@ -75,7 +78,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
         setContent {
-            GixxerTheme {
+            // Re-render with the user's chosen accent. Falls back to cyan until
+            // the first DataStore read completes (initial value below).
+            val appCtx = applicationContext
+            val settingsForTheme = remember { Settings(appCtx) }
+            val accentName by settingsForTheme.themeAccent.collectAsState(initial = Settings.DEFAULT_ACCENT)
+            GixxerTheme(accent = accentColorFor(accentName)) {
                 OnboardingGate {
                     val lockVm: AppLockViewModel = viewModel(factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application))
                     AppLockGate(lockVm) {
@@ -122,7 +130,8 @@ class MainActivity : AppCompatActivity() {
 @Composable
 private fun OnboardingGate(content: @Composable () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val settings = remember { Settings(ctx.applicationContext) }
+    // PERF: process-wide Settings singleton via AppGraph (audit finding 1.7).
+    val settings = remember(ctx) { AppGraph.settings(ctx) }
     // null = still loading; we want to avoid showing the app shell briefly
     // before the gate kicks in for a never-onboarded user.
     val onboardingDone by produceState<Boolean?>(initialValue = null) {
@@ -258,6 +267,16 @@ private fun AppShell() {
                     })
                     MileageScreen(vm)
                 }
+                composable("service-history") {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val app = ctx.applicationContext as android.app.Application
+                    val vm: ServiceHistoryViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T =
+                            ServiceHistoryViewModel(app) as T
+                    })
+                    ServiceHistoryScreen(vm)
+                }
                 composable("inspector") {
                     val vm: InspectorViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
@@ -275,6 +294,7 @@ private fun AppShell() {
                         onOpenInspector = { nav.navigate("inspector") },
                         onOpenAbout = { nav.navigate("about") },
                         onOpenMileage = { nav.navigate("mileage") },
+                        onOpenServiceHistory = { nav.navigate("service-history") },
                     )
                 }
                 composable("pairing") {

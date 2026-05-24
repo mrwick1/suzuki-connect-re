@@ -18,6 +18,7 @@ import dev.mrwick.gixxerbridge.MainActivity
 import dev.mrwick.gixxerbridge.R
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
+import dev.mrwick.gixxerbridge.data.Greetings
 import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.location.RideLocationTracker
@@ -60,6 +61,7 @@ class BikeBridgeService : LifecycleService() {
 
     private val tag = "BikeBridge"
     private lateinit var settings: Settings
+    private lateinit var greetings: Greetings
     private lateinit var bleClient: BleClient
     private lateinit var frameWriter: FrameWriter
     private lateinit var phoneState: PhoneState
@@ -95,6 +97,7 @@ class BikeBridgeService : LifecycleService() {
         startInForeground()
 
         settings = Settings(applicationContext)
+        greetings = Greetings(applicationContext)
         bleClient = BleClient(applicationContext)
 
         // Keep the foreground notification text in sync with the connection lifecycle so
@@ -259,10 +262,14 @@ class BikeBridgeService : LifecycleService() {
                         )
 
                         if (isFresh) {
-                            // Welcome a531 — NavMux will supersede on the next tick.
+                            // Welcome a531 — pick a random user-defined greeting
+                            // (with {name} substitution). NavMux supersedes on
+                            // the next tick.
                             val (wcode, tbyte) = weatherCache.currentEncoded()
-                            val welcome = WelcomeFrame.build(
+                            val pool = greetings.list.first()
+                            val welcome = WelcomeFrame.buildRandom(
                                 name = name,
+                                greetings = pool,
                                 tempCelsius = tempFromByte(tbyte),
                                 suzukiWeatherCode = wcode,
                             ).encode()
@@ -395,6 +402,10 @@ class BikeBridgeService : LifecycleService() {
         phoneState.stop()
         weatherCache.stop()
         bleClient.disconnect()
+        // PERF: also cancel BleClient's internal scope so any in-flight
+        // connect()/readDeviceInfo() coroutines are torn down instead of
+        // leaking until process death (audit finding 2.1 / 10.1).
+        bleClient.shutdown()
         // Make sure we never leave the phone stuck in PRIORITY-only DND if the
         // service is torn down without going through Disconnected first.
         if (::dnd.isInitialized) dnd.restore()

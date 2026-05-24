@@ -21,9 +21,9 @@ import dev.mrwick.gixxerbridge.ble.ConnectionState
 fun KeepScreenOnEffect() {
     val context = LocalContext.current
     val activity = context as? Activity ?: return
-    // ASSUMED: cheap to construct a Settings handle per composition — the
-    // backing DataStore is process-wide. Matches the pattern in HomeScreen.
-    val settings = remember { Settings(context.applicationContext) }
+    // PERF: process-wide Settings singleton (audit finding 1.6). Prior code
+    // re-allocated a Settings wrapper per composition.
+    val settings = remember(context) { AppGraph.settings(context) }
     val pref by settings.keepScreenOnWhileConnected.collectAsStateWithLifecycle(initialValue = false)
     val state by AppGraph.connectionState.collectAsStateWithLifecycle()
     val keepOn = pref && state is ConnectionState.Ready

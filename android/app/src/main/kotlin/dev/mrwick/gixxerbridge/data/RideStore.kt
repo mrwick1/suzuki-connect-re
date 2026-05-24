@@ -26,6 +26,12 @@ data class RideEntity(
     val sampleCount: Int,
     val fuelBarsStart: Int?,
     val fuelBarsEnd: Int?,
+    /**
+     * Auto-generated human-readable name (e.g. "Morning commute (Mon)") set
+     * when the ride ends. Null while in-progress and for legacy v3 rows after
+     * the destructive migration to v4. User can override via TripDetailScreen.
+     */
+    val name: String? = null,
 )
 
 /** One telemetry sample collected during an active ride. */
@@ -102,6 +108,10 @@ interface RideDao {
     /** Delete a ride; cascades to its samples. */
     @Query("DELETE FROM rides WHERE id = :id")
     suspend fun deleteRide(id: Long)
+
+    /** Patch the human-readable name on one ride. */
+    @Query("UPDATE rides SET name = :name WHERE id = :id")
+    suspend fun renameRide(id: Long, name: String?)
 
     /** Delete every ride row; cascades to samples + locations via FK. */
     @Query("DELETE FROM rides")
@@ -195,16 +205,29 @@ class RideStore(private val dao: RideDao) {
     }
 
     /** Mark a ride as ended. No-op if the ride has been deleted. */
-    suspend fun endRide(rideId: Long, endedAtMillis: Long, endOdoKm: Int, fuelBarsEnd: Int?) {
+    suspend fun endRide(
+        rideId: Long,
+        endedAtMillis: Long,
+        endOdoKm: Int,
+        fuelBarsEnd: Int?,
+        name: String? = null,
+    ) {
         val ride = dao.getRide(rideId) ?: return
         dao.updateRide(
             ride.copy(
                 endedAtMillis = endedAtMillis,
                 endOdoKm = endOdoKm,
                 fuelBarsEnd = fuelBarsEnd,
+                // Only overwrite the existing name if the caller passed one.
+                // Lets manual renames survive a later re-end (defensive — the
+                // RideLogger never re-ends a closed ride today).
+                name = name ?: ride.name,
             )
         )
     }
+
+    /** Update a ride's human-readable name. No-op if the ride is gone. */
+    suspend fun renameRide(rideId: Long, name: String?) = dao.renameRide(rideId, name)
 
     /** Delete a ride and its samples (cascade). */
     suspend fun deleteRide(id: Long) = dao.deleteRide(id)

@@ -48,6 +48,8 @@ fun HomeScreen(onOpenPairing: () -> Unit) {
 
         ActiveRideCard()
 
+        BikeHealthCard()
+
         LastParkedCard()
 
         RideSummaryCard()

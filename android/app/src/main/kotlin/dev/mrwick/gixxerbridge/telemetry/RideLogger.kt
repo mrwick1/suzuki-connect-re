@@ -33,6 +33,11 @@ class RideLogger(
     private val mutex = Mutex()
     private var rideId: Long? = null
     private var lastSampleMillis: Long = 0
+    // Wall-clock millis when this ride was first persisted (i.e. the first
+    // non-zero-odo sample landed). Captured at startRide so [autoName] can
+    // derive the time-of-day / day-of-week tag at ride-end without depending
+    // on the wall clock at endRide (which would mis-bucket overnight rides).
+    private var startedAtMillis: Long = 0
     private var startOdo: Int = 0
     private var lastFuel: Int? = null
     private var trackerStarted: Boolean = false
@@ -81,6 +86,7 @@ class RideLogger(
             val now = System.currentTimeMillis()
             val id = rideId ?: run {
                 startOdo = frame.odometerKm
+                startedAtMillis = now
                 val new = store.startRide(
                     startedAtMillis = now,
                     startOdoKm = startOdo,
@@ -130,11 +136,13 @@ class RideLogger(
             if (shouldDiscard) {
                 store.deleteRide(id)
             } else {
+                val name = autoName(startedAtMillis, distance)
                 store.endRide(
                     rideId = id,
                     endedAtMillis = now,
                     endOdoKm = endOdo,
                     fuelBarsEnd = lastFuel,
+                    name = name,
                 )
             }
             rideId = null
@@ -145,11 +153,53 @@ class RideLogger(
         }
     }
 
-    private companion object {
+    companion object {
         // Watchdog wakeup cadence. One minute is the original spec.
-        const val WATCHDOG_TICK_MS = 60_000L
+        internal const val WATCHDOG_TICK_MS = 60_000L
         // Minimum elapsed time + distance below which a "ride" is treated as
         // noise and silently dropped on end (instead of polluting the log).
-        const val MIN_RIDE_DURATION_MS = 30_000L
+        internal const val MIN_RIDE_DURATION_MS = 30_000L
+
+        /**
+         * Heuristic auto-name for a finished ride. Combines time-of-day,
+         * weekday-vs-weekend, and distance signals into a short title like
+         * "Morning commute (Mon)" or "Weekend ride (Sat)". User can override
+         * via TripDetailScreen.
+         *
+         * - Time-of-day buckets: Morning 5-9, Day 10-15, Evening 16-18,
+         *   Night 19-22, Late night otherwise.
+         * - "commute" requires weekday + sub-20 km. Morning commutes are
+         *   "Morning commute"; evening returns are "Evening commute home".
+         * - Everything else is a "ride".
+         *
+         * Pure function; depends only on the system default timezone for
+         * bucketing (which matches how the rider experiences time-of-day).
+         */
+        fun autoName(startedAtMillis: Long, distance: Int): String {
+            val zdt = java.time.Instant.ofEpochMilli(startedAtMillis)
+                .atZone(java.time.ZoneId.systemDefault())
+            val hour = zdt.hour
+            val dow = zdt.dayOfWeek
+            val isWeekend =
+                dow == java.time.DayOfWeek.SATURDAY || dow == java.time.DayOfWeek.SUNDAY
+            val period = when (hour) {
+                in 5..9 -> "Morning"
+                in 10..15 -> "Day"
+                in 16..18 -> "Evening"
+                in 19..22 -> "Night"
+                else -> "Late night"
+            }
+            val tag = when {
+                isWeekend && distance > 30 -> "ride"
+                !isWeekend && period == "Morning" && distance < 20 -> "commute"
+                !isWeekend && period == "Evening" && distance < 20 -> "commute home"
+                else -> "ride"
+            }
+            // 3-letter weekday tag: "Mon", "Tue", ... — keeps the title short.
+            val day = dow.name.lowercase()
+                .replaceFirstChar { it.uppercase() }
+                .take(3)
+            return "$period $tag ($day)"
+        }
     }
 }

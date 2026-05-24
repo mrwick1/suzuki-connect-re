@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Singleton router for every NotificationListener event. Filters by package and
@@ -34,10 +35,21 @@ object NotificationDispatcher {
     private val allowlist = MutableStateFlow<Set<String>>(Settings.DEFAULT_ALLOWLIST)
     private val callsSeen = mutableMapOf<String, Long>() // key=number, value=tStart for missed-call decision
 
+    // PERF: NotificationListenerService can reconnect (system restarts the
+    // listener after notification-access toggles, app updates, etc.). Each
+    // reconnect previously stacked another forever-running collector on this
+    // singleton's scope. Gate with an AtomicBoolean so we wire it exactly once
+    // per process (audit findings 2.2 + 6.1).
+    private val attached = AtomicBoolean(false)
+
     fun attach(context: Context) {
-        // Keep allowlist in sync with Settings
+        if (!attached.compareAndSet(false, true)) return
+        // PERF: explicit applicationContext + AppGraph singleton — guarantees
+        // we never accidentally retain a non-application Context if a caller
+        // ever passes one in, and shares the single Settings handle.
+        val appCtx = context.applicationContext
+        val s = AppGraph.settings(appCtx)
         scope.launch {
-            val s = Settings(context.applicationContext)
             s.mirrorAllowlist.collect { set -> allowlist.value = set }
         }
     }

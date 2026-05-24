@@ -97,7 +97,7 @@ class Settings(context: Context) {
 
     /** Named accent colour for the app theme; defaults to [DEFAULT_ACCENT] ("cyan"). */
     val themeAccent: Flow<String> =
-        ds.data.map { it[Keys.THEME_ACCENT] ?: DEFAULT_ACCENT }
+        ds.data.map { it[Keys.THEME_ACCENT] ?: Settings.DEFAULT_ACCENT }
 
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
@@ -182,6 +182,11 @@ class Settings(context: Context) {
         ds.edit { it[Keys.KEEP_SCREEN_ON] = v }
     }
 
+    /** Persist the named theme accent (must be a key in `ACCENT_PALETTE`). */
+    suspend fun setThemeAccent(name: String) {
+        ds.edit { it[Keys.THEME_ACCENT] = name }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -201,6 +206,7 @@ class Settings(context: Context) {
         val CRASH_DETECTION_ENABLED = booleanPreferencesKey("crash_detection_enabled")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_while_connected")
+        val THEME_ACCENT = stringPreferencesKey("theme_accent")
     }
 
     companion object {
@@ -209,6 +215,9 @@ class Settings(context: Context) {
 
         /** Default kilometres between scheduled services. */
         const val DEFAULT_SERVICE_INTERVAL_KM: Int = 5000
+
+        /** Default theme accent name; matches the canonical cyan brand colour. */
+        const val DEFAULT_ACCENT: String = "cyan"
 
         /**
          * Default package allowlist for notification mirroring.

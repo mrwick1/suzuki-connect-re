@@ -102,13 +102,18 @@ fun TripsScreen(
     }
 }
 
-/** One row in [TripsScreen]: date + duration/distance/avg-speed summary + delete icon. */
+/** One row in [TripsScreen]: title (auto-name or date) + duration/distance/avg-speed summary + delete icon. */
 @Composable
 private fun RideRow(ride: RideEntity, onClick: () -> Unit, onDelete: () -> Unit) {
     val dateFmt = remember { SimpleDateFormat("EEE, MMM d · HH:mm", Locale.US) }
     val endMillis = ride.endedAtMillis ?: System.currentTimeMillis()
     val durationMin = (endMillis - ride.startedAtMillis) / 60_000
     val distance = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
+    val formattedDate = dateFmt.format(Date(ride.startedAtMillis))
+    // Show the auto-name (or user override) as the row title; fall back to
+    // the date string for legacy rides that pre-date the naming feature.
+    val title = ride.name?.takeIf { it.isNotBlank() } ?: formattedDate
+    val hasName = title != formattedDate
     Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -116,9 +121,16 @@ private fun RideRow(ride: RideEntity, onClick: () -> Unit, onDelete: () -> Unit)
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    dateFmt.format(Date(ride.startedAtMillis)),
+                    title,
                     style = MaterialTheme.typography.titleMedium,
                 )
+                if (hasName) {
+                    Text(
+                        formattedDate,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF94A3B8),
+                    )
+                }
                 Text(
                     "$durationMin min · $distance km · avg ${"%.0f".format(ride.avgSpeedKmh)} km/h",
                     style = MaterialTheme.typography.bodyMedium,

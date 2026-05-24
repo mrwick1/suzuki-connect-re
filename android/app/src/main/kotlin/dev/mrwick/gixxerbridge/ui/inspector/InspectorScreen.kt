@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,6 +48,9 @@ import dev.mrwick.gixxerbridge.ble.FrameEvent
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.protocol.FrameType
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -71,6 +75,12 @@ fun InspectorScreen(vm: InspectorViewModel) {
     }
 
     val context = LocalContext.current
+    // PERF: scope for offloading CSV serialisation + file IO off the main
+    // thread (audit finding 4.1). Prior code did CsvExporter.framesToCsv +
+    // File.writeText directly inside an IconButton onClick, which runs on
+    // Main; a packed inspector buffer (500 frames) can stall the UI for tens
+    // of ms.
+    val ioScope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -82,20 +92,24 @@ fun InspectorScreen(vm: InspectorViewModel) {
                         Toast.makeText(context, "Nothing to save — frame buffer is empty", Toast.LENGTH_SHORT).show()
                         return@IconButton
                     }
-                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-                    val cache = File(context.cacheDir, "inspector-$stamp.csv")
-                    cache.writeText(CsvExporter.framesToCsv(snapshot))
-                    val uri = FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        cache,
-                    )
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/csv"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    ioScope.launch {
+                        val uri = withContext(Dispatchers.IO) {
+                            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                            val cache = File(context.cacheDir, "inspector-$stamp.csv")
+                            cache.writeText(CsvExporter.framesToCsv(snapshot))
+                            FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                cache,
+                            )
+                        }
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Save inspector log"))
                     }
-                    context.startActivity(Intent.createChooser(intent, "Save inspector log"))
                 }) {
                     Icon(Icons.Default.Download, contentDescription = "Save log")
                 }

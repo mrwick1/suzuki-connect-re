@@ -45,6 +45,14 @@ class TripsViewModel(context: Context) : ViewModel() {
     }
 
     /**
+     * Rename a ride. Pass null/blank to clear the override and fall back to
+     * the date string in the row title.
+     */
+    fun rename(rideId: Long, name: String?) {
+        viewModelScope.launch { store.renameRide(rideId, name?.takeIf { it.isNotBlank() }) }
+    }
+
+    /**
      * Fetch GPS locations recorded during [rideId], oldest-first.
      * Called from TripDetailScreen's Share-GPX flow.
      */

@@ -31,11 +31,22 @@ class InspectorViewModel(private val stream: FrameStream) : ViewModel() {
     /** Bitset of frame type bytes (0x31..0x37) to show. Empty set = show all. */
     val typeFilter: StateFlow<Set<Int>> = _typeFilter.asStateFlow()
 
+    // PERF: rolling buffer kept as a mutable ArrayDeque on the collector side
+    // (single-collector, accessed only inside `viewModelScope.launch`). Prior
+    // implementation rebuilt a brand-new ArrayList<FrameEvent> on EVERY emitted
+    // event (`(it + event).takeLast(MAX_EVENTS)`), which is O(n) allocations
+    // and triggers GC churn under burst. We mutate-in-place and publish an
+    // immutable snapshot to the StateFlow only when the window changes
+    // (audit finding 3.1).
+    private val buffer: ArrayDeque<FrameEvent> = ArrayDeque(MAX_EVENTS)
+
     init {
         viewModelScope.launch {
             stream.events.collect { event ->
                 if (_paused.value) return@collect
-                _events.update { (it + event).takeLast(MAX_EVENTS) }
+                if (buffer.size >= MAX_EVENTS) buffer.removeFirst()
+                buffer.addLast(event)
+                _events.value = buffer.toList()
             }
         }
     }
@@ -44,7 +55,12 @@ class InspectorViewModel(private val stream: FrameStream) : ViewModel() {
     fun togglePause() { _paused.update { !it } }
 
     /** Drop every captured event. */
-    fun clear() { _events.value = emptyList() }
+    fun clear() {
+        // PERF: keep the buffer in sync with the published snapshot — otherwise
+        // a clear followed by new events would re-publish the pre-clear window.
+        buffer.clear()
+        _events.value = emptyList()
+    }
 
     /** Toggle whether frames with [typeByte] are shown; empty filter shows all. */
     fun toggleTypeFilter(typeByte: Int) {

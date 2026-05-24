@@ -17,15 +17,28 @@ object TelemetryRepository {
     /** Rolling window of the last 60 frames (~5 min at 5s cadence). */
     val history: StateFlow<List<TelemetryFrame>> = _history.asStateFlow()
 
+    // PERF: mutate-in-place rolling buffer guarded by `this`. Prior impl
+    // rebuilt the entire history list on every a537 sample
+    // (`(_history.value + frame).takeLast(60)`), allocating ~60 references
+    // per ~5s tick. ArrayDeque keeps the bounded window and we publish an
+    // immutable snapshot for observers (audit finding 3.2).
+    private val historyBuffer: ArrayDeque<TelemetryFrame> = ArrayDeque(HISTORY_SIZE)
+
     fun update(frame: TelemetryFrame) {
         _latest.value = frame
-        val next = (_history.value + frame).takeLast(HISTORY_SIZE)
-        _history.value = next
+        synchronized(this) {
+            if (historyBuffer.size >= HISTORY_SIZE) historyBuffer.removeFirst()
+            historyBuffer.addLast(frame)
+            _history.value = historyBuffer.toList()
+        }
     }
 
     fun reset() {
         _latest.value = null
-        _history.value = emptyList()
+        synchronized(this) {
+            historyBuffer.clear()
+            _history.value = emptyList()
+        }
     }
 
     private const val HISTORY_SIZE = 60

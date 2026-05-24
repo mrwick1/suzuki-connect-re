@@ -26,15 +26,41 @@ import androidx.compose.ui.unit.sp
  * recent Android phones.
  */
 @Composable
-fun GixxerTheme(content: @Composable () -> Unit) {
+fun GixxerTheme(
+    accent: Color = Color(0xFF22D3EE),  // BrandCyan; file-level forward ref not allowed, so duplicated literal
+    content: @Composable () -> Unit,
+) {
+    val scheme = GixxerColors.copy(
+        primary = accent,
+        primaryContainer = accent.copy(alpha = 0.7f),
+    )
     MaterialTheme(
-        colorScheme = GixxerColors,
+        colorScheme = scheme,
         typography = GixxerTypography,
         shapes = GixxerShapes,
     ) {
         CompositionLocalProvider(content = content)
     }
 }
+
+/**
+ * Named accent palette the user can pick between in Settings.
+ *
+ * Keys are the persisted strings (see `Settings.themeAccent`); values are the
+ * Compose `Color` swapped into [androidx.compose.material3.ColorScheme.primary]
+ * by [GixxerTheme]. Cyan matches the original brand and is the default.
+ */
+val ACCENT_PALETTE: Map<String, Color> = linkedMapOf(
+    "cyan" to Color(0xFF22D3EE),
+    "amber" to Color(0xFFFBBF24),
+    "magenta" to Color(0xFFEC4899),
+    "green" to Color(0xFF10B981),
+    "orange" to Color(0xFFFB923C),
+)
+
+/** Look up an accent by its persisted name, falling back to cyan if unknown. */
+fun accentColorFor(name: String?): Color =
+    ACCENT_PALETTE[name] ?: ACCENT_PALETTE.getValue("cyan")
 
 // --- Color palette ---------------------------------------------------------
 //

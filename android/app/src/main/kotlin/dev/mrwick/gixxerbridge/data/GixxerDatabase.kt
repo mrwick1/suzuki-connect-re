@@ -8,15 +8,17 @@ import androidx.room.RoomDatabase
 /**
  * Singleton Room database for ride history.
  *
- * Schema version is 3 (v2 adds [RideLocationEntity] for GPS tracks; v3 adds
- * [FuelFillEntity] for the manual fuel-fill log). Destructive migration is
- * enabled — this is acceptable pre-1.0 because the only persisted user data
- * here is ride history + fuel log (re-capturable / re-enterable). Settings /
- * profile live in DataStore, not in Room.
+ * Schema version is 4 (v2 adds [RideLocationEntity] for GPS tracks; v3 adds
+ * [FuelFillEntity] for the manual fuel-fill log; v4 adds [RideEntity.name]
+ * for auto-generated trip titles + [ServiceLogEntity] for the maintenance
+ * history log). Destructive migration is enabled — this is acceptable pre-1.0
+ * because the only persisted user data here is ride history + fuel log +
+ * service log (all re-capturable / re-enterable). Settings / profile live in
+ * DataStore, not in Room.
  *
- * ASSUMED: destroying the user's fuel-fill log on a schema bump is acceptable
- * pre-1.0 since the feature is brand-new and the rider can re-enter from
- * receipts. Revisit before any external release.
+ * ASSUMED: destroying the user's fuel-fill + service log on a schema bump is
+ * acceptable pre-1.0 since both features are brand-new and the rider can
+ * re-enter from receipts. Revisit before any external release.
  */
 @Database(
     entities = [
@@ -24,8 +26,9 @@ import androidx.room.RoomDatabase
         RideSampleEntity::class,
         RideLocationEntity::class,
         FuelFillEntity::class,
+        ServiceLogEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class GixxerDatabase : RoomDatabase() {
@@ -34,6 +37,9 @@ abstract class GixxerDatabase : RoomDatabase() {
 
     /** DAO for manual fuel-fill log. */
     abstract fun fuelFillDao(): FuelFillDao
+
+    /** DAO for the service history log. */
+    abstract fun serviceLogDao(): ServiceLogDao
 
     companion object {
         // ASSUMED: a single process-wide DB instance is sufficient. The app has
