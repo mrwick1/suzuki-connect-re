@@ -26,7 +26,6 @@ import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 
 /**
