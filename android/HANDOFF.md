@@ -168,6 +168,25 @@ See `docs/superpowers/specs/2026-05-24-assumptions-log.md` for the full list. Th
 
 See `SMOKE_TEST.md` in the project root. 10 phases, binary pass/fail, capture logcat on fail.
 
+## Feature additions in the second half of the build (E + F + G batches)
+
+### E batch (Phase 6)
+- **Onboarding wizard** (`ui/onboarding/`) — 4 steps: welcome, permissions, pair bike, start. Gated by `Settings.onboardingComplete`. Skips a lot of first-time confusion.
+- **Fuel-fill log + true mileage** (`ui/mileage/`, `data/FuelFill.kt`, `analytics/MileageAnalytics.kt`) — record receipts, compute per-tank km/L. Reachable from Stats and Settings → Maintenance.
+- **Empty-state polish** across all screens — actionable copy instead of bare "—".
+
+### F batch (Phase 9)
+- **Branded app icon** — cluster gauge + cyan chevron on deep navy. Recognizable in launcher next to other apps.
+- **Active ride card** (`ui/home/ActiveRideCard.kt`) — pulsing green RIDING badge + live elapsed/distance/avg/max while riding.
+- **Permission grant rows** (`ui/settings/PermissionRow.kt`) — reusable card; concrete `DndAccessPermissionRow`, `SendSmsPermissionRow`, `NotificationAccessRow` with re-check on screen resume.
+- **Service notification reflects state** + tap opens MainActivity.
+- **Inspector hex colorization** — per-frame-type colors on the type byte for fast scan.
+- **About screen** — full diagnostics + "Reset all data" + "View on GitHub" + long-press version row to copy diagnostics.
+
+### G batch (Phase 10)
+- **Keep-screen-on while connected** — opt-in flag in Settings; window keeps screen awake while bike is Ready.
+- **Reset onboarding** — Settings → Developer button to replay the wizard.
+
 ## What was deliberately deferred
 
 - iOS port
