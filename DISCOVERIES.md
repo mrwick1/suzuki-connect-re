@@ -1068,7 +1068,31 @@ Then traced the actual handshake by following the FastBle `BleGattCallback` subc
 - BLE-bonding requirement (Hypothesis B above) — test with custom client
 - MAC pinning (Hypothesis C above) — same test
 - Whether the cluster keeps multiple "trusted phones" — would matter for a multi-user setup
-- The `H(bleDevice, 0).run()` Runnable's second `Handler.postDelayed` call (with `bluetoothGatt`) — what's the follow-up action 500 ms after `MyBleService.a()`?
+
+### Second post-connect Runnable — RESOLVED 2026-05-24
+
+The second `Handler.postDelayed` call in `C0855q0.b()` case=default is `new androidx.emoji2.text.l(this, bluetoothGatt, bleDevice, 7)`. JADX skipped its 1504-instruction `run()` method on the default decompile; re-running with `--show-bad-code --single-class androidx.emoji2.text.l` recovered it.
+
+`androidx/emoji2/text/l.java` is a ProGuard-merged multipurpose Runnable (9 cases). **Case 7** persists the discovered cluster's BLE info to a Realm row:
+
+```java
+RealmQuery q = j3.f0(C0943b.class);  // BLE-info table
+q.e("bleId", 1);
+C0943b row = (C0943b) q.h();
+if (row == null) row = j3.G(C0943b.class, 1);
+row.o(bleDevice.b());                              // MAC address
+row.p(bleDevice.c());                              // advertised name
+row.q(service.getCharacteristics().get(1).getUuid().toString());  // 0xFFF2 notify UUID
+row.s(service.getCharacteristics().get(0).getUuid().toString());  // 0xFFF1 write UUID
+row.r(bluetoothGatt.getServices().get(3).getUuid().toString());   // 0xFFF0 service UUID
+j3.d0(row);
+```
+
+Plus writes `FT.first = MapplsLMSActivityLifecycleCallbacks.CHECK_DELAY` (a sentinel meaning "first-time setup completed") to SharedPreferences.
+
+**Bottom line**: this is bookkeeping only — caches the cluster's BLE identity + UUID triple to Realm so future reconnects don't need fresh GATT discovery. Not protocol-relevant; doesn't affect Phase 2/3 design. The SharedPreferences `prev_cluster_macAddr` / `prev_cluster_name` writes from the case=default branch handle the same purpose for app-startup reconnect; Realm storage is presumably for cross-session UI lookup (multiple bikes per profile, switching between clusters, etc.).
+
+Handshake mapping is now fully closed — every post-connect action accounted for.
 
 ## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
 
