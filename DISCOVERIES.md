@@ -697,3 +697,92 @@ This was a wrong M0+ hypothesis that's been hanging around. Byte 25 is the **hig
 The "find missing RX message types" question is resolved (statically). Phase 1's RX-side protocol surface is **complete**: a537 carries everything the phone displays from the bike. Phase 3 Branch B (telemetry dashboard) needs only an a537 parser — no other message types to handle.
 
 Phase 1 remaining work is now TX-side (decode a533, a536 — both still partially unknown) plus live-ride validation of the a531 decode (especially the `o0` unit-swap bug).
+
+## 2026-05-24 — TX frame inventory: 7 message types, not 3
+
+### What we did
+
+Decompiled and grep-scanned the full source for byte-array senders that call `MyBleService.f(byte[], int)` (the central write function targeting `0xFFF1`) and `work.g(byte[])` (a parallel write path). Found and mapped every framing.
+
+### The full TX inventory
+
+Phone → bike sends **seven** distinct frame types, all 30 bytes, all sharing the `[0xA5 <type> ... <chk> 0x7F]` envelope:
+
+| Type byte | Frame | Sender(s) | Purpose |
+|-----------|-------|-----------|---------|
+| `'1'` 0x31 | a531 | `A0.D()` (in `application/fragment/A0`) | Navigation update (turn arrow / dist / ETA / status) — fully decoded |
+| `'2'` 0x32 | **a532** | `CallReceiverBroadcast.d()`, `NotificationService` (line 786 — WhatsApp call variant) | **Incoming call** notification with caller's phone number at bytes 2-21 + state byte at 23 |
+| `'3'` 0x33 | a533 | `services/f.java` (1 Hz × 3) + `C0940y.java` (~5s, two K.g-dependent variants) | **Phone heartbeat** — carries SMS/call pending flags at bytes 14-15 + other state |
+| `'4'` 0x34 | **a534** | `CallReceiverBroadcast.e()`, `NotificationService` (line 729) | **Missed call** notification with caller name (up to 22 chars) + missed-count at byte 3 |
+| `'5'` 0x35 | **a535** | `IncomingSms.java` (line 91), `NotificationService` (line 412 — SMS/WhatsApp variant) | **SMS / WhatsApp notification** with sender name + message marker bytes |
+| `'6'` 0x36 | a536 | `A0.E()`, `C0940y.java` (first run) | **User identity** — user's display name + new-vs-known-cluster flag |
+| `'7'` 0x37 | a537 | **bike → phone (notify)**, not TX | Telemetry — fully decoded |
+
+We had been thinking the TX side was just three types (a531 / a533 / a536). It's actually six (a531, a532, a533, a534, a535, a536). The extra four are event-driven (calls + SMS/notifications) and only fire when those Android events occur — which is why they weren't in the M0 capture (Arjun's phone was quiet during the 18-min session).
+
+### a533 templates (multiple senders, different layouts)
+
+**Template 1 — `services/f.java` (1-Hz periodic heartbeat, sent 3× per tick for reliability):**
+
+```
+?31Y[0xFF×3]"2111837"[i0][j0][0xFF×12][chk][0x7F]
+```
+- bytes 2-3: literal `'1' 'Y'`
+- bytes 4-6: 0xFF padding
+- bytes 7-13: hardcoded magic string `"2111837"` (only appears in this one file — likely phone-side protocol-version identifier)
+- byte 14: `HomeScreenActivity.i0` (SMS-pending flag — `'N'` = 78 default, `'Y'` = 89 set by NotificationService to signal clear)
+- byte 15: `HomeScreenActivity.j0` (call-pending flag — same N/Y encoding, set by CallReceiverBroadcast)
+
+**Template 2 — `C0940y.java` (every ~5s, fires after the first-run a536; two variants by bike type):**
+
+The toggle is `K.g`, decided by the cluster's BLE-advertised name character at position 1:
+- `name[1] == 'A'` → `K.g = true` (Access 125, Burgman Street — older simpler scooters)
+- `name[1] == 'B'` → `K.g = false` (Gixxer SF 150, Avenis, others — newer bikes)
+
+Common to both: `str = "?3" + c.G + c.P + c.I + c.O + zeros` where:
+- `c.G` = 2-char mode/flag string, defaults `"1N"` — exact reassignment path unclear (see "mystery" below)
+- `c.P` = 3-digit zero-padded speed from SharedPreferences
+- `c.I` = 1-digit signal/status code (similar to A0.H1 in a531)
+- `c.O` = current time as 6-digit `"hhmmss"` (via `SimpleDateFormat("hhmmss")`) — this is the incrementing counter we saw
+
+K.g==true (simpler): bytes 16-27 all 0xFF.
+K.g==false (richer, our bike): adds bytes 21-23 = `c.M` (mode int 0-11) + `(int)c.N` (some angle/bearing) + literal `1`.
+
+### a536 template (identity)
+
+`C0940y.java` first run + `A0.E()`:
+
+```
+?6<NAME 22 chars NUL-padded>[0xFF×5]['F' or 'R'][chk][0x7F]
+```
+- bytes 2-23: user's display name from `SharedPreferences("user_data").getString("name")`, NUL-padded to 22 chars (then bytes 22-26 get clobbered to 0xFF, so effective name length is 20 chars at bytes 2-21)
+- byte 27: `'F'` (0x46, "Fresh") if `K.s == true` (connecting to a NEW/different cluster than last time), `'R'` (0x52, "Reconnect") if reconnecting to the same cluster as last session. Source: `services/d.java` line 64-66.
+
+### a532 / a534 / a535 (call/SMS/notification frames — new finding)
+
+These four event-driven frames carry contact name or phone number as ASCII text in the body. We didn't capture them in M0 because Arjun's phone was quiet. To observe: trigger a call / SMS / WhatsApp notification while HCI snoop is running.
+
+- **a532** (incoming call): `?2<phone number, 20 chars NUL-pad>[0x4E ('N')][state byte: '1' active, '2' something][0xFF×4][chk][0x7F]`
+- **a534** (missed call): `?4<contact name, 22 chars NUL-pad>...[missed count at byte 3][...]'N' at byte 24[0xFF×3][chk][0x7F]`
+- **a535** (SMS/WhatsApp): `?5<sender or message, 23 chars NUL-pad><app marker byte (W=WhatsApp, N=other)>[NUL×3][chk][0x7F]`
+
+### Mystery flagged for live verification
+
+The M0 capture's a533 sample logged in NOTES.md was `.33Y214.050154NN.........` — bytes 1-3 read `'3' '3' 'Y'`. But every source-side a533 template puts type-byte `'3'` at byte 1, then non-`'3'` content at byte 2 (either `'1'` from services/f.java's literal "?31Y", or `c.G[0]` from C0940y which defaults `'1'`).
+
+So either:
+- The capture-display rendering of bytes is off-by-one (e.g. the leading `.` is NOT the 0xA5 header byte but something else), OR
+- `c.G` is dynamically reassigned to `"3Y"` somewhere we haven't traced, OR
+- The captured frames are from a sender path we still haven't found
+
+**To verify**: hex-dump 5-10 actual `a533` frames from `captures/m0-pairing-and-first-nav-20260523-1712.pcap` and compare byte 2 against the three template predictions. Cheap to do — punted for now.
+
+### What this closes / opens
+
+**Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.
+
+**Opens:**
+- Cross-verify the captured a533 byte 2 (mystery above)
+- Capture a call / SMS / WhatsApp event with HCI snoop running to validate the a532 / a534 / a535 templates
+- `c.G`, `c.M`, `c.N` semantic verification (mode-byte / angle/bearing-byte) — needs a live ride
+- Whether `K.g` for Gixxer SF 150 specifically is true or false — depends on the cluster's BLE name; our LOCAL_NOTES.md has the cluster MAC but probably not the name char-by-char. Quick check next session.

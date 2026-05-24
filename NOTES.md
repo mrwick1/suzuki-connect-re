@@ -354,20 +354,35 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 
 - All payloads are **exactly 30 bytes** (the protocol pads to fixed frame size with `0xFF`)
 - Header byte: `0xA5`
-- Type byte: an ASCII digit (`'1'`, `'3'`, `'6'`, `'7'`) — i.e., type byte is `0x31`, `0x33`, `0x36`, `0x37`
+- Type byte: an ASCII digit (`'1'` to `'7'`) — i.e., type bytes are `0x31` through `0x37`
 - Payload: ASCII text fields, often separated by `0xFF` or null bytes
 - Trailing byte: `0x7F` (end-of-message marker)
-- Byte before `0x7F`: appears to be a checksum that varies with content
+- Byte before `0x7F`: XOR checksum (`sum(bytes[1:28]) mod 256`)
 
-### Observed message types
+### Complete message type inventory (7 types — confirmed from source 2026-05-24)
 
 **From phone to bike** (writes on `0xFFF1`):
 
-| Type byte | Count in M0 capture | Rate | Decoded sample | Purpose (hypothesis) |
-|-----------|---------------------|------|----------------|---------------------|
-| `0x31` ('1') | 2988 (~86%) | ~2.7/sec | `.1..0080M0517PM...05.6K01...L.` | **Display update**: current time + distance-to-destination + flags. Pushed continuously to refresh cluster display. |
-| `0x33` ('3') | 446 (~13%) | ~0.4/sec | `.33Y214.050154NN.........` | **Phone heartbeat / keepalive** with incrementing counter (050154, 050155, 050156...) |
-| `0x36` ('6') | 36 (~1%) | episodic | `.6ARJUN.....................` | **User identity** — pushes user name (for display) on connection and at certain events |
+| Type byte | Frame | Sender(s) in source | Purpose | When sent |
+|-----------|-------|---------------------|---------|-----------|
+| `0x31` ('1') | a531 | `application/fragment/A0.D()` | Nav frame (turn arrow + dist + ETA + status) — fully decoded | Continuously during active navigation, ~2.7/sec |
+| `0x32` ('2') | a532 | `broadcaster/CallReceiverBroadcast.d()`, `services/NotificationService:786` (WhatsApp call) | Incoming-call notification — caller's phone number at bytes 2-21 + state at byte 23 | When phone has incoming call |
+| `0x33` ('3') | a533 | `services/f.java` (1Hz × 3), `application/fragment/C0940y.java` (every ~5s, two variants by `K.g`) | Phone heartbeat — SMS/call pending flags at bytes 14-15 | Continuous after pairing |
+| `0x34` ('4') | a534 | `broadcaster/CallReceiverBroadcast.e()`, `services/NotificationService:729` | Missed-call notification — caller name + missed count at byte 3 | When missed-call event fires |
+| `0x35` ('5') | a535 | `broadcaster/IncomingSms`, `services/NotificationService:412` | SMS / WhatsApp notification — sender name + app marker (W=WhatsApp, N=other) | When SMS/notification arrives |
+| `0x36` ('6') | a536 | `application/fragment/A0.E()`, `application/fragment/C0940y.java` (first run) | User identity — display name (up to 20 chars at bytes 2-21) + `'F'`/`'R'` flag at byte 27 (`'F'`=new cluster, `'R'`=reconnect) | On connection / pairing |
+
+**From bike to phone** (notifies on `0xFFF2`):
+
+| Type byte | Frame | Purpose |
+|-----------|-------|---------|
+| `0x37` ('7') | a537 | Bike telemetry (speed, odo, Trip A, Trip B, fuel bars, fuel economy) — fully decoded |
+
+**Important corrections to prior table:**
+- Earlier NOTES.md only listed 3 TX types (a531, a533, a536). Missing: a532, a534, a535 (event-driven; absent in M0 because Arjun's phone was quiet during the 18-min capture).
+- The a531 sample `.1..0080M0517PM...05.6K01...L.` was earlier described as "current time + distance"; the `0517PM` field is actually the ETA, not current time (see corrected a531 decode above).
+- The a533 sample `.33Y214.050154NN...` doesn't byte-match any source template (every source path puts `'1'` or `c.G[0]` at byte 2, not `'3'`). Either the M0 sample-display has an off-by-one, or there's a sender path we haven't traced. Flagged in DISCOVERIES.md 2026-05-24 — needs hex-dump of pcap to verify.
+- The a536 sample `.6ARJUN...` is consistent with the source template (`"?6" + name + ...`), with `ARJUN` as the 22-char NUL-padded name (5 chars + NUL padding).
 
 **From bike to phone** (notifies on `0xFFF2`):
 
