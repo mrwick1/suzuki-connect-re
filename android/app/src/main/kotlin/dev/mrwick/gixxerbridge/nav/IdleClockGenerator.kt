@@ -56,4 +56,41 @@ class IdleClockGenerator(
             continueFlag = "1",
         )
     }
+
+    /**
+     * Build an a531 frame that surfaces the currently-playing track on the
+     * cluster's text positions. Caller is expected to pass a pre-trimmed
+     * single-line label (see [dev.mrwick.gixxerbridge.notifications.NowPlaying.forCluster]).
+     *
+     * Layout chosen (one a531 frame):
+     *   - maneuverId    = [ManeuverMap.GENERIC_ARROW] (8) — generic, no turn arrow
+     *   - eta           = "PLAYNG" (fixed 6-char label)
+     *   - distNext      = first 4 chars of trackTitle.uppercase()
+     *   - distNextUnit  = "@"
+     *   - distTotal     = next 4 chars of trackTitle (offset 4) uppercase
+     *   - distTotalUnit = "*"
+     *   - status / continueFlag = "1" / "1"
+     *
+     * ASSUMED: the cluster will render the trackTitle chunks in the distance
+     * positions as legible text (same creative-text-positions assumption that
+     * powers [build]). Specific behaviour for the "PLAYNG / @ / *" layout has
+     * NOT been proven on the bike — revisit after first cluster test.
+     */
+    fun buildNowPlaying(nowPlaying: String): NavFrame {
+        val upper = nowPlaying.uppercase()
+        val chunk1 = upper.take(4).padEnd(4, ' ')
+        val chunk2 = upper.drop(4).take(4).padEnd(4, ' ')
+        return NavFrame(
+            // ASSUMED: cluster will not draw a turn arrow for maneuverId=8 in
+            // this layout; tolerates the text-only repurposing.
+            maneuverId = ManeuverMap.GENERIC_ARROW,
+            distNext = chunk1,
+            distNextUnit = "@",
+            eta = "PLAYNG",
+            distTotal = chunk2,
+            distTotalUnit = "*",
+            status = "1",
+            continueFlag = "1",
+        )
+    }
 }

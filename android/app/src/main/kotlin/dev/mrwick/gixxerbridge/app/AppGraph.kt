@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.app
 
+import dev.mrwick.gixxerbridge.ble.BikeInfo
 import dev.mrwick.gixxerbridge.ble.BleClient
 import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.ble.FrameStream
@@ -30,6 +31,14 @@ object AppGraph {
 
     fun publishConnectionState(state: ConnectionState) {
         _connectionState.value = state
+    }
+
+    /** Standard BLE Device Information Service snapshot — populated by BleClient on first connect. */
+    private val _bikeInfo = MutableStateFlow<BikeInfo?>(null)
+    val bikeInfo: StateFlow<BikeInfo?> = _bikeInfo.asStateFlow()
+
+    fun publishBikeInfo(info: BikeInfo) {
+        _bikeInfo.value = info
     }
 
     /**

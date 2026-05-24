@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.RangeEstimator
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import dev.mrwick.gixxerbridge.ui.cluster.ClusterPreview
 
@@ -33,6 +35,7 @@ import dev.mrwick.gixxerbridge.ui.cluster.ClusterPreview
 @Composable
 fun DashboardScreen(vm: DashboardViewModel) {
     val t by vm.telemetry.collectAsStateWithLifecycle()
+    val kmPerBar by vm.kmPerBar.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -43,6 +46,7 @@ fun DashboardScreen(vm: DashboardViewModel) {
         ClusterPreview()
         SpeedCard(t)
         FuelCard(t)
+        RangeCard(t, kmPerBar)
         TripCard(t)
         OdometerCard(t)
         if (t == null) {
@@ -106,6 +110,50 @@ private fun FuelCard(t: TelemetryFrame?) {
                 econ?.let { "Avg fuel economy: ${"%.1f".format(it)} km/L" } ?: "Fuel economy unavailable",
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+/**
+ * Range estimate (km remaining) from current fuel bars and historical km/bar.
+ * Also flashes a "Low fuel" badge when current bars <= 1.
+ */
+@Composable
+private fun RangeCard(t: TelemetryFrame?, kmPerBar: Double?) {
+    val km = RangeEstimator.estimateRemainingKm(t?.fuelBars, kmPerBar)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("Range estimate", style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.height(4.dp))
+            if (km != null) {
+                Text("~${km.toInt()} km", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    "${"%.1f".format(kmPerBar ?: 0.0)} km per fuel bar (from ride history)",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                Text("—", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    "Need rides with start/end fuel logged.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            // ASSUMED: treat "fuel telemetry not yet received" (null) as not-low.
+            // Default sentinel 99 keeps the badge hidden until we have a real reading.
+            if ((t?.fuelBars ?: 99) <= 1) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = Color(0xFF7F1D1D),
+                    contentColor = Color.White,
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        "Low fuel — refuel soon",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+            }
         }
     }
 }

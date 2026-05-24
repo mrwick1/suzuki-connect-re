@@ -22,8 +22,8 @@ import dev.mrwick.gixxerbridge.nav.IdleClockGenerator
 import dev.mrwick.gixxerbridge.nav.MapsNavSource
 import dev.mrwick.gixxerbridge.nav.NavMux
 import dev.mrwick.gixxerbridge.nav.WelcomeFrame
+import dev.mrwick.gixxerbridge.notifications.NowPlayingProvider
 import dev.mrwick.gixxerbridge.protocol.IdentityFrame
-import dev.mrwick.gixxerbridge.protocol.NavFrame
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
 import dev.mrwick.gixxerbridge.safety.CrashDetector
@@ -38,11 +38,11 @@ import dev.mrwick.gixxerbridge.weather.WeatherCache
 import dev.mrwick.gixxerbridge.weather.WeatherProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -63,6 +63,7 @@ class BikeBridgeService : LifecycleService() {
     private lateinit var weatherCache: WeatherCache
     private lateinit var heartbeatLoop: HeartbeatLoop
     private lateinit var idleClock: IdleClockGenerator
+    private lateinit var nowPlayingProvider: NowPlayingProvider
     private lateinit var navMux: NavMux
     private lateinit var dnd: DndController
     private lateinit var lastParked: dev.mrwick.gixxerbridge.location.LastParkedTracker
@@ -81,6 +82,7 @@ class BikeBridgeService : LifecycleService() {
         frameWriter = FrameWriter()
         phoneState = PhoneState(applicationContext).also { it.start() }
         idleClock = IdleClockGenerator()
+        nowPlayingProvider = NowPlayingProvider(applicationContext)
         dnd = DndController(applicationContext)
         lastParked = dev.mrwick.gixxerbridge.location.LastParkedTracker(applicationContext)
         weatherCache = WeatherCache(
@@ -100,11 +102,46 @@ class BikeBridgeService : LifecycleService() {
             weatherProvider = { weatherCache.currentEncoded() },
         )
 
+        // Sample the active media session every 5s; cheap, idempotent, and only
+        // does real work when a NotificationListenerService is enabled. The 5s
+        // cadence matches the cycle alternation window below so a freshly-paused
+        // track clears within one cycle.
+        // ASSUMED: 5s sampling is responsive enough; revisit if rider notices lag
+        // between hitting "play" and the cluster swap.
+        lifecycleScope.launch {
+            while (isActive) {
+                nowPlayingProvider.refresh()
+                delay(5_000)
+            }
+        }
+
         // NavMux pulls Maps nav (from NotificationCaptureService → MapsNavSource) and falls back to idle.
-        val idleFlow = MutableStateFlow<NavFrame?>(null)
-        navMux = NavMux(MapsNavSource.frame, kotlinx.coroutines.flow.flow {
-            while (true) { emit(idleClock.build(weatherCache.currentEncoded().first, /* tempCelsius */ tempFromByte(weatherCache.currentEncoded().second))) ; delay(1_000) }
-        })
+        //
+        // Idle producer alternates every CYCLE_SECONDS=5 ticks (= 5s @ 1Hz):
+        //   ticks 0..4  -> clock + weather
+        //   ticks 5..9  -> now-playing (if available AND settings.nowPlayingOnCluster)
+        // If now-playing is disabled or no track is active, we stay on clock+weather.
+        // ASSUMED: 5-second alternation is the right cadence — short enough that the
+        // rider sees the clock at a glance, long enough that they can read the track
+        // title. Revisit after first on-cluster trial.
+        val idleProducer = kotlinx.coroutines.flow.flow {
+            var tick = 0
+            while (true) {
+                val track = nowPlayingProvider.track.value
+                val wantNowPlaying = settings.nowPlayingOnCluster.first() && track != null
+                val showNowPlaying = wantNowPlaying && (tick % (CYCLE_SECONDS * 2)) >= CYCLE_SECONDS
+                val (wcode, tbyte) = weatherCache.currentEncoded()
+                val frame = if (showNowPlaying) {
+                    idleClock.buildNowPlaying(track!!.forCluster())
+                } else {
+                    idleClock.build(wcode, tempFromByte(tbyte))
+                }
+                emit(frame)
+                delay(1_000)
+                tick++
+            }
+        }
+        navMux = NavMux(MapsNavSource.frame, idleProducer)
 
         AppGraph.bleClient = bleClient
         AppGraph.frameWriter = frameWriter
@@ -151,6 +188,13 @@ class BikeBridgeService : LifecycleService() {
         // Publish connection state to AppGraph for UI
         lifecycleScope.launch {
             bleClient.state.collect { AppGraph.publishConnectionState(it) }
+        }
+
+        // Publish Device Information Service snapshot once read by BleClient.
+        lifecycleScope.launch {
+            bleClient.bikeInfo.collect { info ->
+                if (info != null) AppGraph.publishBikeInfo(info)
+            }
         }
 
         // Telemetry sink: every notify byte[] -> try-decode -> TelemetryRepository
@@ -364,5 +408,7 @@ class BikeBridgeService : LifecycleService() {
         private const val NOTIFICATION_ID = 1
         // ASSUMED: Bangalore as default weather location; overridden by Settings.weatherLatitude/Longitude.
         private val DEFAULT_LATLNG = 12.97 to 77.59
+        // ASSUMED: 5-second cycle window for clock <-> now-playing alternation.
+        private const val CYCLE_SECONDS = 5
     }
 }

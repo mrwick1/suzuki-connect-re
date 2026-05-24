@@ -44,6 +44,8 @@ fun HomeScreen(onOpenPairing: () -> Unit) {
 
         LastParkedCard()
 
+        RideSummaryCard()
+
         QuickDestinationsCard()
 
         Card(modifier = Modifier.fillMaxWidth()) {

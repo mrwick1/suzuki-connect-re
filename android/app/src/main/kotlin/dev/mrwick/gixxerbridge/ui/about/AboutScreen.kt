@@ -9,7 +9,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.BuildConfig
+import dev.mrwick.gixxerbridge.app.AppGraph
+import dev.mrwick.gixxerbridge.ble.BikeInfo
 
 /**
  * Minimal "About" card: app version, build flavor, package, BLE protocol summary.
@@ -18,6 +22,7 @@ import dev.mrwick.gixxerbridge.BuildConfig
 @Composable
 fun AboutScreen() {
     val context = LocalContext.current
+    val bikeInfo by AppGraph.bikeInfo.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -38,6 +43,10 @@ fun AboutScreen() {
                 KeyVal("Device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             }
         }
+
+        // "Connected bike" card — only shown once BleClient has read the standard
+        // 0x180A Device Information Service from the bike (happens on first connect).
+        bikeInfo?.let { ConnectedBikeCard(it) }
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -76,5 +85,24 @@ private fun KeyVal(k: String, v: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(k, modifier = Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall)
         Text(v, modifier = Modifier.weight(0.6f), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+private fun ConnectedBikeCard(info: BikeInfo) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Connected bike", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            info.manufacturer?.let { KeyVal("Manufacturer", it) }
+            info.modelNumber?.let { KeyVal("Model", it) }
+            info.serialNumber?.let { KeyVal("Serial", it) }
+            info.firmwareRevision?.let { KeyVal("Firmware", it) }
+            info.softwareRevision?.let { KeyVal("Software", it) }
+            info.hardwareRevision?.let { KeyVal("Hardware", it) }
+            info.systemId?.let { KeyVal("System ID", it) }
+            info.pnpId?.let { KeyVal("PnP ID", it) }
+            info.ieeeCert?.let { KeyVal("IEEE cert", it) }
+        }
     }
 }
