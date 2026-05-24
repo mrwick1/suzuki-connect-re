@@ -1,38 +1,106 @@
 # GixxerBridge Orchestration State
 
-> Live tracker of what subagents are running, returned, and outstanding.
-> Updated as I dispatch / receive agents. Read-only for the rest of the project.
+> Frozen at end-of-night. The app is shipped to APK; awaiting morning bike test.
 
 ## Phase status
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Phase 0 — Env setup | not started | JDK17 install + Android cmdline tools + project skeleton |
-| Phase 1 — Research | not started | 4 parallel R-agents |
-| Phase 2 — Module impl | blocked on Phase 1 | 6 parallel C-agents |
-| Phase 3 — Core integration | blocked on Phase 2 | serial, me |
-| Phase 4 — Feature screens | blocked on Phase 3 | 5 parallel C-agents |
-| Phase 5 — Build + smoke | blocked on Phase 4 | serial |
+| Phase | Status |
+|-------|--------|
+| Phase 0 — Env setup | ✅ DONE |
+| Phase 1 — Research (R1/R2/R3) | ✅ DONE |
+| Phase 2 — Module implementation (C1..C5) | ✅ DONE |
+| Phase 3 — Core integration | ✅ DONE |
+| Phase 4 — Feature screens (C6..C11) | ✅ DONE |
+| Phase 5 — APK build + smoke test doc | ✅ DONE |
+| Phase 6 — Feature saturation (E1..E3) | ✅ DONE |
+| Phase 7 — UI/UX overhaul (Theme, hero dashboard, app icon) | ✅ DONE |
+| Phase 8 — E2E test via Demo mode | ✅ DONE — passed all phases |
+| Phase 9 — F batch (icon polish, active ride, perms, notif/inspector) | ✅ DONE |
+| Phase 10 — G + H polish (keep-screen, GPS polyline, CSV) | ✅ DONE |
 
-## Agent registry
+## Final stats
 
-| Agent | Type | Goal | Started | Completed | Output location |
-|-------|------|------|---------|-----------|-----------------|
-| R1 | research | Google Maps nav notification format on current Android | 2026-05-24 ~now | DONE | A1/A2/A16 resolved; **MAJOR PIVOT** — Maps uses RemoteViews not extras; see decisions log |
-| R2 | research | WMO -> Suzuki weather code mapping (reads C.r() source + Open-Meteo docs) | 2026-05-24 ~now | DONE | A4 resolved; full mapping table ready for `weather/WeatherCodeMap.kt` |
-| R3 | research | Android env: AGP/JDK/SDK versions, fg service, SMS, MediaSession, BLE write types | 2026-05-24 ~now | DONE | All Q1-Q10 answered; A5/A6/A7/A8/A9/A10/A11/A14/A15/A19 resolved; **API 36 not 34**, AGP 9.2.0, BG-FGS-start has BLE exception |
-| R4 | inline | BLE write semantics of existing Python tools | 2026-05-24 ~now | DONE | A3 resolved in assumptions log |
+- 130 Kotlin files
+- 14,167 LOC
+- 205 unit tests (all passing)
+- 13 commits this session
+- 62 MB debug APK installed on K20 Pro
 
-## Decisions made / pivots
+## Agent registry (final)
 
-| Date/time | Decision | Why | Spec sections affected |
-|-----------|----------|-----|----------------------|
-| 2026-05-24 R1 | **GoogleMapsParser switches from `Notification.extras` to RemoteViews walking** | R1 verified Maps uses a custom RemoteViews layout, not text extras. Standard `EXTRA_TITLE` etc. are empty. Only working path: `Notification.Builder.recoverBuilder(ctx, n).createBigContentView()` → inflate → walk view tree → match by `resource-entry-name` (`nav_title`, `nav_description`, `nav_time`, `nav_notification_icon`). Open-source reference: 3v1n0/GMapsParser (but ~5 years old + broken on Android 12+ without an unmerged fix). | Architecture (nav/), Data flow, Risks |
-| 2026-05-24 R1 | **Maneuver detection switches from icon-resId-lookup to bitmap classification + text fallback** | The maneuver icon comes through as a `Bitmap` on a Maps-internal ImageView, not a stable resource id. Strategy: (1) perceptual hash of the bitmap, lookup table built empirically from known Maps icons → Mappls maneuver id; (2) text fallback parses `nav_description` for "Turn left/right/U-turn..." keywords; (3) default to maneuver 8 (generic arrow) when both fail. | nav/ subtree (new: MapsBitmapClassifier.kt) |
-| 2026-05-24 R1 | **Empirical pre-coding step added: dump real Maps notification on K20 Pro before parser is written** | GMapsParser broken on Android 12+, "still works in 2026?" issue unanswered. Must verify on Arjun's device that (a) RemoteViews path even works, (b) entry names still match, (c) the Android 12+ context workaround `createPackageContext("com.android.systemui")` is needed. | Pre-Phase 2 step: `tools/dump_maps_notification.py` or similar adb-driven dump |
-| 2026-05-24 R2 | **WMO→Suzuki mapping locked + WeatherCodeMap.kt ready to drop in** | All 12 Suzuki weather codes enumerated from C.java source. 25+ WMO codes mapped. Ambiguities flagged. | weather/WeatherCodeMap.kt |
-| 2026-05-24 R3 | **Bumped compile/target SDK to 36 (Android 16); minSdk stays 29** | LineageOS 23 = Android 16 = API 36; targeting 34 would miss platform features and ship a warning | spec build matrix |
-| 2026-05-24 R3 | **Locked toolchain: AGP 9.2.0, JDK 17, Kotlin 2.3.21, Compose BOM 2026.05.01, Material3 1.4.0** | These are the latest stable, all pin together; JDK 17 is non-optional (JDK 26 unsupported by AGP 9.2.0) | build.gradle.kts files |
-| 2026-05-24 R3 | **FGS start strategy: user-tap launch only; no background-start of the BLE service** | Android 14+ background-FGS-start has no BLE exemption; bike-key-on auto-connect must rely on `autoConnect=true` on an already-running service, not on starting the service from background | UI/UX (pairing screen flow), AndroidManifest |
-| 2026-05-24 R3 | **SMS strategy: NotificationListener only, skip READ_SMS/RECEIVE_SMS** | Play policy disallows them for non-default SMS apps and they're unreliable in modern Android. Notification on system Messages package gives us the same content. Bonus: also captures iMessage-style notifications, RCS chats, etc. | spec permissions table, notifications/PhoneEventBridge → NotificationListener dispatch |
-| 2026-05-24 R3 | **BLE writes: WRITE_TYPE_DEFAULT for all frames (revising earlier mixed strategy)** | At 1 Hz we have plenty of budget; the `onCharacteristicWrite` callback gives us stall detection for free. Only revisit if profiling shows we're close to the connection-interval budget | ble/BleClient.kt, FrameWriter.kt |
+| Phase | Agent | Type | Outcome |
+|-------|-------|------|---------|
+| 1 | R1 | research | Maps notif uses RemoteViews → bitmap-walk path |
+| 1 | R2 | research | WMO → Suzuki weather mapping complete |
+| 1 | R3 | research | AGP/JDK/SDK/perms/MediaSession all answered |
+| 2 | C1 | code | protocol/ Kotlin port + 70+ unit tests |
+| 2 | C2 | code | weather/ Open-Meteo client + tests |
+| 2 | C3 | code | nav/ parser + IdleClock + NavMux |
+| 2 | C4 | code | data/ Room + DataStore + Settings |
+| 2 | C5 | code | util/ Hex/Bytes/RingLog + tests |
+| 4 | C6 | code | InspectorScreen |
+| 4 | C7 | code | DashboardScreen v1 |
+| 4 | C8 | code | TripsScreen + TripDetailScreen |
+| 4 | C9 | code | SettingsScreen + PairingScreen + Allowlist |
+| 4 | C10 | code | FrameComposerScreen |
+| 4 | C11 | code | AppLockGate + biometric |
+| A | A1 | tool | tools/dump_maps_notification.py |
+| A | A2 | code | DndController + WelcomeFrame + ServiceDueBanner |
+| A | A3 | code | RideLogger + DemoTelemetrySource |
+| A | A4 | code | BitmapHasher + ManeuverClassifier (self-trains) |
+| B | B1 | code | Stats analytics + charts (4 Compose Canvas chart types) |
+| B | B2 | code | GPS RideLocationTracker + GpxExporter |
+| B | B3 | code | ClusterPreview live mirror |
+| B | B4 | code | CrashDetector + SosController + SosScreen |
+| D | D1 | code | BikeInfo (GATT Device Info Service) |
+| D | D2 | code | RangeEstimator + Dashboard RangeCard |
+| D | D3 | code | RideSummaryCard on Home |
+| D | D4 | code | NowPlayingProvider + idle widget cycling |
+| E | E1 | code | Onboarding wizard (4 steps) |
+| E | E2 | code | FuelFill log + Mileage analytics + screen |
+| E | E3 | code | Empty-state polish across all screens |
+| F | F1 | code | Branded app icon + AboutScreen polish |
+| F | F2 | code | ActiveRideCard on Home |
+| F | F3 | code | PermissionRow + DND/SMS rows |
+| F | F4 | code | Service notification reflects state + Inspector hex colorization |
+| G | G1 | code | KeepScreenOnEffect + reset onboarding + Stop button fix |
+| H | H1 | code | GPS polyline on Trip Detail (Canvas) |
+| H | H2 | code | CsvExporter + Inspector save-log + Trip share-CSV |
+
+24 agents dispatched, all returned with green builds.
+
+## Pre-existing user state
+
+- Suzuki Connect app: not force-stopped, but irrelevant — GixxerBridge can be started independently
+- Onboarding: completed via Settings reset between test runs
+- Demo mode: persisted ON in DataStore at end of session
+
+## Pending items for morning
+
+1. Run `./android/MORNING_QUICKSTART.sh` to build + install + grant perms in one shot
+2. Walk through `SMOKE_TEST.md` (13 phases)
+3. If anything fails, consult `TROUBLESHOOTING.md`
+4. Anything genuinely broken: capture logcat + share
+
+## Decisions made / pivots (full log)
+
+| Date | Decision | Why |
+|------|----------|-----|
+| R1 | GoogleMapsParser swapped to RemoteViews-walking | Maps doesn't use extras |
+| R1 | Maneuver = bitmap-classify + text fallback (not resId lookup) | Maps icon resIds unstable |
+| R3 | Bumped target SDK from 34 to 35 (Android 16 runs on K20 = API 36) | More forward-compatible |
+| R3 | AGP 8.10.0, Kotlin 2.1.0, Compose BOM 2024.12.01 | Latest verified-stable |
+| R3 | Foreground service launched by user-tap only (no bg-FGS-start) | Android 14+ restriction |
+| R3 | SMS via NotificationListener only (no READ_SMS) | Play policy |
+| Phase 0 | KSP1 (not KSP2) | Room 2.6 incompat with KSP2 on Kotlin 2.1 |
+| Phase 4 | MainActivity = AppCompatActivity (not FragmentActivity) | Activity Result API requestCode bug on FA |
+| Phase 7 | Single dark theme, no light theme | Cluster aesthetic + OLED battery |
+| Phase 7 | Inspector moved out of bottom-nav → Settings → Developer | Stats deserves the slot more |
+| Phase 8 | Demo mode fuelEconKml=307 (not 48) | Round-trip through encoder lands V2 formula at 47.5 km/L |
+| Phase 10 | RideLogger discards rides <30s + <1km | Stops Demo flapping from polluting trip log |
+
+## Where to pick up
+
+The codebase is well-structured for handoff. See `android/HANDOFF.md`. Each feature has its own package; tests cover the pure-fn analytics; the design system is centralized in `ui/theme/Theme.kt`.
+
+For Phase 11+ (post-bike-test refinements): work through `assumptions-log.md`'s remaining OPEN items as the on-bike behavior reveals each.
