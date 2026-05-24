@@ -33,13 +33,18 @@ class DemoTelemetrySource(private val startOdo: Int = 17000) {
                 val speed = (40 + (40 * sin(t / 6.0))).toInt().coerceIn(0, 100)
                 val tripA = (odo - startOdo).toDouble()
                 val tripB = (odo - startOdo) * 0.4
+                // The Dashboard uses [TelemetryFrame.fuelEconKmlV2] which is `raw[25] / 2.0`.
+                // The legacy encoder packs `fuelEconKml * 10` into a 24-bit fixed-point and
+                // byte 25 ends up = (top13 << 11 >> 16). To make V2 ~= 48 km/L (matches the
+                // Gixxer SF 150's real-world average) we need byte[25] ~= 96, which means
+                // priming fuelEconKml ~= 307. Hacky but keeps DemoSource self-contained.
                 val frame = TelemetryFrame(
                     speedKmh = speed,
                     odometerKm = odo,
                     tripAKm = tripA,
                     tripBKm = tripB,
                     fuelBars = fuel,
-                    fuelEconKml = 48.0,
+                    fuelEconKml = 307.0,
                 ).encode()
                 TelemetryRepository.update(TelemetryFrame.decode(frame))
                 t++

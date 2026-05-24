@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +16,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -141,20 +144,33 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
     }
 }
 
-/** A label + Material3 [Switch] aligned on a single row. */
+/** A label + Material3 [Switch] aligned on a single row.
+ *  Off-state colors are explicitly brightened so the track stays visible
+ *  against the dark `surfaceContainerHigh` card background (default M3 dark
+ *  gray blends into the card). The whole row is clickable so the touch
+ *  target is the full width, not just the ~50dp Switch. */
 @Composable
 private fun SwitchRow(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .clickable { onChange(!value) }
+            .padding(vertical = 8.dp),
     ) {
         Text(
             label,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
         )
-        Switch(checked = value, onCheckedChange = onChange)
+        Switch(
+            checked = value,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                uncheckedTrackColor = Color(0xFF334155),
+                uncheckedThumbColor = Color(0xFF94A3B8),
+                uncheckedBorderColor = Color(0xFF475569),
+            ),
+        )
     }
 }
