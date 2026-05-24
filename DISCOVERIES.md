@@ -1070,6 +1070,107 @@ Then traced the actual handshake by following the FastBle `BleGattCallback` subc
 - Whether the cluster keeps multiple "trusted phones" — would matter for a multi-user setup
 - The `H(bleDevice, 0).run()` Runnable's second `Handler.postDelayed` call (with `bluetoothGatt`) — what's the follow-up action 500 ms after `MyBleService.a()`?
 
+## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
+
+### What we did
+
+Generalized `tools/find_field_writes.py` to take a `<class-path>.<field>` CLI arg, then ran it against every remaining mystery field in a533 + the A0 flags driving a531 byte 23.
+
+### MAJOR corrections (prior speculation walked back)
+
+| Field | Was speculated as | ACTUALLY IS | Evidence |
+|-------|-------------------|-------------|----------|
+| `C.M` (a533 byte 21) | "mode int 0-11 (gear?)" | **Weather code 0-11** | `C.r(String)` at C.java:4075 parses AccuWeather-style condition strings ("sunny", "cloudy", "thunderstorm", etc.) into 0-11 |
+| `C.N` (a533 byte 22) | "angle/bearing (`115.0 + dCeil`)" | **Temperature**, Fahrenheit + 115 offset | `C.q(String)` at C.java:4065 parses temperature like "27°C", converts to Fahrenheit via `ceil(9C/5 + 32)`, stores as `115.0 + F`. Encoded byte = `F + 115`. Decode: `F = byte - 115`, then `C = (F-32)*5/9` |
+
+### Full new field-semantic map
+
+**`C.M` weather code** (a533 byte 21):
+
+| Value | Weather |
+|-------|---------|
+| 0 | unknown / other |
+| 1 | sunny / mostly sunny / clear |
+| 2 | cloudy / partly cloudy / overcast / clouds |
+| 3 | fog / light fog |
+| 4 | showers / light rain |
+| 5 | thunderstorms |
+| 6 | rain / showers or light rain |
+| 7 | snow / flurries / ice |
+| 8 | hail / sleet / freezing rain |
+| 9 | hot |
+| 10 | cold |
+| 11 | windy |
+
+**`C.N` temperature** (a533 byte 22):
+
+- `byte_22 = (int)(115.0 + ceil(9C/5 + 32))` where `C` is Celsius temperature from a weather string like `"27°C"`.
+- Decode: `F = byte_22 - 115`, `C = (F - 32) * 5/9`.
+- 27°C → ceil(80.6) = 81°F → byte = 196 (0xC4). Decode: 196-115=81°F → 27°C. ✓
+- Range: ~-40°C to ~60°C (-40°F to 140°F) → byte range 75 to 255. The +115 offset lets the unsigned-byte representation cover sub-freezing temps.
+
+**`C.I` phone cellular signal strength** (a531 byte 23, a533 byte 7):
+
+Set by `com.suzuki.application.fragment.B.onSignalStrengthsChanged(SignalStrength)` — a `PhoneStateListener` callback. Maps:
+
+| `c.I` | Source | Meaning |
+|-------|--------|---------|
+| `"3"` | `signal.getLevel() >= 4` (or 5G NR `ssRsrp > -90dBm`) | Strong (4-5 bars) |
+| `"2"` | `level == 3` (or 5G NR `ssRsrp > -105dBm`) | Medium (3 bars) |
+| `"1"` | `level == 2` (or 5G NR `ssRsrp > -120dBm`) | Weak (2 bars) |
+| `"0"` | `level <= 1` (or 5G NR `ssRsrp <= -120dBm`) | None / very weak |
+
+So in normal operation, the byte takes values 0-3 (cell signal bars).
+
+**During active navigation**, the same byte (a531 byte 23 via `A0.D()`) is OVERLOADED with extra states from A0's flags. Updated mapping (combining `v0.java` switch with the actual flag sources):
+
+| Value | Source flag | Meaning |
+|-------|-------------|---------|
+| `'0'` | `C.e1` true (no signal) or airplane mode | Phone offline / no service |
+| `'1'` | else branch (normal nav) | Normal operation |
+| `'2'` | `A0.X` true (set by Mappls `addNavigationListener` + `routing/i.b`) | **Mappls is rerouting** |
+| `'3'` | `A0.b0` true (set by Mappls `routing/i.m`) | TBD — possibly "arrived at destination" |
+| `'4'` | `A0.Z` true (set by `A0.B()` GPS-status handler) | **GPS provider disabled** |
+| `'5'` | `A0.a0` true (set by Mappls `routing/f.run`) | TBD — possibly "off-route" |
+| `'6'` | `A0.v0` true (set by `y0.onReceive` from `CONNECTIVITY_ACTION`) | **Phone has no network connectivity** |
+
+So the cluster gets either "cell bars 0-3" (when not navigating) OR "nav state 0-6" (when navigating). The bike presumably has icons or text mapped to each value.
+
+### Updated a533 semantic picture
+
+Previously called a "heartbeat." It's actually a **complete environmental dashboard frame** carrying:
+
+| Pos | Field | Carries |
+|-----|-------|---------|
+| 2-3 | `c.G[0..1]` | Phone battery level bucket + charging state |
+| 4-6 | `c.P` | Speed (from SharedPreferences, often stale when engine off) |
+| 7 | `c.I` | Phone cell signal bars (0-3) |
+| 8-13 | `c.O` | Current wall-clock time (hhmmss 12-hour) |
+| 14 | `i0` | SMS/notification pending flag (N/Y) |
+| 15 | `j0` | Call pending flag (N/Y) |
+| 21 | `c.M` | **Current weather code (0-11)** |
+| 22 | `(int) c.N` | **Current outdoor temperature (Fahrenheit + 115 offset)** |
+| 23 | literal `0x01` | constant |
+
+The cluster apparently displays weather and temperature alongside time and notifications — making sense of why riders see a small weather widget on Suzuki Connect-equipped bikes.
+
+**Where does the weather data come from?** Not yet traced. C.q() and C.r() take string inputs; their callers must be pulling from Mappls SDK's weather service or another API. Worth tracing if Phase 2 (replacement app) wants to keep the weather display working. For Phase 3 forging tools, we can synthesize values directly.
+
+### Other smaller findings
+
+- `A0.Z` is set by `A0.B(boolean)` — the GPS-status method we already saw. `Z=true` when GPS lost, `Z=false` when restored. Confirms our prior decode.
+- `A0.X` has 5 writers: Mappls `addNavigationListener`, `routing/i.b`, A0 `<init>`, `o0.run`, `v0.run`. Multiple state machines toggle it — most likely "recalculation needed" set during route-deviation events.
+- `A0.a0` is set by Mappls `routing/f.run` — likely an off-route detector.
+- `A0.b0` is set by Mappls `routing/i.m` — likely arrival or maneuver-passed event.
+
+These three (X, a0, b0) need a live ride capture to fully pin semantics. Static analysis is ambiguous.
+
+### Lesson
+
+The dex-bytecode field-write tool (`find_field_writes.py`) keeps paying dividends. Every time JADX shows a field with default-only assignment, running the androguard scan surfaces the real writer — often in a ProGuard-renamed class outside the app's namespace (`androidx/appcompat/app/z.java` for `C.G`, `com.suzuki.application.fragment.B` for `C.I`, `com.suzuki.application.fragment.y0` for `A0.v0`).
+
+Tool now general-purpose: `python tools/find_field_writes.py <class-path>.<FieldName>` works for any class/field combo.
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.

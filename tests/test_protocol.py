@@ -160,19 +160,56 @@ def test_a531_roundtrip_real():
 def test_a533_decode():
     """
     a5 33 33 59 32 31 34 00 30 35 30 31 35 34 4e 4e ff ff ff ff ff 01 00 01 ff ff ff ff 1a 7f
-       a533 3 Y 2 1 4 0  0 5 0 1 5 4 N N ff ff ff ff ff M  N  1  ff ff ff ff chk end
+       a533 3 Y 2 1 4 0  0 5 0 1 5 4 N N ff×5             wx tF 1  ff×4       chk end
+
+    Decoded:
+      - battery_bucket='3', charging='Y'   → phone at 75-100% on charger
+      - speed_str='214'                    → stale prefs value (engine off in M0)
+      - signal_status='0'                  → no cell signal during capture
+      - time_hhmmss='050154'               → 5:01:54 PM
+      - sms_pending='N', call_pending='N'  → no pending events
+      - weather=1                          → "sunny" (default-ish)
+      - temp_f_plus_115=0                  → temperature field unset (weather data not yet pulled)
+      - tail_const=1                       → constant
     """
     f = HeartbeatFrame.decode(SAMPLE_A533)
-    assert f.battery_bucket == "3"  # 75-100%
+    assert f.battery_bucket == "3"
     assert f.charging == "Y"
     assert f.speed_str == "214"
-    assert f.signal_status == "0"  # was 0x00 raw, normalized
+    assert f.signal_status == "0"
     assert f.time_hhmmss == "050154"
     assert f.sms_pending == "N"
     assert f.call_pending == "N"
-    assert f.mode == 0x01
-    assert f.angle == 0x00
-    assert f.tail_const == 0x01
+    assert f.weather == 1
+    assert f.temp_f_plus_115 == 0
+    assert f.tail_const == 1
+    # temp_celsius property returns None when temp field is unset
+    assert f.temp_celsius is None
+
+
+def test_a533_temp_decode_roundtrip():
+    """Test the temperature decode: 27°C should encode to ceil(80.6)+115 = 196."""
+    import math
+    fahrenheit = math.ceil((9 * 27) / 5 + 32)  # 81
+    f = HeartbeatFrame(
+        battery_bucket="3",
+        charging="Y",
+        speed_str="",
+        signal_status="0",
+        time_hhmmss="120000",
+        sms_pending="N",
+        call_pending="N",
+        weather=1,
+        temp_f_plus_115=fahrenheit + 115,
+    )
+    assert f.temp_f_plus_115 == 196
+    # round-trip
+    out = f.encode()
+    decoded = HeartbeatFrame.decode(out)
+    assert decoded.temp_f_plus_115 == 196
+    # Celsius decode: 196 → F=81 → C=(81-32)*5/9 ≈ 27.22
+    assert decoded.temp_celsius is not None
+    assert abs(decoded.temp_celsius - 27.22) < 0.1
 
 
 def test_a533_roundtrip():

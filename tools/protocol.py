@@ -251,25 +251,34 @@ class NavFrame:
 
 @dataclass
 class HeartbeatFrame:
-    """a533 — phone -> bike, heartbeat. Multiple senders/variants in the app.
+    """a533 — phone -> bike. Despite the "heartbeat" name, this carries a full
+    environmental dashboard: phone battery + cell signal + time + SMS/call
+    flags + weather code + outdoor temperature.
 
-    For the K.g==false branch (Gixxer SF 150, Avenis, others), all fields
-    below are meaningful. For K.g==true (Access 125, Burgman Street), the
-    `mode`/`angle`/`tail_const` fields are 0xFF padding and `call_flag`
-    has slightly different semantics (`e.u0`-controlled).
+    For the K.g==false branch (Gixxer SF 150, Avenis, others), `weather` /
+    `temp_f_plus_115` / `tail_const` are meaningful. For K.g==true (Access 125,
+    Burgman Street), those three are 0xFF padding instead.
     """
 
     battery_bucket: str    # byte 2: '0'/'1'/'2'/'3' (phone battery 0-24% / 25-49% / 50-74% / 75-100%)
     charging: str          # byte 3: 'Y' (charging) or 'N' (not charging)
     speed_str: str         # bytes 4-6: 3-char zero-padded speed; "\xff\xff\xff" if speed==0
-    signal_status: str     # byte 7: 1 char (same encoding as a531 status); 0x00 if "0"
+    signal_status: str     # byte 7: phone cell signal bars 0-3 (same encoding as a531 status); 0x00 if "0"
     time_hhmmss: str       # bytes 8-13: 6-char wall-clock time in hhmmss (12-hour); 0xFF×6 if "000000"
     sms_pending: str       # byte 14: 'N' (default) or 'Y' (set by NotificationService)
     call_pending: str      # byte 15: 'N' (default) or 'Y' (set by CallReceiverBroadcast)
-    mode: int = 0x01       # byte 21: c.M, 0-11 (gear?). 0xFF if K.g==true.
-    angle: int = 0x00      # byte 22: (int) c.N. 0xFF if K.g==true.
+    weather: int = 0x01    # byte 21: c.M weather code 0-11 (1=sunny, 2=cloudy, 3=fog, 6=rain, 7=snow, etc.). 0xFF if K.g==true.
+    temp_f_plus_115: int = 0x00  # byte 22: (int) c.N = ceil(Fahrenheit) + 115. Decode: F = byte - 115; C = (F-32)*5/9. 0xFF if K.g==true.
     tail_const: int = 0x01 # byte 23: literal 1. 0xFF if K.g==true.
     raw: Optional[bytes] = field(default=None, repr=False)
+
+    @property
+    def temp_celsius(self) -> Optional[float]:
+        """Decoded outdoor temperature in Celsius, or None if unset."""
+        if self.temp_f_plus_115 == 0:
+            return None
+        f = self.temp_f_plus_115 - 115
+        return (f - 32) * 5.0 / 9.0
 
     @classmethod
     def decode(cls, frame: bytes) -> "HeartbeatFrame":
@@ -300,8 +309,8 @@ class HeartbeatFrame:
             time_hhmmss=time_str,
             sms_pending=chr(frame[14]),
             call_pending=chr(frame[15]),
-            mode=frame[21],
-            angle=frame[22],
+            weather=frame[21],
+            temp_f_plus_115=frame[22],
             tail_const=frame[23],
             raw=bytes(frame),
         )
@@ -330,8 +339,8 @@ class HeartbeatFrame:
         buf[14] = ord(self.sms_pending[0])
         buf[15] = ord(self.call_pending[0])
         buf[16:21] = b"\xff" * 5
-        buf[21] = self.mode & 0xFF
-        buf[22] = self.angle & 0xFF
+        buf[21] = self.weather & 0xFF
+        buf[22] = self.temp_f_plus_115 & 0xFF
         buf[23] = self.tail_const & 0xFF
         buf[24:28] = b"\xff" * 4
 

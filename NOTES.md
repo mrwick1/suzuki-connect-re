@@ -402,7 +402,7 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 |-----------|-------|---------------------|---------|-----------|
 | `0x31` ('1') | a531 | `application/fragment/A0.D()` | Nav frame (turn arrow + dist + ETA + status) — fully decoded | Continuously during active navigation, ~2.7/sec |
 | `0x32` ('2') | a532 | `broadcaster/CallReceiverBroadcast.d()`, `services/NotificationService:786` (WhatsApp call) | Incoming-call notification — caller's phone number at bytes 2-21 + state at byte 23 | When phone has incoming call |
-| `0x33` ('3') | a533 | `services/f.java` (1Hz × 3), `application/fragment/C0940y.java` (every ~5s, two variants by `K.g`) | Phone heartbeat — SMS/call pending flags at bytes 14-15 | Continuous after pairing |
+| `0x33` ('3') | a533 | `services/f.java` (1Hz × 3), `application/fragment/C0940y.java` (every ~5s, two variants by `K.g`) | **Environmental dashboard** — phone battery + cell signal + time + SMS/call flags + weather code + outdoor temperature. Despite the "heartbeat" name, this carries 6+ semantic fields. | Continuous after pairing |
 | `0x34` ('4') | a534 | `broadcaster/CallReceiverBroadcast.e()`, `services/NotificationService:729` | Missed-call notification — caller name + missed count at byte 3 | When missed-call event fires |
 | `0x35` ('5') | a535 | `broadcaster/IncomingSms`, `services/NotificationService:412` | SMS / WhatsApp notification — sender name + app marker (W=WhatsApp, N=other) | When SMS/notification arrives |
 | `0x36` ('6') | a536 | `application/fragment/A0.E()`, `application/fragment/C0940y.java` (first run) | User identity — display name (up to 20 chars at bytes 2-21) + `'F'`/`'R'` flag at byte 27 (`'F'`=new cluster, `'R'`=reconnect) | On connection / pairing |
@@ -416,7 +416,16 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 **Important corrections to prior table:**
 - Earlier NOTES.md only listed 3 TX types (a531, a533, a536). Missing: a532, a534, a535 (event-driven; absent in M0 because Arjun's phone was quiet during the 18-min capture).
 - The a531 sample `.1..0080M0517PM...05.6K01...L.` was earlier described as "current time + distance"; the `0517PM` field is actually the ETA, not current time (see corrected a531 decode above).
-- The a533 sample `.33Y214.050154NN...` is now **100% byte-decoded** (DISCOVERIES.md 2026-05-24). Bytes 2-3 = `c.G` = phone battery status: char 1 = battery bucket (`'0'`/`'1'`/`'2'`/`'3'` for 0-24% / 25-49% / 50-74% / 75-100%), char 2 = charging state (`'Y'` charging, `'N'` not). Our captured `"3Y"` = phone at 75-100% charged AND on USB power. Set by a BroadcastReceiver that ProGuard relocated to `androidx/appcompat/app/z.java` — outside the Suzuki package, which is why every grep within `com/suzuki/` missed it. Tool `tools/find_field_writes.py` (androguard) located it at the dex-bytecode level.
+- The a533 sample `.33Y214.050154NN...` is now **100% byte-decoded** (DISCOVERIES.md 2026-05-24). Every field traced:
+  - Bytes 2-3 = `c.G` = phone battery + charging (set in `androidx/appcompat/app/z.java`, the ProGuard-relocated `BATTERY_CHANGED` receiver)
+  - Bytes 4-6 = `c.P` = speed string (from SharedPreferences, often stale)
+  - Byte 7 = `c.I` = phone cell signal bars 0-3 (set in `com/suzuki/application/fragment/B.onSignalStrengthsChanged`, the TelephonyManager callback)
+  - Bytes 8-13 = `c.O` = current time `hhmmss` 12-hour
+  - Bytes 14-15 = `i0`/`j0` SMS/call pending flags
+  - **Byte 21 = `c.M` = weather code 0-11** (set in `C.r(String)`: 1=sunny, 2=cloudy, 3=fog, 6=rain, 7=snow, 11=windy, etc.)
+  - **Byte 22 = `(int) c.N` = temperature, Fahrenheit + 115 offset** (set in `C.q(String)` from a `"27°C"`-style string; decode: `F = byte - 115`, `C = (F-32)*5/9`)
+  - Byte 23 = constant 0x01
+  - Tool `tools/find_field_writes.py` (androguard, dex-bytecode level) located all the writers, even those ProGuard relocated outside the `com.suzuki.*` namespace.
 - The a536 sample `.6ARJUN...` is consistent with the source template (`"?6" + name + ...`), with `ARJUN` as the 22-char NUL-padded name (5 chars + NUL padding).
 
 **From bike to phone** (notifies on `0xFFF2`):
