@@ -1094,6 +1094,72 @@ Plus writes `FT.first = MapplsLMSActivityLifecycleCallbacks.CHECK_DELAY` (a sent
 
 Handshake mapping is now fully closed — every post-connect action accounted for.
 
+## 2026-05-24 — NotificationService deep-dive: a532/a534/a535 templates corrected
+
+### What we did
+
+Earlier `protocol.py` had `CallFrame`, `MissedCallFrame`, and `SmsFrame` as template-only dataclasses based on a quick grep of the source. None had been validated end-to-end against the source builders. Read `services/NotificationService.java` (817 lines, 3 BLE write sites) + cross-referenced with `IncomingSms.java` + `CallReceiverBroadcast.java` to get the real templates.
+
+### Three corrections to prior `protocol.py` field model
+
+**a532 (incoming call):**
+
+| Was | Now |
+|-----|-----|
+| `number` + `state` only | `number` + `is_whatsapp` + `state` |
+
+Byte 22 is a source marker:
+- `CallReceiverBroadcast.d` (cellular call) → bytes[22] = `'N'` (0x4E)
+- `NotificationService.q` (WhatsApp call) → bytes[22] = `'W'` (0x57)
+
+State byte (23): `'1'` (active) or `'2'` (some sub-state — set in WhatsApp path when `str2=="2"`, and in cellular path when `str2 != "2" AND missed-count l != 0`).
+
+**a534 (missed call):**
+
+| Was | Now |
+|-----|-----|
+| `name` + `missed_count` | `name` + `missed_count` + `is_whatsapp` |
+
+Byte 24 is the source marker:
+- `CallReceiverBroadcast.e` (cellular missed) → bytes[24] = `'N'` (0x4E)
+- `NotificationService` line 729 (WhatsApp missed) → bytes[24] = `'W'` (0x57)
+
+Plus a structural detail I'd missed: the source template prefixes the caller name with literal `"Y1"`. So bytes 4-5 = `"Y1"`, bytes 6-23 = 18 chars of name. Our decoder strips the `Y1` prefix on read; encoder emits it on write.
+
+**a535 (SMS / WhatsApp / notification):**
+
+This one was the most wrong. Previous `SmsFrame` had `body` + `is_whatsapp` where `is_whatsapp` was guessed to be at byte 25 with `'W'`/`'N'`. Source shows that:
+
+- The source DOES compute a `str3 = "W"/"X"/"N"` marker but it lands at position 26 — which is **always overridden to 0xFF** by the next line. So the marker never reaches the bike. Looks like a Suzuki app bug or leftover from an earlier protocol version.
+- Real layout (from `NotificationService.o` and `IncomingSms.c`):
+  - byte 3 = `'N'` (silenced, `z=true`) or `'Y'` (not-silenced, `z=false`). `IncomingSms.c` doesn't explicitly set this — leaves it as sender's second char. Treat as advisory.
+  - byte 4 = message count (= `e.m0` for SMS, `K.m` for WhatsApp, `G` for notifications — always an int count)
+  - bytes 5-24 = sender name (20 chars, NUL-padded; the source pads to 24 chars then bytes 2-4 get clobbered to constants, so effective name starts at byte 5)
+  - byte 25 = type-source byte. In `IncomingSms.c` it's always `'N'` (literal). In `NotificationService.o` it's the input `b` parameter — purpose ambiguous, may be a per-message type code. Treat as opaque.
+  - bytes 26-27 = 0xFF
+
+Corrected `SmsFrame`: `sender` + `message_count` + `silenced` + `type_byte` (opaque escape hatch).
+
+### Source asymmetry warnings
+
+Both a534 and a535 have **two source paths** that produce slightly different bytes in marker positions. This is a real Suzuki app inconsistency — likely because the SMS-from-broadcast path was written separately from the notification-listener path and they drifted. For Phase 2 forging tools, picking either convention should work; the bike presumably tolerates both since both ship in production.
+
+### Sanity check
+
+After the protocol.py changes:
+- 35 tests pass (up from 33; added two new tests for the WhatsApp variants of a532 and a534)
+- All 5,619 captured frames in both M0 pcaps still round-trip byte-identical via `tools/validate_pcap.py`
+
+### What this closes
+
+- a532/a534/a535 are now **fully source-validated templates** rather than guesses. Each has a documented WhatsApp-vs-cellular marker byte where applicable.
+- All 6 phone→bike frame types are now fully decoded in `protocol.py` with source-derived semantics.
+
+### What's still open
+
+- The "second source path" inconsistency (a534/a535 differ slightly between `IncomingSms`/`CallReceiverBroadcast` vs `NotificationService` builders). Worth verifying which one the bike actually displays correctly — needs a phone-event capture during a paired session.
+- The `b` parameter in `NotificationService.o()` (what becomes byte 25 of a535) — caller-provided, but the call sites compute it from notification metadata. Could trace upward but low priority.
+
 ## 2026-05-24 — Obfuscated-field enumeration: a533 carries WEATHER + TEMPERATURE
 
 ### What we did

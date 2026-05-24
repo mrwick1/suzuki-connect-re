@@ -393,10 +393,19 @@ class IdentityFrame:
 
 @dataclass
 class CallFrame:
-    """a532 — phone -> bike, incoming call. Template from CallReceiverBroadcast.d()."""
+    """a532 — phone -> bike, incoming call.
 
-    number: str        # bytes 2-21: caller phone number, NUL-padded to 20 chars
-    state: int = 0x31  # byte 23: '1' default, '2' for some active-call sub-state
+    Two source paths in the app:
+      - CallReceiverBroadcast.d(): cellular call, byte 22 = 'N'
+      - NotificationService.q(): WhatsApp call, byte 22 = 'W'
+
+    State byte (23) is '1' or '2'; '2' set in WhatsApp path when str2=="2",
+    and in cellular path when str2!="2" AND missed-call count l!=0.
+    """
+
+    number: str           # bytes 2-21: caller phone number, NUL-padded to 20 chars
+    is_whatsapp: bool = False  # byte 22: 'W' if WhatsApp call, 'N' if cellular
+    state: int = 0x31     # byte 23: '1' (= 0x31) default, '2' (= 0x32) variant
     raw: Optional[bytes] = field(default=None, repr=False)
 
     @classmethod
@@ -407,6 +416,7 @@ class CallFrame:
             raise ValueError(f"not an a532 frame (type=0x{frame[1]:02x})")
         return cls(
             number=frame[2:22].rstrip(b"\x00\xff").decode("ascii", errors="replace"),
+            is_whatsapp=(frame[22] == 0x57),
             state=frame[23],
             raw=bytes(frame),
         )
@@ -416,7 +426,7 @@ class CallFrame:
         buf[1] = FrameType.CALL
         encoded = self.number.encode("ascii")[:20]
         buf[2 : 2 + len(encoded)] = encoded
-        buf[22] = ord("N")
+        buf[22] = 0x57 if self.is_whatsapp else 0x4E
         buf[23] = self.state & 0xFF
         buf[24:28] = b"\xff" * 4
         return _finalize(buf)
@@ -426,12 +436,22 @@ class CallFrame:
 class MissedCallFrame:
     """a534 — phone -> bike, missed-call notification.
 
-    Template from CallReceiverBroadcast.e(): caller name at bytes 2-21
-    (with bytes 2-3 overridden to 0xFF and missed-count int), `N` at byte 24.
+    Two source paths:
+      - CallReceiverBroadcast.e(): cellular missed call, byte 24 = 'N'
+      - NotificationService (line 729): WhatsApp missed call, byte 24 = 'W'
+
+    Layout (after the source's "?4" + "Y1<name>" + zeros template + overrides):
+      bytes 2 = 0xFF (overridden)
+      bytes 3 = missed-count int
+      bytes 4-23 = caller name (NUL-padded; the "Y1" prefix from the source
+                   template stays at bytes 4-5, then 18 chars of name follow)
+      byte 24 = 'N' (cellular) or 'W' (WhatsApp)
+      bytes 25-27 = 0xFF
     """
 
-    name: str               # bytes 4-21 effectively (bytes 2-3 are overridden)
-    missed_count: int = 1   # byte 3: number of missed calls
+    name: str                  # bytes 6-23: caller name (18 chars after the "Y1" prefix)
+    missed_count: int = 1      # byte 3
+    is_whatsapp: bool = False  # byte 24
     raw: Optional[bytes] = field(default=None, repr=False)
 
     @classmethod
@@ -440,9 +460,17 @@ class MissedCallFrame:
             raise ValueError(f"a534 frame malformed: {bytes(frame).hex()}")
         if frame[1] != FrameType.MISSED_CALL:
             raise ValueError(f"not an a534 frame (type=0x{frame[1]:02x})")
+        # Bytes 4-5 are the "Y1" prefix from the source template (literal). Strip
+        # them if present; otherwise just decode bytes 4-23 raw.
+        body = frame[4:24]
+        if body[:2] == b"Y1":
+            name_bytes = body[2:]
+        else:
+            name_bytes = body
         return cls(
-            name=frame[4:22].rstrip(b"\x00\xff").decode("ascii", errors="replace"),
+            name=name_bytes.rstrip(b"\x00\xff").decode("ascii", errors="replace"),
             missed_count=frame[3],
+            is_whatsapp=(frame[24] == 0x57),
             raw=bytes(frame),
         )
 
@@ -451,23 +479,45 @@ class MissedCallFrame:
         buf[1] = FrameType.MISSED_CALL
         buf[2] = 0xFF
         buf[3] = self.missed_count & 0xFF
+        # Replicate the source's "Y1" + name layout: bytes 4-5 = "Y1", 6-23 = name
+        buf[4:6] = b"Y1"
         encoded = self.name.encode("ascii")[:18]
-        buf[4 : 4 + len(encoded)] = encoded
-        buf[24] = ord("N")
+        buf[6 : 6 + len(encoded)] = encoded
+        buf[24] = 0x57 if self.is_whatsapp else 0x4E
         buf[25:28] = b"\xff" * 3
         return _finalize(buf)
 
 
 @dataclass
 class SmsFrame:
-    """a535 — phone -> bike, SMS or WhatsApp notification.
+    """a535 — phone -> bike, SMS / WhatsApp / notification message.
 
-    Template from IncomingSms / NotificationService. Byte 27 carries a marker
-    ('W' for WhatsApp, 'N' for SMS / other). Body is sender name or message preview.
+    Layout (after NotificationService.o() / IncomingSms.c() templates + overrides):
+      bytes 0-1 = header / type
+      byte 2 = 0xFF (overridden from sender name's first char)
+      byte 3 = 'N' silenced (z=true) or 'Y' not-silenced (z=false)
+              IncomingSms.c does NOT explicitly set this — leaves it as sender[1].
+              Treat as advisory; bike likely ignores when ambiguous.
+      byte 4 = message count (= e.m0 for SMS, K.m for WhatsApp, or G for notifications)
+      bytes 5-24 = sender name (20 chars, NUL-padded; effectively str[3..22] from the
+              source's pad-to-24-char string template)
+      byte 25 = type-source byte (set to 'N' in IncomingSms; in NotificationService.o
+              it's overwritten by the input `b` parameter — purpose ambiguous)
+      bytes 26-27 = 0xFF
+      byte 28 = checksum
+      byte 29 = 0x7F
+
+    The `is_whatsapp` field on a previous version of this class was based on a
+    misread: source DOES compute a `str3 = "W"/"X"/"N"` marker but it lands at
+    position 26 which is ALWAYS overridden to 0xFF. The W/N at byte 25 differs
+    between IncomingSms (always 'N') and NotificationService (variable `b`).
+    Bike presumably parses sender name + count + byte 3 silenced flag.
     """
 
-    body: str           # bytes 2-24: 23-char sender/preview, NUL-padded
-    is_whatsapp: bool   # byte 25 marker (W=WhatsApp, N=other) — guess from source line 412
+    sender: str             # bytes 5-24: sender name (20 chars)
+    message_count: int = 1  # byte 4: count of unread messages
+    silenced: bool = True   # byte 3: 'N' (true) or 'Y' (false)
+    type_byte: int = 0x4E   # byte 25: usually 'N' (0x4E); set by source `b` param in NotificationService
     raw: Optional[bytes] = field(default=None, repr=False)
 
     @classmethod
@@ -477,19 +527,23 @@ class SmsFrame:
         if frame[1] != FrameType.SMS:
             raise ValueError(f"not an a535 frame (type=0x{frame[1]:02x})")
         return cls(
-            body=frame[2:25].rstrip(b"\x00\xff").decode("ascii", errors="replace"),
-            is_whatsapp=(frame[25] == 0x57),
+            sender=frame[5:25].rstrip(b"\x00\xff").decode("ascii", errors="replace"),
+            message_count=frame[4],
+            silenced=(frame[3] == 0x4E),
+            type_byte=frame[25],
             raw=bytes(frame),
         )
 
     def encode(self) -> bytes:
         buf = bytearray(FRAME_LEN)
         buf[1] = FrameType.SMS
-        encoded = self.body.encode("ascii")[:23]
-        buf[2 : 2 + len(encoded)] = encoded
-        buf[25] = 0x57 if self.is_whatsapp else 0x4E
-        buf[26] = 0x00
-        buf[27] = 0x00
+        buf[2] = 0xFF
+        buf[3] = 0x4E if self.silenced else 0x59  # 'N' or 'Y'
+        buf[4] = self.message_count & 0xFF
+        encoded = self.sender.encode("ascii")[:20]
+        buf[5 : 5 + len(encoded)] = encoded
+        buf[25] = self.type_byte & 0xFF
+        buf[26:28] = b"\xff\xff"
         return _finalize(buf)
 
 

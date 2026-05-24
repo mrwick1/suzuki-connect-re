@@ -347,40 +347,71 @@ def test_a537_roundtrip_basic_construct():
 # ---------------------------------------------------------------------------
 
 
-def test_a532_roundtrip():
-    f = CallFrame(number="+919876543210", state=ord("1"))
+def test_a532_roundtrip_cellular():
+    f = CallFrame(number="+919876543210", is_whatsapp=False, state=ord("1"))
     out = f.encode()
     assert is_well_formed(out)
+    assert out[22] == 0x4E  # 'N' cellular
     decoded = CallFrame.decode(out)
     assert decoded.number == "+919876543210"
+    assert decoded.is_whatsapp is False
     assert decoded.state == ord("1")
 
 
-def test_a534_roundtrip():
-    f = MissedCallFrame(name="MOM", missed_count=2)
+def test_a532_roundtrip_whatsapp():
+    f = CallFrame(number="+919876543210", is_whatsapp=True, state=ord("2"))
     out = f.encode()
     assert is_well_formed(out)
+    assert out[22] == 0x57  # 'W' WhatsApp
+    decoded = CallFrame.decode(out)
+    assert decoded.is_whatsapp is True
+    assert decoded.state == ord("2")
+
+
+def test_a534_roundtrip_cellular():
+    f = MissedCallFrame(name="MOM", missed_count=2, is_whatsapp=False)
+    out = f.encode()
+    assert is_well_formed(out)
+    assert out[24] == 0x4E
+    # The source template prefixes name with literal "Y1" — verify our encoder does too
+    assert out[4:6] == b"Y1"
     decoded = MissedCallFrame.decode(out)
     assert decoded.name == "MOM"
     assert decoded.missed_count == 2
-
-
-def test_a535_roundtrip_sms():
-    f = SmsFrame(body="Hello world", is_whatsapp=False)
-    out = f.encode()
-    assert is_well_formed(out)
-    decoded = SmsFrame.decode(out)
-    assert decoded.body == "Hello world"
     assert decoded.is_whatsapp is False
 
 
-def test_a535_roundtrip_whatsapp():
-    f = SmsFrame(body="WA msg", is_whatsapp=True)
+def test_a534_roundtrip_whatsapp():
+    f = MissedCallFrame(name="Boss", missed_count=5, is_whatsapp=True)
     out = f.encode()
     assert is_well_formed(out)
-    decoded = SmsFrame.decode(out)
-    assert decoded.body == "WA msg"
+    assert out[24] == 0x57
+    decoded = MissedCallFrame.decode(out)
+    assert decoded.name == "Boss"
+    assert decoded.missed_count == 5
     assert decoded.is_whatsapp is True
+
+
+def test_a535_roundtrip_silenced():
+    f = SmsFrame(sender="John", message_count=3, silenced=True)
+    out = f.encode()
+    assert is_well_formed(out)
+    assert out[3] == 0x4E  # 'N' silenced
+    assert out[4] == 3
+    decoded = SmsFrame.decode(out)
+    assert decoded.sender == "John"
+    assert decoded.message_count == 3
+    assert decoded.silenced is True
+
+
+def test_a535_roundtrip_not_silenced():
+    f = SmsFrame(sender="Alice", message_count=1, silenced=False, type_byte=0x57)
+    out = f.encode()
+    assert is_well_formed(out)
+    assert out[3] == 0x59  # 'Y' not silenced
+    decoded = SmsFrame.decode(out)
+    assert decoded.silenced is False
+    assert decoded.type_byte == 0x57
 
 
 # ---------------------------------------------------------------------------
