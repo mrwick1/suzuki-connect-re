@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -17,6 +18,7 @@ import kotlin.math.roundToInt
  *   bytes 25-27  fuel-economy 24-bit value (legacy decode);
  *                for Gixxer SF 150 use [fuelEconKmlV2] instead (byte 25 / 2)
  */
+@Immutable
 data class TelemetryFrame(
     val speedKmh: Int,
     val odometerKm: Int,

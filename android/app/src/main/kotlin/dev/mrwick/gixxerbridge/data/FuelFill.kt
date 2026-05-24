@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
  * just odometer + litres when standing at the pump in a hurry.
  */
 @Entity(tableName = "fuel_fills")
+@Immutable
 data class FuelFillEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val tMillis: Long,

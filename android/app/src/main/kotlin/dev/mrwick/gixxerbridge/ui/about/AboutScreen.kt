@@ -25,9 +25,15 @@ import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
+import dev.mrwick.gixxerbridge.util.CrashHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Minimal "About" card: app version, build flavor, package, BLE protocol summary.
@@ -139,7 +145,113 @@ fun AboutScreen() {
             }
         }
 
+        LastCrashCard()
+
         ResetAllDataCard()
+    }
+}
+
+/**
+ * Shows the most recent crash file (if any) with options to share or clear.
+ * Renders nothing when no crash has been logged — keeps the About screen
+ * uncluttered in the happy path.
+ *
+ * Reads the file on Dispatchers.IO via LaunchedEffect so we don't block the
+ * Compose thread. The first few lines (Thread, Time, top of stacktrace) are
+ * enough to triage at a glance; full log goes out via the share intent.
+ */
+@Composable
+private fun LastCrashCard() {
+    val context = LocalContext.current
+    var crashFile by remember { mutableStateOf<File?>(null) }
+    var preview by remember { mutableStateOf("") }
+    // bump this to force re-read after Clear / on first composition.
+    var refreshTick by remember { mutableStateOf(0) }
+
+    LaunchedEffect(refreshTick) {
+        val file = withContext(Dispatchers.IO) { CrashHandler.latestCrashFile(context) }
+        crashFile = file
+        preview = if (file != null) {
+            withContext(Dispatchers.IO) {
+                runCatching { file.readLines().take(8).joinToString("\n") }
+                    .getOrDefault("(unable to read crash log)")
+            }
+        } else ""
+    }
+
+    val file = crashFile ?: return
+    val ts = remember(file) {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(file.lastModified()))
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Last crash",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(ts, style = MaterialTheme.typography.labelSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                preview,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row {
+                TextButton(
+                    onClick = { shareCrashLog(context, file) },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                ) {
+                    Text("Share crash log", style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                TextButton(
+                    onClick = {
+                        CrashHandler.clearAll(context)
+                        refreshTick++
+                    },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        "Clear",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Share the crash log via ACTION_SEND. We attach the file as a content:// URI
+ * through the existing FileProvider (authority `<applicationId>.fileprovider`,
+ * path `<files-path name="crash-logs">` — see file_provider_paths.xml). Also
+ * inlines the first part of the log into EXTRA_TEXT so receivers that don't
+ * handle attachments (e.g. SMS, certain chat apps) still get something useful.
+ */
+private fun shareCrashLog(context: Context, file: File) {
+    val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
+    val uri = runCatching { FileProvider.getUriForFile(context, authority, file) }.getOrNull()
+    val text = runCatching { file.readText() }.getOrDefault("(unable to read crash log)")
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "GixxerBridge crash: ${file.name}")
+        putExtra(Intent.EXTRA_TEXT, text)
+        if (uri != null) {
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, "Share crash log"))
+    }.onFailure {
+        Toast.makeText(context, "No app to share with: ${it.message}", Toast.LENGTH_LONG).show()
     }
 }
 

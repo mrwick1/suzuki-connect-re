@@ -1,8 +1,10 @@
 package dev.mrwick.gixxerbridge.analytics
 
+import androidx.compose.runtime.Immutable
 import dev.mrwick.gixxerbridge.data.RideEntity
 
 /** Composite 0-100 bike-health score plus its three sub-scores and a textual grade. */
+@Immutable
 data class BikeHealthScore(val total: Int, val service: Int, val fuel: Int, val connection: Int) {
     val grade: String = when {
         total >= 85 -> "Excellent"

@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
+
 /**
  * a534 — phone -> bike, missed-call notification.
  *
@@ -15,6 +17,7 @@ package dev.mrwick.gixxerbridge.protocol
  *   byte 24      'N' (cellular) or 'W' (WhatsApp)
  *   bytes 25-27  0xFF
  */
+@Immutable
 data class MissedCallFrame(
     val name: String,
     val missedCount: Int = 1,

@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.weather
 
+import androidx.compose.runtime.Immutable
+
 /**
  * A point-in-time weather observation prepared for the Suzuki cluster.
  *
@@ -9,6 +11,7 @@ package dev.mrwick.gixxerbridge.weather
  * @property fetchedAt   Wall-clock millis when the snapshot was produced ([System.currentTimeMillis]).
  * @property source      Identifier for the upstream weather provider (e.g. "open-meteo").
  */
+@Immutable
 data class WeatherSnapshot(
     val suzukiCode: Int,
     val tempCelsius: Double?,

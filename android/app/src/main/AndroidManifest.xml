@@ -39,6 +39,15 @@
          app is sideloaded so the user grants it manually. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
 
+    <!-- Reliability: when the user swipes the app away from Recents we re-launch
+         the foreground service via AlarmManager.setExactAndAllowWhileIdle (see
+         BikeBridgeService.onTaskRemoved). On Android 12+ this requires one of
+         these permissions; USE_EXACT_ALARM is auto-granted for sideloaded /
+         calendar-class apps, SCHEDULE_EXACT_ALARM is the user-revocable variant
+         and acts as a fallback. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
     <!-- BLE hardware required -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 

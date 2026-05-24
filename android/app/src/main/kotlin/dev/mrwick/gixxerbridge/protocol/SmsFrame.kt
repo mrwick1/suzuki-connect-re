@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
+
 /**
  * a535 — phone -> bike, SMS / WhatsApp / notification message.
  *
@@ -11,6 +13,7 @@ package dev.mrwick.gixxerbridge.protocol
  *   byte 25      type-source byte (usually 'N' = 0x4E)
  *   bytes 26-27  0xFF
  */
+@Immutable
 data class SmsFrame(
     val sender: String,
     val messageCount: Int = 1,

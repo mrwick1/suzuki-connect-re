@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
  * in-place by [RideStore.appendSample] as samples land.
  */
 @Entity(tableName = "rides")
+@Immutable
 data class RideEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val startedAtMillis: Long,
@@ -47,6 +49,7 @@ data class RideEntity(
     ],
     indices = [Index("rideId")],
 )
+@Immutable
 data class RideSampleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val rideId: Long,
@@ -78,6 +81,7 @@ data class RideSampleEntity(
     ],
     indices = [Index("rideId")],
 )
+@Immutable
 data class RideLocationEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val rideId: Long,

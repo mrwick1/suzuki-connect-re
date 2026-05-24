@@ -385,12 +385,50 @@ class BikeBridgeService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        // PERF/reliability: START_STICKY tells the OS to re-create this service
+        // with a null intent if it gets killed for memory. `onCreate` above is
+        // safe to re-run on a fresh process — every collaborator is freshly
+        // constructed there, no static singletons hold stale references (the
+        // only cross-process state is on-disk DataStore / Room, and AppGraph
+        // mutable refs which are re-published on each onCreate).
         return START_STICKY
     }
 
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
         return null
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // PERF/reliability: when the user swipes the app away from Recents the
+        // system may kill our foreground service shortly after (vendor OEMs are
+        // especially aggressive here). Schedule an exact alarm to re-launch
+        // ourselves in ~1s so the bike connection stays up even when the app
+        // task is dismissed.
+        //
+        // ASSUMED: SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM are granted (declared
+        // in the manifest). On Android 12+ USE_EXACT_ALARM is auto-granted for
+        // sideloaded apps; if neither is available the alarm scheduler will
+        // throw SecurityException — we swallow it so the swipe-away itself
+        // doesn't crash the dying process.
+        try {
+            val restart = Intent(this, BikeBridgeService::class.java).setPackage(packageName)
+            val pi = PendingIntent.getForegroundService(
+                this,
+                0,
+                restart,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            am.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                android.os.SystemClock.elapsedRealtime() + 1_000,
+                pi,
+            )
+        } catch (t: Throwable) {
+            Log.w(tag, "onTaskRemoved restart-alarm failed: ${t.message}")
+        }
     }
 
     override fun onDestroy() {

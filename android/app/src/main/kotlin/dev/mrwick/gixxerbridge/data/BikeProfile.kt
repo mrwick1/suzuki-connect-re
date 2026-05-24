@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.data
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Persisted identity for a paired bike.
  *
@@ -7,6 +9,7 @@ package dev.mrwick.gixxerbridge.data
  * @property name Device-advertised name (e.g. "SBM110202788").
  * @property pairedAtMillis Wall-clock epoch millis when pairing succeeded.
  */
+@Immutable
 data class BikeProfile(
     val mac: String,
     val name: String,

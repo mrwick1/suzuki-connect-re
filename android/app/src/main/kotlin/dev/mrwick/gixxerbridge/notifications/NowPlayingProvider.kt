@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +45,7 @@ class NowPlayingProvider(private val context: Context) {
     }
 }
 
+@Immutable
 data class NowPlaying(val title: String, val artist: String?, val packageName: String) {
     /** Single-line for cluster display, max 20 chars. */
     fun forCluster(): String {

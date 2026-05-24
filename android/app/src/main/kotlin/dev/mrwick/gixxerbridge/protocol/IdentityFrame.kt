@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
+
 /**
  * a536 — phone -> bike, user identity, sent on (re)connect.
  *
@@ -8,6 +10,7 @@ package dev.mrwick.gixxerbridge.protocol
  *   bytes 22-26  0xFF padding
  *   byte 27      'F' (0x46, fresh / new cluster) or 'R' (0x52, reconnect)
  */
+@Immutable
 data class IdentityFrame(
     val name: String,
     val isFresh: Boolean,

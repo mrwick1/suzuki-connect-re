@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.data
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
  * [rupees] and [notes] are optional.
  */
 @Entity(tableName = "service_logs")
+@Immutable
 data class ServiceLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val tMillis: Long,

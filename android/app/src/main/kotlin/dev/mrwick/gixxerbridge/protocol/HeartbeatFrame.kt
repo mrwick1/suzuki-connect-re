@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
+
 /**
  * a533 — phone -> bike. Despite the "heartbeat" name, this carries a full
  * environmental dashboard: phone battery + cell signal + time + SMS/call
@@ -9,6 +11,7 @@ package dev.mrwick.gixxerbridge.protocol
  * [tempFPlus115] / [tailConst] are meaningful. For K.g==true (Access 125,
  * Burgman Street), those three are 0xFF padding instead.
  */
+@Immutable
 data class HeartbeatFrame(
     val batteryBucket: String,
     val charging: String,

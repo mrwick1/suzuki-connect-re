@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.analytics
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Aggregate totals over an arbitrary window (e.g. last 7 / 30 / 365 days).
  *
@@ -7,6 +9,7 @@ package dev.mrwick.gixxerbridge.analytics
  * odometers as Int km. Hours is a Double because typical commute rides are well
  * under one hour.
  */
+@Immutable
 data class WeeklyTotal(
     val km: Int,
     val hours: Double,
@@ -17,6 +20,7 @@ data class WeeklyTotal(
  * One bucket of the speed histogram. The interval is half-open: a sample with
  * speed exactly equal to [highKmh] belongs to the next bucket.
  */
+@Immutable
 data class SpeedBucket(
     val lowKmh: Int,
     val highKmh: Int,
@@ -28,6 +32,7 @@ data class SpeedBucket(
  * in the requested zone; [km] is the sum of distance from rides that *started*
  * that local day (a ride that crosses midnight counts entirely on its start day).
  */
+@Immutable
 data class CalendarDay(
     val epochDay: Long,
     val km: Int,
@@ -40,6 +45,7 @@ data class CalendarDay(
  * having moved enough for the cluster to compute it; brand-new rides usually
  * have no samples with a non-null fuelEconKml value.
  */
+@Immutable
 data class RideSummary(
     val rideId: Long,
     val date: Long,
@@ -53,6 +59,7 @@ data class RideSummary(
  * Lifetime "personal best" markers. Each field is nullable so we can render a
  * placeholder when the history is empty (or no fuel-economy samples exist).
  */
+@Immutable
 data class PersonalBests(
     val longestRideKm: Int?,
     val topSpeedKmh: Int?,

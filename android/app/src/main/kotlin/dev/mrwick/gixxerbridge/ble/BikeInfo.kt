@@ -1,6 +1,9 @@
 package dev.mrwick.gixxerbridge.ble
 
+import androidx.compose.runtime.Immutable
+
 /** Device Info Service snapshot we read from the bike on first connect. */
+@Immutable
 data class BikeInfo(
     val manufacturer: String? = null,
     val modelNumber: String? = null,

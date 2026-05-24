@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import dev.mrwick.gixxerbridge.util.CrashHandler
 
 /**
  * Single Application instance. Sets up the BLE-service notification channel and
@@ -13,6 +14,9 @@ import android.content.Context
 class GixxerApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Install crash handler FIRST so anything that throws during the rest
+        // of onCreate (channel registration, future init) still lands on disk.
+        CrashHandler.install(this)
         registerNotificationChannels()
     }
 

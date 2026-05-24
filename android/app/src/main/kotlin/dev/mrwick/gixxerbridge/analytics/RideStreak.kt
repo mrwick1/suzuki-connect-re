@@ -1,11 +1,13 @@
 package dev.mrwick.gixxerbridge.analytics
 
+import androidx.compose.runtime.Immutable
 import dev.mrwick.gixxerbridge.data.RideEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
 /** Current + longest consecutive-day ride streaks (Duolingo-style). */
+@Immutable
 data class StreakInfo(val current: Int, val longest: Int)
 
 /** Pure, side-effect-free streak math over the ride history. */

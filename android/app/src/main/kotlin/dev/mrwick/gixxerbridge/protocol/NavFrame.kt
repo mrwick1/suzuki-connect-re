@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
+
 /**
  * a531 — phone -> bike, navigation update.
  *
@@ -21,6 +23,7 @@ package dev.mrwick.gixxerbridge.protocol
  *   byte 24     continue_flag ('0' = BLE-graceful-disconnect hint)
  *   bytes 25-27 0xFF padding
  */
+@Immutable
 data class NavFrame(
     val maneuverId: Int,
     val distNext: String,

@@ -1,5 +1,7 @@
 package dev.mrwick.gixxerbridge.protocol
 
+import androidx.compose.runtime.Immutable
+
 /**
  * a532 — phone -> bike, incoming call.
  *
@@ -10,6 +12,7 @@ package dev.mrwick.gixxerbridge.protocol
  * State byte (23) is '1' or '2'; '2' set in WhatsApp path when str2=="2",
  * and in cellular path when str2!="2" AND missed-call count l!=0.
  */
+@Immutable
 data class CallFrame(
     val number: String,
     val isWhatsapp: Boolean = false,
