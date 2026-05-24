@@ -961,6 +961,35 @@ Full Suzuki manifest inventory now in NOTES.md.
 
 - `tools/dump_manifest.py` — pretty-prints the binary `AndroidManifest.xml` from an APK via androguard + lxml.
 
+## 2026-05-24 — Cluster hardware: known unknown
+
+Spawned a web-research subagent to scope the cluster MCU / BLE chip / debug pad situation. **The honest finding is that no public PCB-level evidence exists** for the 2023 Suzuki Gixxer SF 150 cluster, or for any other Suzuki Connect-equipped Indian two-wheeler (Access 125, Burgman Street, Avenis, e-Access, Gixxer 250).
+
+### What was searched (all returned no hits)
+
+- YouTube, Reddit (r/motorcycles, r/IndianMotorcycles, r/SuzukiMotorcycles), Team-BHP, xBhp, Gixxer.com forum, BikeBD — every existing video covers cluster *removal* or *no-display fault diagnosis* without opening the housing
+- FCC ID / WPC ETA (India BLE certification) databases — no surfaced filing
+- boodmo.com, safexbikes, partshelmsmen — Connect-specific cluster SKU not indexable
+- Suzuki service manual PDFs reachable on Scribd cover **non-Connect** Gixxer SF variants (part numbers like `34100-34J10/J20/J30/J31-000` for the basic cluster; no Connect SKU)
+
+### What we have as circumstantial info
+
+- **Supplier shortlist (LIKELY, not confirmed):** Indian two-wheeler cluster market is dominated by **Pricol** (Coimbatore) and **NS Instruments India** (Nippon Seiki Manesar/Bawal subsidiary). DENSO-Pricol JV also active. Suzuki India buys from these.
+- **Industry reference pattern (SPECULATION):** EDOM's reference motorcycle cluster design uses a Dialog (now Renesas) Wi-Fi+BLE module ([edomtech.com motorcycle-digital-instrument-cluster](https://www.edomtech.com/en/solution-detail/motorcycle-digital-instrument-cluster/)). Not Suzuki-specific, just an industry data point.
+- **MCU class (SPECULATION):** at the Suzuki Connect price point, expect cost-optimised Renesas RL78, NXP S12, or low-end ARM Cortex-M0/M3. Nothing concrete.
+
+### Cheapest path to ground truth
+
+1. **Physically open the cluster**: every web channel is empty, so direct teardown is the only way. Destructive-ish (housing clips usually break), but cluster is still functionally repairable.
+2. **Suzuki dealer query**: parts catalogue 2023 should list the Connect-specific SKU; supplier code is often embossed on the housing.
+3. **WPC ETA database direct query** (dgca.wpc.gov.in): mandatory for any BLE device sold in India — would list whoever certified Suzuki's BT cluster module. Lighter lift than opening the case.
+
+### Implication for Phase 3 firmware-modding hypothesis
+
+Reflashing the cluster firmware remains the same "wildly disproportionate to the goal" bet I described to Arjun before this research: zero ground truth on chip → can't even scope the SWD/JTAG vs glitching question. **Frame forging (Phase 3 Branch A) and telemetry mirroring (Branch B) remain the practical paths**; cluster reflashing is parked indefinitely.
+
+If we ever revisit, the first concrete step is the WPC database query — cheaper than the dealer trip, cheaper than the teardown.
+
 ### What this closes / opens
 
 **Closes:** the "what writes does the phone send" question is statically resolved. 6 TX frame types catalogued, each with at least one source template.
