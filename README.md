@@ -76,7 +76,8 @@ suzuki-connect-re/
 ├── decompiled/                     # JADX output, 6751 Java files (gitignored)
 ├── captures/                       # HCI snoop pcaps + experiment logs (gitignored — PII)
 │                                   #   3 key captures also backed up to ~/.suzuki-re-backups/
-├── frida-scripts/                  # (Empty — Frida hooks not yet built. Planned for M3.)
+├── frida-scripts/
+│   └── ride_capture.js             # JS hooks for TX/RX BLE calls + nav-state flags + signal/weather updates. Pair with HCI snoop log; cross-reference wire bytes ↔ Java-side semantic events during a ride.
 ├── tools/
 │   ├── setup-laptop.sh             # M0: pacman/yay/pip install script (idempotent)
 │   ├── gatt_walk.py                # Connect to bike, enumerate all services/chars (used in M1.6)
