@@ -10,4 +10,9 @@
     <string name="pair_scanning">Scanning…</string>
     <string name="start_service">Start GixxerBridge</string>
     <string name="stop_service">Stop GixxerBridge</string>
+    <string name="com_google_android_gms_fonts_certs" translatable="false">@array/com_google_android_gms_fonts_certs</string>
+    <string-array name="com_google_android_gms_fonts_certs" translatable="false">
+        <item>@array/com_google_android_gms_fonts_certs_dev</item>
+        <item>@array/com_google_android_gms_fonts_certs_prod</item>
+    </string-array>
 </resources>
