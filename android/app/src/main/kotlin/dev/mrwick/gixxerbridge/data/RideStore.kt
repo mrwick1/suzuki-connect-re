@@ -128,6 +128,24 @@ interface RideDao {
     @Query("SELECT * FROM ride_samples WHERE rideId = :rideId ORDER BY tMillis ASC")
     suspend fun getSamples(rideId: Long): List<RideSampleEntity>
 
+    /**
+     * Fetch up to [limit] evenly-distributed speed samples for a ride,
+     * suitable for the inline sparkline in the Trips list. Uses SQLite's
+     * modulo trick to pick every Nth row so the sample set spans the full
+     * ride duration regardless of ride length.
+     *
+     * Note: the count sub-query re-scans the table for each row; acceptable
+     * cost given that ride sample counts stay under ~3600 (1 Hz × 1 hr).
+     */
+    @Query("""
+        SELECT * FROM ride_samples
+        WHERE rideId = :rideId
+          AND (id % MAX(1, (SELECT COUNT(*) FROM ride_samples WHERE rideId = :rideId) / :limit)) = 0
+        ORDER BY tMillis ASC
+        LIMIT :limit
+    """)
+    suspend fun getSamplesLimited(rideId: Long, limit: Int): List<RideSampleEntity>
+
     /** Fetch the most-recent ride that has no end timestamp, or null. */
     @Query("SELECT * FROM rides WHERE endedAtMillis IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
     suspend fun getRideInProgress(): RideEntity?
@@ -253,6 +271,14 @@ class RideStore(private val dao: RideDao) {
 
     /** Fetch all samples for a ride, oldest-first. */
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)
+
+    /**
+     * Fetch up to [limit] evenly-distributed samples for the sparkline
+     * shown in the Trips list row. Keeps memory low — a 60-point polyline
+     * is enough resolution to see the ride shape.
+     */
+    suspend fun getSamplesLimited(rideId: Long, limit: Int = 60): List<RideSampleEntity> =
+        dao.getSamplesLimited(rideId, limit)
 
     /**
      * Append one GPS location to a ride. Independent of [appendSample]; no

@@ -1,48 +1,59 @@
 package dev.mrwick.gixxerbridge.ui.trips
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.NavigateNext
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Route
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
+import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
+import dev.mrwick.gixxerbridge.ui.trips.components.RideRow
+import dev.mrwick.gixxerbridge.ui.trips.components.WeekSectionHeader
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.WeekFields
 import java.util.Locale
-import kotlin.math.max
 
-/** Trips list screen: one card per persisted ride, tap to open detail. */
+/**
+ * Trips listing screen — Wave 3 premium redesign.
+ *
+ * Structure:
+ *   - Left-aligned header "TRIPS" + month summary ("12 rides · 156 km this month")
+ *   - Rides grouped by week, with section headers: "THIS WEEK", "LAST WEEK",
+ *     "WEEK OF 19 MAY"
+ *   - Each row: 48dp date rail (day + month) | distance headline + subtitle |
+ *     60×32dp speed sparkline (loaded lazily per row)
+ *   - Loading: 3 skeleton cards for 250 ms grace window
+ *   - Empty: single EmptyState with Route icon
+ */
 @Composable
 fun TripsScreen(
     vm: TripsViewModel,
@@ -50,23 +61,24 @@ fun TripsScreen(
     onOpenSettings: () -> Unit = {},
 ) {
     val rides by vm.rides.collectAsStateWithLifecycle()
-    // The rides StateFlow seeds with emptyList() before Room's first emission,
-    // so we can't distinguish "loading" from "loaded-empty" on the flow alone.
-    // Show skeletons for a brief grace window after composition; either real
-    // data arrives within it (skeletons disappear immediately) or the window
-    // closes and we render the real empty state.
+    val monthSummary by vm.monthSummary.collectAsStateWithLifecycle()
+
+    // 250 ms grace window before showing the real empty state, so skeletons
+    // appear instead of a flash of empty state when Room hasn't emitted yet.
     val bootDone by produceState(initialValue = false) {
         delay(250); value = true
     }
+
     if (rides.isEmpty() && !bootDone) {
         LazyColumn(
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(3) { SkeletonCard() }
         }
         return
     }
+
     if (rides.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             EmptyState(
@@ -78,72 +90,152 @@ fun TripsScreen(
         }
         return
     }
+
+    // Group rides into week buckets for section headers.
+    val grouped = rememberWeekGroups(rides)
+
     LazyColumn(
-        contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        items(rides, key = { it.id }) { ride ->
-            RideRow(
-                ride = ride,
-                onClick = { onOpenRide(ride.id) },
-                onDelete = { vm.delete(ride.id) },
+        // ── Screen header ─────────────────────────────────────────────────────
+        item(key = "__header") {
+            TripsScreenHeader(
+                rideCount = monthSummary.rideCount,
+                totalKm = monthSummary.totalKm,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
             )
+        }
+
+        // ── Week-grouped ride rows ─────────────────────────────────────────────
+        grouped.forEach { (weekLabel, weekRides) ->
+            item(key = "header__$weekLabel") {
+                WeekSectionHeader(label = weekLabel)
+            }
+            items(weekRides, key = { it.id }) { ride ->
+                RideRowWithSparkline(
+                    ride = ride,
+                    vm = vm,
+                    onOpen = { onOpenRide(ride.id) },
+                    onDelete = { vm.delete(ride.id) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
         }
     }
 }
 
+// ── Header ────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TripsScreenHeader(
+    rideCount: Int,
+    totalKm: Int,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = "TRIPS",
+            style = MaterialTheme.typography.labelMedium,
+            color = GixxerTokens.textMuted,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = if (rideCount > 0) {
+                "$rideCount ${if (rideCount == 1) "ride" else "rides"} · $totalKm km this month"
+            } else {
+                "No rides this month"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = GixxerTokens.textMuted,
+        )
+    }
+}
+
+// ── Row with lazy sparkline loading ───────────────────────────────────────────
+
 /**
- * One row in [TripsScreen]: title (date + distance) + caption (duration + avg speed).
- * Tap entire card → detail; delete icon on the right edge.
+ * Wraps [RideRow] and fetches sparkline samples lazily via [LaunchedEffect]
+ * once the row enters composition (i.e., becomes visible in the LazyColumn).
+ * Uses null to distinguish "not yet loaded" from "loaded but empty".
  */
 @Composable
-private fun RideRow(ride: RideEntity, onClick: () -> Unit, onDelete: () -> Unit) {
-    val titleFmt = remember { SimpleDateFormat("d MMM", Locale.US) }
-    val endMillis = ride.endedAtMillis ?: System.currentTimeMillis()
-    val durationMin = (endMillis - ride.startedAtMillis) / 60_000
-    val distance = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
-    val dateStr = titleFmt.format(Date(ride.startedAtMillis))
+private fun RideRowWithSparkline(
+    ride: RideEntity,
+    vm: TripsViewModel,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // null = not loaded yet; emptyList = loaded but ride has no samples
+    var samples by remember(ride.id) { mutableStateOf<List<RideSampleEntity>?>(null) }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "$dateStr · $distance km",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = GixxerTokens.textPrimary,
-                )
-                Text(
-                    text = "$durationMin min · ${"%.0f".format(ride.avgSpeedKmh)} km/h",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                )
-            }
-            // Delete is kept but less prominent; the main tap opens the ride.
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete ride",
-                    tint = GixxerTokens.textMuted,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Spacer(modifier = Modifier.size(4.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.NavigateNext,
-                contentDescription = null,
-                tint = GixxerTokens.textMuted,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+    LaunchedEffect(ride.id) {
+        samples = vm.samplesForSparkline(ride.id, limit = 60)
     }
+
+    RideRow(
+        ride = ride,
+        sparklineSamples = samples,
+        onClick = onOpen,
+        onDelete = onDelete,
+        modifier = modifier,
+    )
+}
+
+// ── Week grouping ─────────────────────────────────────────────────────────────
+
+/**
+ * Groups a newest-first list of rides by ISO week, returning an ordered list
+ * of (weekLabel, rides) pairs. The first group is the most recent.
+ *
+ * Labels:
+ *   - Current ISO week → "THIS WEEK"
+ *   - Previous ISO week → "LAST WEEK"
+ *   - Anything older → "WEEK OF {D} {MON}" (start-of-week Monday)
+ */
+@Composable
+private fun rememberWeekGroups(
+    rides: List<RideEntity>,
+): List<Pair<String, List<RideEntity>>> = remember(rides) {
+    computeWeekGroups(rides)
+}
+
+private fun computeWeekGroups(rides: List<RideEntity>): List<Pair<String, List<RideEntity>>> {
+    val zone = ZoneId.systemDefault()
+    // ISO week fields: Monday is first day of week; week 1 = week containing Thursday.
+    val isoWeek = WeekFields.ISO
+    val weekOfYear = isoWeek.weekOfWeekBasedYear()
+    val weekBasedYear = isoWeek.weekBasedYear()
+
+    val now = ZonedDateTime.now(zone)
+    val thisWeekYear = now.get(weekBasedYear)
+    val thisWeek = now.get(weekOfYear)
+
+    // "Last week" crosses a year boundary if thisWeek == 1.
+    val lastWeekNum = if (thisWeek == 1) 52 else thisWeek - 1
+    val lastWeekYear = if (thisWeek == 1) thisWeekYear - 1 else thisWeekYear
+
+    val fmt = DateTimeFormatter.ofPattern("d MMM", Locale.US)
+
+    // Keep insertion order (rides are newest-first, so groups appear newest-first)
+    val grouped = LinkedHashMap<String, MutableList<RideEntity>>()
+    for (ride in rides) {
+        val rdt = Instant.ofEpochMilli(ride.startedAtMillis).atZone(zone)
+        val rWeekYear = rdt.get(weekBasedYear)
+        val rWeek = rdt.get(weekOfYear)
+        val label = when {
+            rWeekYear == thisWeekYear && rWeek == thisWeek -> "THIS WEEK"
+            rWeekYear == lastWeekYear && rWeek == lastWeekNum -> "LAST WEEK"
+            else -> {
+                // Monday of that week
+                val monday = rdt.with(DayOfWeek.MONDAY)
+                "WEEK OF ${monday.format(fmt).uppercase(Locale.US)}"
+            }
+        }
+        grouped.getOrPut(label) { mutableListOf() }.add(ride)
+    }
+    return grouped.map { (k, v) -> k to v }
 }
