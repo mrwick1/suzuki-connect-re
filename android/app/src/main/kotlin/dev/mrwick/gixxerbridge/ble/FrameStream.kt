@@ -24,7 +24,8 @@ class FrameStream {
     val events: SharedFlow<FrameEvent> = _events.asSharedFlow()
 
     fun emit(event: FrameEvent) {
-        _events.tryEmit(event)
+        val ok = _events.tryEmit(event)
+        android.util.Log.d("FrameStream", "emit dir=${event.direction} size=${event.bytes.size} ok=$ok subs=${_events.subscriptionCount.value}")
     }
 }
 

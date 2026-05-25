@@ -97,7 +97,7 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onOpenPairing) {
+                Button(onClick = onOpenPairing, modifier = Modifier.fillMaxWidth()) {
                     Text(if (bikeMac == null) "Pair a bike" else "Re-pair")
                 }
             }
@@ -158,15 +158,15 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onOpenMileage) { Text("Fuel log / true mileage") }
+                Button(onClick = onOpenMileage, modifier = Modifier.fillMaxWidth()) { Text("Fuel log / true mileage") }
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onOpenServiceHistory) { Text("Service history") }
+                Button(onClick = onOpenServiceHistory, modifier = Modifier.fillMaxWidth()) { Text("Service history") }
             }
         }
         item { NotificationAccessRow() }
         item {
             Section("Notifications mirrored to bike") {
-                Button(onClick = onOpenAllowlist) { Text("Edit allowlist") }
+                Button(onClick = onOpenAllowlist, modifier = Modifier.fillMaxWidth()) { Text("Edit allowlist") }
             }
         }
         item {
@@ -177,7 +177,7 @@ fun SettingsScreen(
             Section("Developer") {
                 SwitchRow("Demo mode (simulated bike telemetry)", demoMode, vm::setDemoMode)
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onOpenInspector) { Text("Open frame inspector") }
+                Button(onClick = onOpenInspector, modifier = Modifier.fillMaxWidth()) { Text("Open frame inspector") }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = { vm.resetOnboarding() }) {
                     Text("Reset onboarding (replay wizard)")

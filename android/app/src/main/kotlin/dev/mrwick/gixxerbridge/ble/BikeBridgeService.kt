@@ -345,14 +345,25 @@ class BikeBridgeService : LifecycleService() {
         }
 
         // Nav producer -> writer queue (only when changed; FrameWriter dedupes by content)
-        // PERF: gate on Ready — same reasoning as the heartbeat above. NavMux
-        // keeps producing (idle clock ticks forward locally), but we don't
-        // serialise + enqueue frames the link can't deliver.
+        // PERF: gate the BLE write on Ready — NavMux keeps producing (idle clock
+        // ticks forward locally), but we don't push to the radio when the link
+        // can't deliver.
+        // UX: always publish to FrameStream as a preview-TX event so the in-app
+        // cluster preview / Inspector see what we WOULD send even when no bike
+        // is connected. Without this the preview is silent on first launch
+        // before pairing, which looks broken.
         lifecycleScope.launch {
+            Log.i(tag, "nav producer collector starting")
             navMux.frame.distinctUntilChanged().collect { nav ->
-                if (bleClient.state.value is ConnectionState.Ready) {
-                    val bytes = nav.encode()
+                val bytes = nav.encode()
+                val ready = bleClient.state.value is ConnectionState.Ready
+                Log.i(tag, "nav frame: maneuver=${nav.maneuverId} dist=${nav.distNext}${nav.distNextUnit} ready=$ready")
+                if (ready) {
                     frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.NAV, bytes, "nav"))
+                } else {
+                    AppGraph.frameStream.emit(
+                        FrameEvent(FrameEvent.Direction.TX, bytes, note = "nav-preview"),
+                    )
                 }
             }
         }

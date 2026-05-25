@@ -9,31 +9,36 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 
 /**
  * Hot state derived from the TX frame stream: the latest a531 (NavFrame) the
- * app sent to the bike. UI observes [latestNav] as a StateFlow.
+ * app sent (or would have sent — nav-preview events are also recorded).
+ * UI observes [latestNav] as a StateFlow.
  *
- * PERF: switched from SharingStarted.Eagerly to WhileSubscribed(5_000) — the
- * upstream is the frame inspector / mirror used by debug screens, and the
- * filter+decode runs on every TX frame (1 Hz heartbeat + nav). When the app
- * is backgrounded and no Composable observes, keeping the collector hot just
- * burns CPU. The 5s grace window keeps it warm across screen rotations and
- * brief tab swaps so the cluster preview doesn't flash empty on return.
- * ASSUMED: losing the "captured before any UI observed" guarantee is fine —
- * the cluster screens always re-observe on entry, and the source-of-truth
- * for what was sent is the bike, not this derived state.
+ * PERF: SharingStarted.Eagerly — the collector runs as long as the process is
+ * alive. Previously WhileSubscribed(5_000) but that dropped the cached value
+ * when the user tab-switched away for >5s, so the cluster preview re-appeared
+ * blank ("no a531 frames yet") even though the producer was still ticking.
+ * The filter+decode is cheap (one byte check + 30-byte decode) and only fires
+ * on TX a531 frames, which are 1-3 Hz at peak — negligible CPU.
+ * The whole singleton dies with the process.
  */
 object ClusterState {
+    private const val TAG = "ClusterState"
+    init { android.util.Log.i(TAG, "ClusterState init") }
     val latestNav: StateFlow<NavFrame?> = AppGraph.frameStream.events
-        .filter { it.direction == FrameEvent.Direction.TX && it.bytes.size == 30 && it.bytes[1].toInt() == 0x31 }
+        .onEach { ev ->
+            android.util.Log.d(TAG, "saw FrameEvent dir=${ev.direction} size=${ev.bytes.size} type=0x${if (ev.bytes.size>=2) "%02x".format(ev.bytes[1].toInt() and 0xFF) else "??"} note=${ev.note}")
+        }
+        .filter { it.direction == FrameEvent.Direction.TX && it.bytes.size == 30 && (it.bytes[1].toInt() and 0xFF) == 0x31 }
         .mapNotNull { ev ->
-            try { decodeFrame(ev.bytes) as? NavFrame } catch (_: Throwable) { null }
+            try { (decodeFrame(ev.bytes) as? NavFrame).also { android.util.Log.i(TAG, "decoded NavFrame maneuver=${it?.maneuverId} dist=${it?.distNext}") } } catch (t: Throwable) { android.util.Log.w(TAG, "decode failed: $t"); null }
         }
         .stateIn(
             scope = MainScope(),
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.Eagerly,
             initialValue = null,
         )
 }
