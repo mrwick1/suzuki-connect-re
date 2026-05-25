@@ -210,4 +210,83 @@ class ManeuverMapTest {
         assertEquals(72, mapplsId)
         assertEquals(45, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
     }
+
+    // ----------------------------------------------------------------
+    // Compass departure ordering — regression guard. The generic
+    // "head " catch-all in MapplsIdGuesser was previously placed above
+    // the compass branches, making them dead code. Each of these tests
+    // would have returned cluster byte 8 (straight) under the old order.
+    // ----------------------------------------------------------------
+
+    @Test
+    fun `compass — head north yields cluster byte 40`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head north on MG Road")
+        assertEquals(50, mapplsId)
+        assertEquals(40, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head northeast yields cluster byte 41`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head northeast on Outer Ring Road")
+        assertEquals(51, mapplsId)
+        assertEquals(41, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head east yields cluster byte 42`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head east toward Bypass")
+        assertEquals(52, mapplsId)
+        assertEquals(42, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head southeast yields cluster byte 15`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head southeast on Beach Rd")
+        assertEquals(53, mapplsId)
+        assertEquals(15, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head south yields cluster byte 16`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head south on NH47")
+        assertEquals(54, mapplsId)
+        assertEquals(16, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head southwest yields cluster byte 17`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head southwest")
+        assertEquals(55, mapplsId)
+        assertEquals(17, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head west yields cluster byte 18`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head west on Calicut Rd")
+        assertEquals(56, mapplsId)
+        assertEquals(18, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — head northwest yields cluster byte 19`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head northwest")
+        assertEquals(57, mapplsId)
+        assertEquals(19, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `compass — hyphenated compound directions resolve correctly`() {
+        // Google Maps sometimes outputs "north-east" with a hyphen.
+        assertEquals(51, MapplsIdGuesser.fromText("Head north-east on Ring Road"))
+        assertEquals(53, MapplsIdGuesser.fromText("Head south-east"))
+        assertEquals(55, MapplsIdGuesser.fromText("Head south-west"))
+        assertEquals(57, MapplsIdGuesser.fromText("Head north-west"))
+    }
+
+    @Test
+    fun `compass — plain head still falls through to DEFAULT_MAPPLS_ID`() {
+        // "Head toward X" with no compass direction → straight/head default.
+        assertEquals(MapplsIdGuesser.DEFAULT_MAPPLS_ID, MapplsIdGuesser.fromText("Head toward MG Road"))
+        assertEquals(MapplsIdGuesser.DEFAULT_MAPPLS_ID, MapplsIdGuesser.fromText("Head along the river"))
+    }
 }

@@ -40,15 +40,19 @@ object MapplsIdGuesser {
             "merge" in s -> 20
             "turn right" in s || "right onto" in s || "right on " in s -> 3
             "turn left" in s || "left onto" in s || "left on " in s -> 0
-            "continue" in s || "straight" in s || "head " in s -> DEFAULT_MAPPLS_ID
-            "head north" in s -> 50
+            // Compass-rose departures: ORDER MATTERS — these must precede the
+            // generic "head " catch-all below, otherwise they are dead code.
             "head northeast" in s || "head north-east" in s -> 51
-            "head east" in s -> 52
-            "head southeast" in s || "head south-east" in s -> 53
-            "head south" in s -> 54
-            "head southwest" in s || "head south-west" in s -> 55
-            "head west" in s -> 56
             "head northwest" in s || "head north-west" in s -> 57
+            "head southeast" in s || "head south-east" in s -> 53
+            "head southwest" in s || "head south-west" in s -> 55
+            "head north" in s -> 50
+            "head south" in s -> 54
+            "head east" in s -> 52
+            "head west" in s -> 56
+            // Generic continue/straight/head — safe because the compass
+            // variants above already matched first.
+            "continue" in s || "straight" in s || "head " in s -> DEFAULT_MAPPLS_ID
             "ferry" in s || "take ferry" in s -> 36
             "tunnel" in s -> 37
             "arrive" in s || "destination" in s || "your destination" in s -> 40
