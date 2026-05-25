@@ -12,56 +12,64 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.protocol.NavFrame
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import dev.mrwick.gixxerbridge.util.AppLog
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
- * Empirical verification tool for the Mappls maneuver-id → cluster-icon
- * table (see `docs/maneuver-id-table.md`). Each row sends an a531 NavFrame
- * with the chosen maneuverId; user observes what the bike's cluster
- * actually renders and confirms/corrects the table.
+ * Empirical verification tool for the Suzuki cluster's byte→glyph table.
  *
- * All 55 IDs that exist as `ic_step_N.xml` in the Suzuki APK are listed.
- * Distance / ETA / total fields are dummies so the cluster shows the icon
- * with non-distracting filler around it.
+ * Iterates cluster bytes 1..52 (the output range of `A0.C()` in the OEM
+ * decompile; see `docs/superpowers/specs/2026-05-25-maneuver-id-rework-design.md`).
+ * For each byte, sends an a531 NavFrame at 1 Hz for [BURST_SECONDS] seconds
+ * so the cluster's nav-mode latch has time to engage (single-shot writes
+ * during 2026-05-25 sweep failed to update the cluster — see DISCOVERIES.md).
+ *
+ * **Use only when no real navigation is active.** A live NavMux will overwrite
+ * the swept byte on its next emit.
+ *
+ * Observations: type the description of what the cluster actually rendered
+ * into the row's text field. Observations persist to a TSV at
+ * `Context.filesDir/cluster_byte_glyphs.tsv` so they survive process death.
+ * Pull via `adb shell run-as dev.mrwick.gixxerbridge.debug cat files/cluster_byte_glyphs.tsv`.
  */
 @Composable
 fun ManeuverSweepScreen() {
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var lastSent by remember { mutableStateOf<String?>(null) }
+    val glyphNotes = remember { mutableStateMapOf<Int, String>() }
+    val tsvFile = remember { File(ctx.filesDir, GLYPH_TSV_FILENAME) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
-            "Maneuver sweep",
+            "Cluster byte sweep",
             style = MaterialTheme.typography.titleLarge,
             color = GixxerTokens.textPrimary,
         )
         Text(
-            "Tap Send on each row, photograph what the bike cluster actually renders, " +
-                "and compare against the description. Verified table source: " +
-                "docs/maneuver-id-table.md.",
+            "Sends each cluster byte 1..52 to a531 byte 2 at 1 Hz for ${BURST_SECONDS}s. " +
+                "Watch the cluster; type what you see. Use ONLY when no nav is active.",
             style = MaterialTheme.typography.bodySmall,
             color = GixxerTokens.textMuted,
         )
@@ -75,27 +83,42 @@ fun ManeuverSweepScreen() {
             )
             Spacer(Modifier.height(8.dp))
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(MANEUVER_IDS, key = { it.id }) { entry ->
-                ManeuverRow(
-                    entry = entry,
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(CLUSTER_BYTES, key = { it }) { byte ->
+                ClusterByteRow(
+                    byte = byte,
+                    note = glyphNotes[byte] ?: "",
+                    onNoteChange = { txt ->
+                        glyphNotes[byte] = txt
+                        runCatching {
+                            tsvFile.appendText(
+                                "$byte\t${System.currentTimeMillis()}\t${txt.replace('\t', ' ').replace('\n', ' ')}\n",
+                            )
+                        }
+                    },
                     onSend = {
                         scope.launch {
-                            val frame = NavFrame(
-                                maneuverId = entry.id,
-                                distNext = "0050",
-                                distNextUnit = "M",
-                                eta = "now   ",
-                                distTotal = "0050",
-                                distTotalUnit = "M",
-                                status = "1",
-                                continueFlag = " ",
-                            )
-                            val ok = AppGraph.sendFrame(frame.encode())
                             val ts = java.text.SimpleDateFormat("HH:mm:ss")
                                 .format(java.util.Date())
-                            lastSent = "id=${entry.id} (${entry.label}) at $ts -> ${if (ok) "ok" else "FAILED"}"
-                            AppLog.i("ManeuverSweep", lastSent ?: "")
+                            lastSent = "byte=$byte burst starting at $ts"
+                            AppLog.i("ClusterSweep", "burst start byte=$byte for ${BURST_SECONDS}s")
+                            repeat(BURST_SECONDS) {
+                                val frame = NavFrame(
+                                    maneuverId = byte,
+                                    distNext = "0050",
+                                    distNextUnit = "M",
+                                    eta = "now   ",
+                                    distTotal = "0050",
+                                    distTotalUnit = "M",
+                                    status = "1",
+                                    continueFlag = "1",
+                                )
+                                val ok = AppGraph.sendFrame(frame.encode())
+                                AppLog.d("ClusterSweep", "burst tick byte=$byte ok=$ok")
+                                delay(1000L)
+                            }
+                            lastSent = "byte=$byte burst done"
+                            AppLog.i("ClusterSweep", "burst done byte=$byte")
                         }
                     },
                 )
@@ -105,47 +128,33 @@ fun ManeuverSweepScreen() {
 }
 
 @Composable
-private fun ManeuverRow(entry: ManeuverEntry, onSend: () -> Unit) {
-    val ctx = LocalContext.current
-    // Dynamic resource lookup — same pattern as C0897z.java in the Suzuki APK.
-    // resId == 0 means the drawable is missing; safe-guard with placeholder.
-    val resId = remember(entry.id) {
-        ctx.resources.getIdentifier("ic_step_${entry.id}", "drawable", ctx.packageName)
-    }
+private fun ClusterByteRow(
+    byte: Int,
+    note: String,
+    onNoteChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "%02d".format(entry.id),
+            text = "%02d".format(byte),
             style = MaterialTheme.typography.titleMedium,
             color = GixxerTokens.textPrimary,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(36.dp),
+            modifier = Modifier.width(40.dp),
         )
         Spacer(Modifier.width(8.dp))
-        if (resId != 0) {
-            Icon(
-                painter = painterResource(id = resId),
-                contentDescription = entry.label,
-                tint = GixxerTokens.textPrimary,
-                modifier = Modifier
-                    .width(40.dp)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(GixxerTokens.surface)
-                    .padding(4.dp),
-            )
-        } else {
-            Spacer(Modifier.width(40.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = entry.label,
-            style = MaterialTheme.typography.bodySmall,
-            color = GixxerTokens.textMuted,
+        OutlinedTextField(
+            value = note,
+            onValueChange = onNoteChange,
+            placeholder = { Text("what does the cluster show?") },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f),
         )
+        Spacer(Modifier.width(8.dp))
         OutlinedButton(
             onClick = onSend,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
@@ -153,62 +162,9 @@ private fun ManeuverRow(entry: ManeuverEntry, onSend: () -> Unit) {
     }
 }
 
-private data class ManeuverEntry(val id: Int, val label: String)
+private const val BURST_SECONDS = 5
+private const val GLYPH_TSV_FILENAME = "cluster_byte_glyphs.tsv"
 
-private val MANEUVER_IDS: List<ManeuverEntry> = listOf(
-    ManeuverEntry(0, "turn left (90°)"),
-    ManeuverEntry(1, "slight left / bear left"),
-    ManeuverEntry(2, "sharp left"),
-    ManeuverEntry(3, "turn right (90°)"),
-    ManeuverEntry(4, "slight right"),
-    ManeuverEntry(5, "sharp right"),
-    ManeuverEntry(6, "u-turn (left loop)"),
-    ManeuverEntry(7, "straight / GENERIC_ARROW"),
-    ManeuverEntry(8, "hollow circle (position marker)"),
-    ManeuverEntry(10, "straight w/ crossbar variant"),
-    ManeuverEntry(11, "keep left"),
-    ManeuverEntry(12, "keep right"),
-    ManeuverEntry(13, "icon 13"),
-    ManeuverEntry(14, "icon 14"),
-    ManeuverEntry(15, "icon 15"),
-    ManeuverEntry(16, "icon 16"),
-    ManeuverEntry(17, "icon 17"),
-    ManeuverEntry(18, "icon 18"),
-    ManeuverEntry(19, "icon 19"),
-    ManeuverEntry(20, "merge right"),
-    ManeuverEntry(21, "straight w/ crossbar"),
-    ManeuverEntry(22, "icon 22"),
-    ManeuverEntry(23, "fork (slight-left w/ ramp tail)"),
-    ManeuverEntry(24, "icon 24"),
-    ManeuverEntry(25, "fork (curved tail variant)"),
-    ManeuverEntry(36, "ferry"),
-    ManeuverEntry(37, "tunnel"),
-    ManeuverEntry(40, "waypoint circle"),
-    ManeuverEntry(41, "u-turn (right loop)"),
-    ManeuverEntry(50, "depart heading north"),
-    ManeuverEntry(51, "depart NE"),
-    ManeuverEntry(52, "depart east"),
-    ManeuverEntry(53, "depart SE"),
-    ManeuverEntry(54, "depart south"),
-    ManeuverEntry(55, "depart SW"),
-    ManeuverEntry(56, "depart west"),
-    ManeuverEntry(57, "depart NW"),
-    ManeuverEntry(58, "roundabout 1st exit CCW"),
-    ManeuverEntry(59, "roundabout 2nd exit CCW"),
-    ManeuverEntry(60, "roundabout 3rd exit CCW"),
-    ManeuverEntry(61, "roundabout 4th exit CCW"),
-    ManeuverEntry(62, "roundabout 5th exit CCW"),
-    ManeuverEntry(63, "roundabout 6th exit CCW (dup of 64)"),
-    ManeuverEntry(64, "roundabout 6th exit CCW (dup of 63)"),
-    ManeuverEntry(65, "roundabout 7th exit CCW"),
-    ManeuverEntry(66, "roundabout 1st exit CW"),
-    ManeuverEntry(67, "roundabout 2nd exit CW"),
-    ManeuverEntry(68, "roundabout 3rd exit CW"),
-    ManeuverEntry(69, "roundabout 4th exit CW"),
-    ManeuverEntry(70, "roundabout 5th exit CW"),
-    ManeuverEntry(71, "roundabout 6th exit CW"),
-    ManeuverEntry(72, "roundabout (3-arrow generic)"),
-    ManeuverEntry(73, "roundabout variant (dup of 74)"),
-    ManeuverEntry(74, "roundabout variant (dup of 73)"),
-    ManeuverEntry(75, "roundabout variant"),
-)
+/** Cluster bytes the OEM emits in A0.C()'s default branch (1..52). Plus 43
+ *  and 53 are included as "is the cluster ROM hiding something here?" checks. */
+private val CLUSTER_BYTES: List<Int> = (1..53).toList()
