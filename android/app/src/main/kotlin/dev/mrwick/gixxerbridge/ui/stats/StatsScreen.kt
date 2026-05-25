@@ -15,13 +15,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.Card
-import androidx.compose.material3.Icon
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -30,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,10 +37,12 @@ import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.WeeklyTotal
 import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
+import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
 import dev.mrwick.gixxerbridge.ui.stats.charts.BarChart
 import dev.mrwick.gixxerbridge.ui.stats.charts.CalendarHeatmap
 import dev.mrwick.gixxerbridge.ui.stats.charts.HistogramChart
 import dev.mrwick.gixxerbridge.ui.stats.charts.LineChart
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,6 +59,11 @@ import java.util.Locale
  *
  * All derived data is wrapped in `remember(rides, samples)` so we only
  * re-compute on actual data changes, not on every recomposition.
+ *
+ * Chart colors:
+ *   - Primary line/bar: GixxerTokens.accent
+ *   - Grid lines/baseline: GixxerTokens.surfaceElevated
+ *   - Axis labels: GixxerTokens.textMuted
  */
 @Composable
 fun StatsScreen(
@@ -117,26 +122,12 @@ fun StatsScreen(
     }
     if (rides.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(24.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DirectionsBike,
-                    contentDescription = null,
-                    tint = Color(0xFF334155),
-                    modifier = Modifier.size(96.dp),
-                )
-                Text(
-                    "No rides yet — take the bike for a spin to populate stats.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF94A3B8),
-                )
-                TextButton(onClick = onOpenSettings) {
-                    Text("or enable Demo mode to explore the app")
-                }
-            }
+            EmptyState(
+                icon = Icons.Outlined.BarChart,
+                body = "No ride data yet. Take a ride to see your stats.",
+                ctaLabel = null,
+                onCta = null,
+            )
         }
         return
     }
@@ -156,6 +147,7 @@ fun StatsScreen(
         LineChart(
             values = fuelValues,
             label = "Fuel economy (km/L) — last ${recent10.size} rides",
+            lineColor = GixxerTokens.accent,
             yLabelFormatter = { "%.1f km/L".format(it) },
         )
 
@@ -165,6 +157,8 @@ fun StatsScreen(
             seriesB = recent10.asReversed().map { it.avgSpeed.toFloat() },
             labels = labels,
             title = "Avg vs Max speed (km/h) — last ${recent10.size} rides",
+            colorA = GixxerTokens.surfaceElevated,
+            colorB = GixxerTokens.accent,
         )
 
         HistogramChart(
@@ -188,29 +182,39 @@ private fun TotalsRow(weekly: WeeklyTotal, monthly: WeeklyTotal, yearly: WeeklyT
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TotalCard("Week", weekly, Color(0xFF22D3EE), Modifier.weight(1f))
-        TotalCard("Month", monthly, Color(0xFFF59E0B), Modifier.weight(1f))
-        TotalCard("Year", yearly, Color(0xFFA78BFA), Modifier.weight(1f))
+        TotalCard("Week", weekly, GixxerTokens.accent, Modifier.weight(1f))
+        TotalCard("Month", monthly, GixxerTokens.warning, Modifier.weight(1f))
+        TotalCard("Year", yearly, GixxerTokens.success, Modifier.weight(1f))
     }
 }
 
 /** One totals card. Big km, then a faint "X rides · Y h" subtitle. */
 @Composable
-private fun TotalCard(label: String, t: WeeklyTotal, accent: Color, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
+private fun TotalCard(
+    label: String,
+    t: WeeklyTotal,
+    accentColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(width = 4.dp, height = 14.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(accent),
+                        .background(accentColor),
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
                     label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.textMuted,
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
@@ -218,18 +222,18 @@ private fun TotalCard(label: String, t: WeeklyTotal, accent: Color, modifier: Mo
                 "${t.km}",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFE2E8F0),
+                color = GixxerTokens.textPrimary,
             )
             Text(
                 "km",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.textMuted,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 "${t.rides} ride${if (t.rides == 1) "" else "s"} · ${"%.1f".format(t.hours)} h",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.textMuted,
             )
         }
     }
@@ -238,12 +242,18 @@ private fun TotalCard(label: String, t: WeeklyTotal, accent: Color, modifier: Mo
 /** Personal-bests grid. Three primary tiles + one secondary. */
 @Composable
 private fun PersonalBestsCard(b: PersonalBests) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 "Personal bests",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
+                color = GixxerTokens.textPrimary,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -253,13 +263,13 @@ private fun PersonalBestsCard(b: PersonalBests) {
                 BestTile(
                     label = "Longest",
                     value = b.longestRideKm?.let { "$it km" } ?: "—",
-                    accent = Color(0xFF22D3EE),
+                    accentColor = GixxerTokens.accent,
                     modifier = Modifier.weight(1f),
                 )
                 BestTile(
                     label = "Top speed",
                     value = b.topSpeedKmh?.let { "$it km/h" } ?: "—",
-                    accent = Color(0xFFEF4444),
+                    accentColor = GixxerTokens.danger,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -271,13 +281,13 @@ private fun PersonalBestsCard(b: PersonalBests) {
                 BestTile(
                     label = "Best fuel econ",
                     value = b.bestFuelEconKml?.let { "%.1f km/L".format(it) } ?: "—",
-                    accent = Color(0xFF10B981),
+                    accentColor = GixxerTokens.success,
                     modifier = Modifier.weight(1f),
                 )
                 BestTile(
                     label = "Most in a day",
                     value = b.mostRidesInDay?.let { "$it rides" } ?: "—",
-                    accent = Color(0xFFF59E0B),
+                    accentColor = GixxerTokens.warning,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -290,7 +300,7 @@ private fun PersonalBestsCard(b: PersonalBests) {
 private fun BestTile(
     label: String,
     value: String,
-    accent: Color,
+    accentColor: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -298,7 +308,10 @@ private fun BestTile(
             .clip(RoundedCornerShape(8.dp))
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(accent.copy(alpha = 0.18f), Color.Transparent),
+                    colors = listOf(
+                        accentColor.copy(alpha = 0.18f),
+                        androidx.compose.ui.graphics.Color.Transparent,
+                    ),
                 ),
             )
             .padding(12.dp),
@@ -307,14 +320,14 @@ private fun BestTile(
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.textMuted,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 value,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFE2E8F0),
+                color = GixxerTokens.textPrimary,
             )
         }
     }
