@@ -4,7 +4,7 @@ Source: `apk/base.apk:res/drawable-nodpi-v4/ic_step_*.xml`.
 
 **⚠️ These drawables are NOT what the bike's cluster renders.** They are the
 phone-side nav-strip icons that the Suzuki Connect app draws inside its own
-turn-by-turn widget (see `C0897z.java:62-64`, `imageView.setImageResource(...)`).
+turn-by-turn widget (see `C0897z.java:114`, `imageView.setImageResource(...)`).
 The cluster has its own icon ROM keyed by a *cluster byte*, which is produced
 by translating the Mappls ID via `A0.C()` in the OEM bytecode. See
 `docs/cluster-byte-glyphs.md` for the cluster-byte table.
