@@ -106,3 +106,68 @@ adb pull /sdcard/gixxer-debug.db /tmp/gixxer-debug.db
 ```
 
 The `run-as dev.mrwick.gixxerbridge.debug` prefix works because the app is a debug build. On a release build you would need root (`adb shell su -c ...` from Termux, since KSU `su` is not on the adb shell PATH — see NOTES.md tooling section).
+
+---
+
+## Reverse-engineering Android binary AXML drawables
+
+### Why this is necessary
+
+APKs ship compiled binary AXML, not text XML. `unzip`-ing `base.apk` and opening a drawable gives raw binary, not readable vector XML. You need a decode step before you can inspect or render icons.
+
+### Toolchain
+
+**Decode binary AXML → text XML:**
+
+```python
+from androguard.core.axml import AXMLPrinter   # androguard 4.1.3; note: 3.x used core.bytecodes.axml
+import zipfile
+
+with zipfile.ZipFile("apk/base.apk") as z:
+    raw = z.read("res/drawable-nodpi-v4/ic_step_7.xml")
+
+xml_text = AXMLPrinter(raw).get_xml()
+```
+
+The `core.axml` import path is the 4.x API. The 3.x path (`core.bytecodes.axml`) is gone in 4.x — don't copy old examples verbatim.
+
+**Render to PNG** (via SVG intermediate):
+
+1. Hand-map Android vector XML attributes to SVG equivalents: `android:pathData` → `<path d="..."/>`, `android:fillColor` → `fill`, `android:strokeColor` → `stroke`, `android:strokeWidth` → `stroke-width`, `android:strokeLineCap` → `stroke-linecap`, `android:strokeLineJoin` → `stroke-linejoin`.
+2. Wrap in `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 <w> <h>">`.
+3. Render: `rsvg-convert -w 128 -h 128 --background-color '#222222' input.svg -o output.png` (requires `librsvg` / `rsvg-convert` — `yay -S librsvg` on Arch).
+
+### aapt2 gotcha: numeric strokeLineCap / strokeLineJoin
+
+Binary AXML stores `strokeLineCap` and `strokeLineJoin` as integers (`0`, `1`, `2`), not string enums. aapt2 (and the Android resource compiler) require the string form when shipping drawables in a new APK. Before copying decoded `ic_step_N.xml` files into `res/drawable/`, sed-replace the numeric values:
+
+| Integer | Attribute | String enum |
+|---------|-----------|-------------|
+| `0` | `strokeLineCap` | `butt` |
+| `1` | `strokeLineCap` | `round` |
+| `2` | `strokeLineCap` | `square` |
+| `0` | `strokeLineJoin` | `miter` |
+| `1` | `strokeLineJoin` | `round` |
+| `2` | `strokeLineJoin` | `bevel` |
+
+This is a purely mechanical substitution — no visual content change vs the APK originals.
+
+### Finding what the cluster resolves
+
+To locate icon-resolution code in any decompiled app, search for `getIdentifier` calls:
+
+```bash
+grep -r "getIdentifier" decompiled/jadx-out/sources/com/suzuki/ --include="*.java" -l
+```
+
+For the Suzuki app the relevant call is in `com/suzuki/adapter/C0897z.java:81`:
+
+```java
+context.getResources().getIdentifier("step_" + bVar.h, "drawable", context.getPackageName())
+```
+
+The argument to `getIdentifier` is the resource name pattern. Knowing the pattern lets you enumerate the complete icon set by listing all matching files in the APK.
+
+### Where rendered PNGs landed (May 25 session)
+
+`/tmp/step-icons/png/` — not committed to the repo. The decode-and-render pipeline is re-runnable from `apk/base.apk` using the steps above. The 55 classified descriptions are committed to `docs/maneuver-id-table.md`.

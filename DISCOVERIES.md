@@ -1996,3 +1996,66 @@ Full table in `docs/maneuver-id-table.md`.
 - **IDs 73 and 74**: Also byte-for-byte identical (left motorway exit). Mappls likely uses both for subtly different scenarios but renders the same graphic.
 - **ID 72**: Three-arrow roundabout symbol — best generic "roundabout" fallback when no exit-count is known.
 - The icon set contains no dedicated "destination flag" or "finish" icon in the ic_step namespace.
+
+---
+
+## 2026-05-25 (later) — Mappls maneuver-id authoritative table + on-bike verification tooling
+
+### What drove this
+
+Ride 11 (the 2026-05-25 real ride session) exposed wrong arrows on the cluster at several turns. The symptom was that `ManeuverClassifier` was returning plausible-sounding icon IDs that visually disagreed with what the cluster showed at known maneuver types. That prompted a code reading of `nav/ManeuverClassifier.kt` and `nav/ManeuverMap.kt` in GixxerBridge.
+
+### Five failure modes found in ManeuverClassifier
+
+1. **Self-training pollution** — the classifier was always updating its bitmap-hash → text-id mappings from every Google Maps notification it parsed, including low-confidence hits. A bad frame would permanently corrupt future lookups.
+2. **Hamming tolerance of 5/64 bits** — too loose for a 64-bit perceptual hash; semantically different icons are close enough to collide.
+3. **Unverified ID semantics** — `ManeuverMap.kt`'s `fromText()` mappings were hand-guessed, not derived from the APK. The comments said `ASSUMED: verify on cluster` throughout.
+4. **Missing-bitmap fallback** — when no bitmap was present in the notification, the classifier defaulted to `GENERIC_ARROW` (which was itself wrong — see corrections below).
+5. **No per-decision logging** — when the cluster showed the wrong arrow there was no trace of which classifier path fired or what inputs it received.
+
+### Three-part fix (commit `b52f0f5`)
+
+- **Instrumentation**: per-decision `AppLog.d` trace in `ManeuverClassifier` (path taken, bitmap hash, text match, final ID) and per-notification `AppLog.d` in `GoogleMapsParser` (raw extras dump).
+- **Self-train default OFF**: new `Settings.maneuverSelfTrainEnabled` pref, default `false`. Self-training is now opt-in. Exposed as a toggle in Settings → Developer.
+- **Disagreement WARN**: when the bitmap-hash path and the text-fallback path return different non-default IDs, `AppLog.w` is emitted so conflicts are visible in the Diagnostics screen.
+
+### Closing the ID-semantics gap: the APK as ground truth (commit `bb768ab`)
+
+The resolution mechanism in the Suzuki app is in `decompiled/jadx-out/sources/com/suzuki/adapter/C0897z.java:81`:
+
+```java
+context.getResources().getIdentifier("step_" + bVar.h, "drawable", context.getPackageName())
+```
+
+`bVar.h` is the raw Mappls maneuver integer. The cluster renders exactly whatever `ic_step_N.xml` ships in the APK — no secondary lookup table. The complete authoritative table is therefore: enumerate every `ic_step_*.xml` in `apk/base.apk`.
+
+Extraction pipeline: `unzip -l` enumeration → 55 drawables (IDs 0–8, 10–25, 36–37, 40–41, 50–75) → decoded binary AXML via `androguard 4.1.3` (`androguard.core.axml.AXMLPrinter`) → hand-mapped Android vector attributes to SVG → rendered 128×128 PNGs via `rsvg-convert` (librsvg) → visually classified all 55. Rendered PNGs landed at `/tmp/step-icons/png/` (not in repo; pipeline is re-runnable). Full table in `docs/maneuver-id-table.md`.
+
+### Major corrections to prior ManeuverMap.kt assumptions
+
+The old code had been sending wrong icons. Confirmed errors (see commit `bb768ab` for the full list; highlights below):
+
+- **`GENERIC_ARROW` was 8** — ID 8 is a hollow circle (GPS position dot), not a directional arrow. Corrected to **7** (plain up-arrow).
+- **U-turn was 23** — ID 23 is a ramp/fork variant. Corrected to **6** (U-left) / **41** (U-right).
+- **Slight-left was 6, slight-right was 7** — both wrong (6 = U-turn-left loop, 7 = straight up-arrow). Corrected to **1** (slight-left diagonal) and **4** (slight-right diagonal).
+- **Keep-left was 20, keep-right was 21** — IDs 20/21 are merge-right and straight-with-crossbar. Corrected to **11** (keep-left) and **12** (keep-right).
+- **Arrive/destination was 50** — IDs 50–57 are compass-direction departure icons ("head north/NE/east…"). No dedicated finish icon exists in the ic_step set. Best proxy: **40** (waypoint circle).
+- **Roundabout generic was 71** — corrected to **72** (three-arrow roundabout symbol). 71 is a specific roundabout-exit angle.
+
+Every `ASSUMED: verify on cluster` comment in `ManeuverMap.kt` was replaced with a source-derived mapping. `fromText()` updated in the same commit.
+
+All 55 `ic_step_N.xml` vector drawables were also copied to `android/app/src/main/res/drawable/` (commit `c2a08e6`) so GixxerBridge can render the expected icon phone-side using the same `getIdentifier("ic_step_$id", …)` pattern as `C0897z.java`. One aapt2 gotcha: numeric `strokeLineCap`/`strokeLineJoin` values in the binary AXML (`1`, `2`, `0`) had to be sed-replaced to string enums before shipping (`1 → round`, `2 → square`/`bevel`, `0 → butt`/`miter`). No visual content change vs APK originals.
+
+### Maneuver Sweep dev tool (commit `a93f82e`)
+
+`ui/dev/ManeuverSweepScreen.kt` lists all 55 valid maneuver IDs. Each row shows the expected `ic_step_N` drawable (via dynamic `getIdentifier`) and a Send button. Tapping Send ships an a531 NavFrame with that ID as `bytes[2]` and dummy distance/ETA/total fields. Wired into Settings → Developer.
+
+Purpose: empirically verify that the bike cluster's firmware renders the same icons as the APK's `ic_step_N` set. This is a high-confidence proxy (both ship from the same APK; the `C0897z.java` call and `A0.D()` both use the raw ID directly), but the firmware's own icon table has not been independently confirmed. The Sweep tool gives a one-shot visual verification without needing a full ride.
+
+### Weather Sweep dev tool (commit `fe62b6f`)
+
+`ui/dev/WeatherSweepScreen.kt` lists all 12 `SuzukiWeather` codes (0=UNKNOWN through 11=WINDY). Each row has a Send button that ships an a533 HeartbeatFrame with the chosen weather byte in slot 21 and a fixed 25 °C temperature in slot 22.
+
+**Unlike the Maneuver Sweep, there are no phone-side previews.** The Suzuki APK does not ship cluster weather drawables — only three large in-app PNGs (`weather_sunny.png`, `weather_partially_cloudy.png`, `weather_rainy.png`) used by the phone's own dashboard UI, keyed by matching Mappls weather text strings, not by the 0–11 cluster byte. The cluster's 12 weather icons are firmware-baked and not recoverable from the APK.
+
+Caveat for on-bike use: the regular 1 Hz heartbeat loop overwrites byte 21 almost immediately. Rider needs to shoot fast or pause Maps before sending a Weather Sweep frame.

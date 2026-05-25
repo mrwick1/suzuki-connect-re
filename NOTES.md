@@ -444,6 +444,24 @@ The `distNext` / `distNextUnit` / `distTotal` / `distTotalUnit` / `eta` fields o
 
 This is what drives `ClusterPreview`'s per-mode layout: the composable checks `distTotalUnit` and renders a different layout tree depending on which producer is active.
 
+### Maneuver IDs — authoritative ic_step_N table
+
+**Source**: `com/suzuki/adapter/C0897z.java:81` in the decompiled APK. That method calls `context.getResources().getIdentifier("step_" + bVar.h, "drawable", context.getPackageName())` where `bVar.h` is the raw Mappls maneuver integer. The authoritative table is therefore exactly what `ic_step_*.xml` drawables ship in the APK.
+
+**55 IDs total**: 0–8, 10–25, 36–37, 40–41, 50–75. Gaps (9, 26–35, 38–39, 42–49) have no corresponding drawable; sending those values to the cluster may render nothing or a firmware fallback.
+
+**Reference**: `docs/maneuver-id-table.md` for the full per-ID description and confidence level.
+
+**Drawables in GixxerBridge APK**: all 55 `ic_step_N.xml` vector drawables are now shipped at `android/app/src/main/res/drawable/`. Any composable can resolve an expected cluster icon via:
+
+```kotlin
+val resId = ctx.resources.getIdentifier("ic_step_$id", "drawable", ctx.packageName)
+```
+
+This is the same pattern `C0897z.java` uses — it gives the phone-side preview of what the cluster should render.
+
+**Ground-truth caveat**: the visual source of truth is the Suzuki APK's drawables (what their phone-side nav strip renders). The bike cluster's firmware is assumed to have a matching icon table — it is the only reasonable explanation for why `A0.D()` sends the raw Mappls ID directly to the bike without any remap — but has not been independently confirmed by teardown or firmware extraction. The Maneuver Sweep tool (Settings → Developer) exists for empirical on-bike verification.
+
 ### Maps notification parsing (current path, 2026-05-25)
 
 Google Maps 2026 delivers navigation data via `Notification.extras`, not via `RemoteViews`. GixxerBridge reads:
@@ -470,6 +488,14 @@ Pull the log file from device:
 ```bash
 adb shell run-as dev.mrwick.gixxerbridge.debug cat files/diag/app.log
 ```
+
+### Developer dev-tools: Maneuver Sweep + Weather Sweep
+
+Both tools live under Settings → Developer and require the bike to be BLE-connected.
+
+**Maneuver Sweep** (`ui/dev/ManeuverSweepScreen.kt`): lists all 55 valid maneuver IDs (0–8, 10–25, 36–37, 40–41, 50–75). Each row shows the expected `ic_step_N` drawable pulled dynamically from the app's own resource table, plus a Send button. Tapping Send ships one a531 NavFrame with `bytes[2]` set to that ID and dummy distance/ETA/total values. Rider procedure: open the screen on the paired phone, tap Send for a given ID, immediately look at the cluster and note whether an arrow appears and whether it matches the drawable shown in the row. Work through IDs systematically to build a firmware↔drawable correspondence table.
+
+**Weather Sweep** (`ui/dev/WeatherSweepScreen.kt`): lists all 12 `SuzukiWeather` codes (0=UNKNOWN, 1=SUNNY, …, 11=WINDY). Each Send button ships one a533 HeartbeatFrame with the chosen weather byte in slot 21 and a fixed 25 °C temperature in slot 22. No phone-side icon preview is shown — the Suzuki APK does not ship cluster weather drawables, only three coarse in-app PNGs for the phone's own dashboard. Rider procedure: pause Google Maps (so the regular heartbeat loop is not overwriting slot 21 every second), tap Send for a weather code, immediately photograph the cluster to record which icon the firmware renders.
 
 ### Active-ride trigger (2026-05-25)
 
