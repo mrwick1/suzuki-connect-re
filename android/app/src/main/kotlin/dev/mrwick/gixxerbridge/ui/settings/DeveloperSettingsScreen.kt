@@ -34,6 +34,7 @@ fun DeveloperSettingsScreen(
     vm: SettingsViewModel,
     onOpenInspector: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenManeuverSweep: () -> Unit = {},
 ) {
     val demoMode by vm.demoMode.collectAsStateWithLifecycle()
     val autoStart by vm.autoStartOnBoot.collectAsStateWithLifecycle()
@@ -65,6 +66,10 @@ fun DeveloperSettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
                     Text("Diagnostics / log viewer")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onOpenManeuverSweep, modifier = Modifier.fillMaxWidth()) {
+                    Text("Maneuver sweep (verify cluster icons)")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(

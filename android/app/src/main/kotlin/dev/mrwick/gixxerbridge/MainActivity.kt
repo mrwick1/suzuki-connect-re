@@ -418,6 +418,7 @@ private fun AppShell() {
                     InspectorScreen(vm)
                 }
                 composable("diagnostics") { DiagnosticsScreen() }
+                composable("maneuver-sweep") { dev.mrwick.gixxerbridge.ui.dev.ManeuverSweepScreen() }
                 composable(Tab.Settings.route) {
                     SettingsScreen(
                         onOpenBike = { nav.navigate("settings/bike") },
@@ -458,6 +459,7 @@ private fun AppShell() {
                         vm = viewModel(),
                         onOpenInspector = { nav.navigate("inspector") },
                         onOpenDiagnostics = { nav.navigate("diagnostics") },
+                        onOpenManeuverSweep = { nav.navigate("maneuver-sweep") },
                     )
                 }
                 composable("pairing") {
