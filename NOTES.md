@@ -432,6 +432,49 @@ All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
 - Trailing byte: `0x7F` (end-of-message marker)
 - Byte before `0x7F`: XOR checksum (`sum(bytes[1:28]) mod 256`)
 
+### a531 NavFrame field reuse (2026-05-25)
+
+The `distNext` / `distNextUnit` / `distTotal` / `distTotalUnit` / `eta` fields of a531 are repurposed by non-nav producers inside GixxerBridge. Discriminator: the `distTotalUnit` byte (a531 byte 22 / `o0`).
+
+| `distTotalUnit` byte | Producer | Field semantics |
+|---|---|---|
+| `"M"` or `"k"` or `"m"` | Real navigation (Mappls SDK via `MapsNavSource`) | Standard: `distNext` = distance to maneuver, `distTotal` = DTG, `eta` = ETA string |
+| `"C"` | `IdleClockGenerator` | `eta` = current wall-clock time (HH:MM), `distNext` = suzukiWeatherCode 0-11 right-aligned in 4 chars, `distTotal` = temperature in °C |
+| `"*"` (paired with `distNextUnit == "@"`) | `NowPlayingProvider` | `distNext` + `distTotal` together form the first 8 chars of the current track title |
+
+This is what drives `ClusterPreview`'s per-mode layout: the composable checks `distTotalUnit` and renders a different layout tree depending on which producer is active.
+
+### Maps notification parsing (current path, 2026-05-25)
+
+Google Maps 2026 delivers navigation data via `Notification.extras`, not via `RemoteViews`. GixxerBridge reads:
+
+- `android.title` — primary instruction text (e.g. "Turn right onto MG Road")
+- `android.subText` — distance to next maneuver as a string (e.g. "200 m")
+- `android.progress` + `android.progressMax` — distance-to-next as a fraction (used for the ticker fill)
+- `android.largeIcon` (Bitmap) — the maneuver arrow icon
+
+The old `RemoteViews` path (documented in some 2020-era references) is retained as a fallback but has not been observed to fire on this Maps version. See `nav/GoogleMapsParser.kt` for the implementation and `captures/maps-notification-dump-*.md` for raw dump references.
+
+### In-app logging (AppLog, 2026-05-25)
+
+`util/AppLog.kt` is a process-singleton that provides off-tether debugging without `adb logcat`. Architecture:
+
+- **In-memory ring**: 2000-entry `RingLog<Entry>` backing the Diagnostics screen (`ui/diagnostics/DiagnosticsScreen.kt`).
+- **Logcat mirror**: every entry is forwarded to `android.util.Log` so `adb logcat` still works when tethered.
+- **Rolling file**: appends to `filesDir/diag/app.log`, capped at ~512 KB with one rotation.
+- **Init**: `GixxerApp.onCreate()` calls `AppLog.init(context)`.
+
+Every BLE site and the pair flow use `AppLog.i/d/w/e` instead of bare `android.util.Log`.
+
+Pull the log file from device:
+```bash
+adb shell run-as dev.mrwick.gixxerbridge.debug cat files/diag/app.log
+```
+
+### Active-ride trigger (2026-05-25)
+
+Active-ride mode uses BLE-speed gating: the app enters active-ride when `telemetry.latest.speedKmh > 5` for 3 consecutive BLE poll intervals (~15 s). The alternative (accelerometer via `BodySensors` permission) was rejected because BLE speed only fires when this specific bike is paired and moving — it cannot false-trigger in a car or train — and it requires no extra permission. `ActiveRideController` is the singleton state machine; `ActiveRideLayer` in MainActivity wraps the Scaffold and observes it.
+
 ### Complete message type inventory (7 types — confirmed from source 2026-05-24)
 
 **From phone to bike** (writes on `0xFFF1`):

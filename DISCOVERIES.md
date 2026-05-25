@@ -1878,3 +1878,67 @@ Line format (UTC timestamp, ISO8601 millis):
 ```
 
 To-verify protocol: open the GixxerBridge pair screen → key the bike on → confirm a row is appended → key the bike off + power-cycle the cluster (turn bike fully off, count to 10, key on again) → open pair screen again → confirm a second row. Repeat across 5-10 power cycles over a few days. If all rows for `SBM110202788` show the same MAC, H2 is empirically confirmed. If any row shows a different MAC for the same serial, H1 becomes the live case and the name-based fallback above becomes load-bearing.
+
+---
+
+## 2026-05-25 (end of day) — Full UI overhaul shipped + supporting infrastructure
+
+### Live-bike test exposed BLE handshake race
+
+First real run of GixxerBridge against the bike this morning. Connection reached `Ready` but the cluster stayed in pairing mode and dropped with `status=8` (`HCI_ERR_CONN_TIMEOUT`) every attempt. Root cause was three layered bugs: identity write was racing the still-in-flight CCC descriptor write, Android's TIRAMISU+ BLE stack returns `ERROR_GATT_WRITE_REQUEST_BUSY (201)` for ~1 s after the descriptor write completes, and the writer drain was silently dropping dequeued entries when not Ready. Fixed by a proper `runHandshake()` sequence gated on `onDescriptorWrite` callback + 50 ms retry-on-busy loop. Full trace in the earlier 2026-05-25 BLE-handshake-timing entry above.
+
+### AppLog + Diagnostics screen
+
+Added `util/AppLog.kt` — process-singleton with a 2000-entry in-memory ring (for `ui/diagnostics/DiagnosticsScreen.kt`), logcat mirror, and rolling file at `filesDir/diag/app.log` (~512 KB cap, 1 rotation). Every BLE site and the pair flow now use `AppLog.i/d/w/e`. Pull command: `adb shell run-as dev.mrwick.gixxerbridge.debug cat files/diag/app.log`. Motivation: diagnosing the handshake race required knowing exactly what the BLE stack returned on each write; the log gave us that without needing the phone tethered.
+
+### Pair-screen vendor labels, "Currently paired" card, RSSI smoothing
+
+`BleVendor.identify(ScanResult)` derives a human-readable label from manufacturer-data company ID (Apple, Samsung, Google, Microsoft), service-data UUID (Fast Pair, Eddystone), and OUI table — so the pair list no longer shows raw MACs for everything that isn't a Suzuki. A "Currently paired" card surfaces the live BLE state (connecting / ready / disconnected) with a Forget button and bonded-devices seeding. RSSI smoothing: `BleScanner.onScanResult` applies `smoothed = 0.3*raw + 0.7*prev` per device; `PairingViewModel.results` samples the resulting flow at 500 ms via `kotlinx.coroutines.flow.sample()` to prevent the UI thrashing at 10 Hz.
+
+### Demo mode auto-disable
+
+`BikeBridgeService` checks `settings.demoMode` on every a537 notify. On the first real frame, it calls `settings.setDemoMode(false)` and emits `AppEvent.DemoModeAutoDisabled` on the new `app/AppEvents.kt` one-shot event bus (replay=0, no stale buffering). MainActivity's Scaffold `SnackbarHost` shows "Real bike telemetry detected — Demo mode turned off." with an Undo action.
+
+### MapsNavSource 60 s stale-nav watchdog
+
+`MapsNavSource` starts a 60-second watchdog on every nav update. If Google Maps stops posting new notification extras for 60 s (Maps minimized, nav ended, etc.), the cached nav frame is cleared so the cluster falls back to idle-clock mode rather than showing a frozen ETA.
+
+### Per-service intervals implementation landed
+
+`data/ServiceSchedule.kt` and `analytics/ServiceSchedule.kt` implement the per-service interval table (air filter / brake oil / periodic engine service / spark plug / battery) with both day-based and km-based thresholds, matching the values from the Suzuki Connect source. xref: 2026-05-25 oil-change entry above for the source trace.
+
+### 5-wave UI overhaul completed in one day (commits c79e1e9..c77d32e)
+
+All five waves plus post-wave polish shipped to master in a single day:
+
+- **Wave 1**: `GixxerTokens.kt` (Linear-style dark stack + two-tier red), `GixxerFonts.kt` (Inter + Geist Mono via downloadable Google Fonts), `Motion.kt` (SpringStandard + SpringSoft), Konsist hardcoded-hex lint test, 5 home components (SpeedDisplay, ConnectionDot, TodayHeroCard, QuickActionsRow, EmptyState), 3-zone Home rewrite, ClusterPreview retokenize, Roborazzi golden test.
+- **Wave 2**: Speed-first Dashboard rewrite; Active-ride layout (BLE-speed-gated, >5 km/h for 3 s); Settings Active-ride bottom-metric picker.
+- **Wave 3**: Stats + Trips + TripDetail retokenize; Spotify-Wrapped-style PostRideSummary (4-card spring sequence, haptics, shareable PNG).
+- **Wave 4**: Settings split into 5 sub-routes (Bike / Cluster / Notifications / Maintenance / Developer); Pairing + Diagnostics + Onboarding token sweep.
+- **Wave 5**: SOS + Crash prompt + AppLock cold-start polish.
+- **Post-wave polish**: floating-pill bottom nav (Instagram/X style), Trips listing premium row (date rail + sparkline), cluster preview humanization (idle-clock / now-playing layouts), RSSI smoothing + pair-screen UI throttle.
+
+### Custom bottom nav iterations
+
+Started with M3 `NavigationBar` (too tall, label noise). Iterated through: labels + pill → labels + dot → icons-only no-container → floating pill → final form: no-dot, color-contrast-only selection indicator. Custom `ui/nav/GixxerBottomNav.kt` replaces M3 entirely.
+
+### Cluster preview humanization
+
+`ClusterPreview` now switches layout per producer based on `distTotalUnit` byte:
+- `"C"` → idle-clock layout (time prominent, weather code + temp in distance slots).
+- `"*"` + `distNextUnit == "@"` → now-playing layout (track title across both distance fields).
+- Otherwise → standard nav layout.
+
+### Compose gotchas encountered today
+
+- `Icons.Outlined.X` icons are package-level extension properties in `androidx.compose.material.icons.outlined.*`. Inline FQN like `androidx.compose.material.icons.Icons.Outlined.WbSunny` does not resolve — must use a package-level import.
+- `AnimatedVisibility` enter/exit specs require `FiniteAnimationSpec`. `Motion.SpringStandard` is typed as `AnimationSpec<Float>` and cannot be passed directly — fallback to `tween(200)` inline at each use, documented per site.
+- `animateDpAsState` needs `AnimationSpec<Dp>`, not `AnimationSpec<Float>` — use inline `spring<Dp>(dampingRatio=0.85f, stiffness=400f)` with matching physics.
+- Kotlin block-comment parser is strict about nested `/**` — a literal `**` inside KDoc prose (e.g. `ui/home/**` in a path example) tries to open a nested block comment, blowing up the lexer at end-of-file with "Unclosed comment".
+- Compose BOM `2024.12.01 → 2026.05.00` is a clean bump; `LocalLifecycleOwner` deprecation warnings appear but do not break the build.
+- Arch's system Java moved to JDK 26 mid-day; Gradle 8.11.1's embedded Kotlin compiler throws `IllegalArgumentException` in `JavaVersion.parse` on `"26.0.1"`. Pinned `org.gradle.java.home=/usr/lib/jvm/java-17-openjdk` in `android/gradle.properties`.
+- Subagent `isolation: worktree` works only if the agent prompt explicitly says "cd to your worktree". Without that, the agent edits the main checkout and the worktree is wasted. When parallel agents touch the same file, the harness will not auto-merge — the worktree branch is preserved and the controller cherry-picks manually.
+
+### Auto-start BikeBridgeService on app launch
+
+`BikeBridgeService` now starts automatically on MainActivity launch (no manual tap required). A "Restart bike service" button is exposed in Settings → Developer for recovery without killing the app.

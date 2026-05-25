@@ -291,3 +291,9 @@ Before invoking `writing-plans`:
 3. Confirms the wave-1 scope is what he wants to ship first.
 
 Once approved → `writing-plans` skill drafts the wave-1 implementation plan.
+
+## Implementation deviations
+
+Deviations from this spec discovered during the 2026-05-25 implementation:
+
+- **Active-ride trigger**: the spec called for `BodySensors` permission + accelerometer-based motion detection (> 5 km/h equivalent for > 3 s). The shipped implementation uses **BLE-speed gating** instead — `telemetry.latest.speedKmh > 5` for 3 consecutive BLE poll intervals. Rationale: no extra permission needed, only fires when this specific bike is paired and moving (no false-trigger in a car/train), and automatically off when disconnected. `BodySensors` permission was not added to the manifest.
