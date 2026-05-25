@@ -8,24 +8,28 @@ import java.io.File
  * Maps Google Maps direction text -> Mappls maneuver IDs (the byte that
  * drives the cluster icon).
  *
- * Icon IDs come from the Suzuki app's available drawable set
- * (NOTES.md "Maneuver-ID -> arrow-icon mapping"):
- * safe IDs: 0,1,2,3,4,5,6,7,8,10-25,36,37,40,41,50-75.
- * Avoid 9, 26-35, 38-39, 42-49 — those gaps render blank/unknown on the cluster.
+ * Icon IDs come from enumerating every `ic_step_N.xml` drawable in
+ * `apk/base.apk`. `C0897z.java:81` resolves `step_<N>` via getIdentifier at
+ * runtime — whatever file is in the APK is what the cluster renders.
+ * Safe IDs: 0-8, 10-25, 36, 37, 40, 41, 50-75.
+ * Avoid 9, 26-35, 38-39, 42-49 — those gaps have no drawable.
  *
- * Phase 1 (this file): pattern-match the English instruction text from Maps'
- * nav_description field. The specific Mappls IDs below are educated guesses
- * cross-referenced against `C0897z.java` (the app's adapter remap table) and
- * NOTES.md's enumeration of icons. Each `// ASSUMED:` flags one we couldn't
- * verify directly against a labeled Mappls reference.
+ * Every assignment below is verified against the decoded+rendered PNG of the
+ * corresponding drawable (see docs/maneuver-id-table.md, 2026-05-25).
  *
  * Phase 2 (later): perceptual-hash the maneuver Bitmap, lookup table built
  * empirically. See [registerBitmapHash] / [fromBitmapHash] stubs.
  */
 object ManeuverMap {
 
-    /** Default when nothing matches. */
-    const val GENERIC_ARROW = 8
+    /**
+     * Default when nothing matches.
+     *
+     * ID 7 is a plain vertical up-arrow — verified vs ic_step_7.png 2026-05-25.
+     * NOTE: The old code used GENERIC_ARROW = 8, but ID 8 is a hollow circle
+     * (position marker), NOT a forward arrow. 7 is the correct straight-ahead icon.
+     */
+    const val GENERIC_ARROW = 7
 
     /**
      * Heuristic text -> maneuver id. Matches longest / most-specific pattern first.
@@ -37,51 +41,78 @@ object ManeuverMap {
         val s = instruction.lowercase()
         // Priority-ordered (most specific first).
         return when {
-            // U-turn: maneuver 23 is the U-shape icon in the app's available set.
-            // ASSUMED: 23 = u-turn — picked from the safe range; verify on cluster.
-            "u-turn" in s || "u turn" in s || "make a u" in s -> 23
+            // U-turn: 6 = U-turn left (downward loop curving left), 41 = U-turn right.
+            // Google Maps always says "make a U-turn" without a side — use 6 (left)
+            // as the default since most U-turns on Indian roads swing left.
+            // verified vs ic_step_6.png + ic_step_41.png 2026-05-25.
+            "u-turn" in s || "u turn" in s || "make a u" in s -> 6
 
-            // Roundabouts: 71 = generic roundabout (per C0897z.java line 156 fallback);
-            // 72 is the Mappls "roundabout" ID itself but C0897z remaps 72→71 unless
-            // a specific exit count is set. We use 71 as the only safe text-derived value.
-            // ASSUMED: "exit roundabout" text from Maps maps to the same 71.
-            "roundabout" in s && "exit" in s -> 71
-            "roundabout" in s -> 71
+            // Roundabouts: 72 = generic three-arrow roundabout symbol (clearest icon).
+            // IDs 58-71 are directional (by exit count/angle) but we cannot derive that
+            // from text alone. 72 is the unambiguous "roundabout" glyph.
+            // verified vs ic_step_72.png 2026-05-25.
+            "roundabout" in s -> 72
 
-            // Highway exits: 24/25 chosen from the safe range (24-25 cluster).
-            // ASSUMED: 24 = take exit left, 25 = take exit right.
-            "exit" in s && "right" in s -> 25
-            "exit" in s && "left" in s -> 24
-            "exit" in s -> 25
+            // Motorway/highway exits (dual-carriageway off-ramp icons):
+            // 73/74 = left exit (two vertical road lines + diagonal-left arrow at top).
+            // 75 = right exit (mirror). Better than 17/18 for highway context.
+            // verified vs ic_step_73.png + ic_step_75.png 2026-05-25.
+            "exit" in s && "left" in s -> 73
+            "exit" in s && "right" in s -> 75
+            "exit" in s -> 75
 
-            // Slight / sharp turns. ASSUMED: 4-7 are the four diagonal arrows;
-            // commonly indexed sharp-left, sharp-right, slight-left, slight-right.
-            "slight right" in s -> 7
-            "slight left" in s -> 6
+            // Slight / sharp turns — verified geometry from rendered PNGs 2026-05-25:
+            // 1 = slight left (diagonal lower-left hook), 4 = slight right (lower-right hook).
+            // 2 = sharp left (diagonal upper-left, hard corner), 5 = sharp right (upper-right).
+            "slight right" in s || "bear right" in s -> 4
+            "slight left" in s || "bear left" in s -> 1
             "sharp right" in s -> 5
-            "sharp left" in s -> 4
+            "sharp left" in s -> 2
 
-            // Keep-lane variants. ASSUMED: 20/21 are "keep left/right" (lane stay
-            // without a turn). These IDs are in the safe band 20-25.
-            "keep right" in s -> 21
-            "keep left" in s -> 20
+            // Keep-lane variants (no turn, just lane discipline):
+            // 11 = keep left (horizontal left arrow + right-side vertical bar).
+            // 12 = keep right (horizontal right arrow + left-side vertical bar).
+            // verified vs ic_step_11.png + ic_step_12.png 2026-05-25.
+            "keep right" in s -> 12
+            "keep left" in s -> 11
 
-            // Plain turn left/right. Per NOTES.md, ic_step_2 and ic_step_3 are the
-            // primary turn-left/turn-right arrows used by the app's adapter.
-            // ASSUMED: 2 = left, 3 = right (matches typical Mappls convention).
+            // Merge onto highway:
+            // 19 = merge left (diagonal upper-left into vertical), 20 = merge right.
+            // verified vs ic_step_19.png + ic_step_20.png 2026-05-25.
+            "merge" in s && "left" in s -> 19
+            "merge" in s -> 20
+
+            // Plain turn left/right:
+            // 0 = turn left (L-arrow stem-right → up-left), 3 = turn right (L-arrow stem-left → up-right).
+            // verified vs ic_step_0.png + ic_step_3.png 2026-05-25.
             "turn right" in s || "right onto" in s || "right on " in s -> 3
-            "turn left" in s || "left onto" in s || "left on " in s -> 2
+            "turn left" in s || "left onto" in s || "left on " in s -> 0
 
-            // Continue / straight / head — generic straight arrow.
+            // Continue / straight / head — straight up-arrow (ID 7).
+            // verified vs ic_step_7.png 2026-05-25.
             "continue" in s || "straight" in s || "head " in s -> GENERIC_ARROW
 
-            // Destination reached. ASSUMED: 50 = "arrive at destination" (flag icon);
-            // 50 is the first ID in the 50-75 cluster which contains destination
-            // and lane-guidance icons per the app's drawable set.
-            "arrive" in s || "destination" in s -> 50
+            // Departure compass directions (IDs 50-57 = compass rose + directional arrow).
+            // Only fired when Google Maps emits explicit cardinal-direction text.
+            // verified vs ic_step_50-57.png 2026-05-25.
+            "head north" in s -> 50
+            "head northeast" in s || "head north-east" in s -> 51
+            "head east" in s -> 52
+            "head southeast" in s || "head south-east" in s -> 53
+            "head south" in s -> 54
+            "head southwest" in s || "head south-west" in s -> 55
+            "head west" in s -> 56
+            "head northwest" in s || "head north-west" in s -> 57
 
-            // Highway merge. ASSUMED: 11 = "merge".
-            "merge" in s -> 11
+            // Ferry / tunnel (verified vs ic_step_36.png + ic_step_37.png 2026-05-25).
+            "ferry" in s || "take ferry" in s -> 36
+            "tunnel" in s -> 37
+
+            // Destination / arrival.
+            // ID 40 = waypoint circle (via-point); no dedicated "destination flag" exists
+            // in the APK's ic_step_* set. 40 is the closest unambiguous stop-point icon.
+            // verified vs ic_step_40.png 2026-05-25.
+            "arrive" in s || "destination" in s || "your destination" in s -> 40
 
             else -> GENERIC_ARROW
         }

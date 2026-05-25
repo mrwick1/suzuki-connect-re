@@ -1942,3 +1942,57 @@ Started with M3 `NavigationBar` (too tall, label noise). Iterated through: label
 ### Auto-start BikeBridgeService on app launch
 
 `BikeBridgeService` now starts automatically on MainActivity launch (no manual tap required). A "Restart bike service" button is exposed in Settings → Developer for recovery without killing the app.
+
+## 2026-05-25 (later) — Mappls maneuver-id → cluster icon table extracted from APK
+
+### Discovery path
+
+Found the resolution mechanism in `decompiled/jadx-out/sources/com/suzuki/adapter/C0897z.java:81`:
+
+```java
+context.getResources().getIdentifier("step_" + bVar.h, "drawable", context.getPackageName())
+```
+
+`bVar.h` is the integer maneuver-id from the Mappls SDK. The cluster renders exactly whatever `ic_step_N.xml` drawable the APK ships — no secondary mapping table exists. The complete authoritative table is therefore: enumerate all `ic_step_*.xml` files in `apk/base.apk`.
+
+`unzip -l apk/base.apk | grep ic_step_` reveals 55 drawables: IDs **0–8, 10–25, 36–37, 40–41, 50–75**.
+
+### Extraction method
+
+1. Decoded binary AXML from `apk/base.apk` using `androguard 4.1.3` (`androguard.core.axml.AXMLPrinter`) — the 4.x API moved from `core.bytecodes.axml` to `core.axml`.
+2. Converted Android vector XML to SVG by hand-mapping `android:pathData`, `android:fillColor`, `android:strokeColor`, `android:strokeWidth`, `android:strokeLineCap/Join` to their SVG equivalents.
+3. Rendered to 128×128 PNG using `rsvg-convert` (librsvg) with `#222222` background.
+4. Visually inspected all 55 PNGs and classified each icon.
+
+### Key findings
+
+**55 IDs decoded; 52 high confidence, 3 medium, 0 low.**
+
+Full table in `docs/maneuver-id-table.md`.
+
+### Corrections to prior `ManeuverMap.kt` assumptions
+
+1. **`GENERIC_ARROW = 8` was wrong.** ID 8 is a hollow circle (GPS position marker / waypoint dot) — it has no directional component. The real straight-ahead arrow is **ID 7** (plain vertical up-arrow). `GENERIC_ARROW` updated to 7.
+
+2. **U-turn was mapped to 23.** ID 23 is a "slight left with ramp tail" — a ramp or fork variant, not a U-turn. Correct U-turn icons: **6** (U-left) and **41** (U-right). Updated to 6.
+
+3. **`"slight right" -> 7` was wrong.** ID 7 is the straight-ahead up-arrow. Slight-right is **ID 4** (lower-right diagonal hook). Fixed.
+
+4. **`"slight left" -> 6` was wrong.** ID 6 is the U-turn-left loop. Slight-left is **ID 1** (lower-left diagonal hook). Fixed.
+
+5. **`"keep left" -> 20`, `"keep right" -> 21` were wrong.** IDs 20 and 21 are merge-right-onto-highway and straight-with-crossbar respectively. Actual keep-left = **ID 11** (horizontal left arrow + vertical right bar); keep-right = **ID 12** (mirror). Fixed.
+
+6. **`"arrive/destination" -> 50` was wrong.** IDs 50–57 are compass-mode departure icons ("head north/NE/east…"). There is no dedicated "destination flag" in the ic_step set. **ID 40** (waypoint circle) is the closest stop-point icon. Updated.
+
+7. **`"merge" -> 11` was wrong.** ID 11 is keep-left. Merge icons are **19** (merge left) and **20** (merge right). Fixed.
+
+8. **`"exit" -> 24/25` IDs were unrelated.** ID 24 is a wide-right U-curve and 25 is a wide-right fork tail — not highway exit icons. Real exit icons: **73/74** (dual-carriageway left exit), **75** (right exit). Updated.
+
+### Surprising structural findings
+
+- **IDs 36 and 37**: Ferry and tunnel icons — not navigation arrows at all. Useful for text like "take ferry" / "enter tunnel".
+- **IDs 50–57**: Eight compass-direction departure icons (compass rose + directional arrow) — one per cardinal/ordinal direction. Good for Google Maps "Head north/east/…" text.
+- **IDs 58–71**: Fourteen roundabout directional icons covering both CW and CCW rotation with 7 exit angles each. IDs 63 and 64 are byte-for-byte identical drawables.
+- **IDs 73 and 74**: Also byte-for-byte identical (left motorway exit). Mappls likely uses both for subtly different scenarios but renders the same graphic.
+- **ID 72**: Three-arrow roundabout symbol — best generic "roundabout" fallback when no exit-count is known.
+- The icon set contains no dedicated "destination flag" or "finish" icon in the ic_step namespace.
