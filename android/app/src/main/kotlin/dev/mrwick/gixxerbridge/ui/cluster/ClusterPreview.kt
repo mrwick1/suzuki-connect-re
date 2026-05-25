@@ -19,8 +19,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AcUnit
+import androidx.compose.material.icons.outlined.Air
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Umbrella
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -136,34 +145,162 @@ private fun StatusBars(status: String) {
     }
 }
 
+/** What the current NavFrame represents — distinct visual modes. The bike's
+ *  a531 frame fields are reused for non-nav data (idle clock + now-playing)
+ *  by the producers in `nav/`; here we pick the right preview layout based
+ *  on the unit-suffix bytes. */
+private enum class ClusterMode { Nav, IdleClock, NowPlaying }
+
+private fun NavFrame.mode(): ClusterMode = when {
+    distTotalUnit == "C" && distNextUnit.trim().isEmpty() -> ClusterMode.IdleClock
+    distNextUnit == "@" && distTotalUnit == "*" -> ClusterMode.NowPlaying
+    else -> ClusterMode.Nav
+}
+
 @Composable
 private fun ClusterBody(nav: NavFrame) {
+    when (nav.mode()) {
+        ClusterMode.Nav -> NavBody(nav)
+        ClusterMode.IdleClock -> IdleClockBody(nav)
+        ClusterMode.NowPlaying -> NowPlayingBody(nav)
+    }
+}
+
+@Composable
+private fun NavBody(nav: NavFrame) {
+    // Real Maps nav frame — arrow + distance to next maneuver + ETA + total.
     Row(verticalAlignment = Alignment.CenterVertically) {
         ManeuverIcon(nav.maneuverId, modifier = Modifier.size(72.dp))
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "${nav.distNext} ${nav.distNextUnit}",
+                text = humanizeDistance(nav.distNext, nav.distNextUnit),
                 style = MaterialTheme.typography.headlineMedium,
-                color = GixxerTokens.textPrimary, // token-mapped from 0xFFA7F3D0
+                color = GixxerTokens.textPrimary,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
             )
             Text(
-                text = "ETA ${nav.eta}",
+                text = "ETA ${formatEta(nav.eta)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = GixxerTokens.textMuted,
-                fontFamily = FontFamily.Monospace,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "${nav.distTotal} ${nav.distTotalUnit} to go",
+                text = "${humanizeDistance(nav.distTotal, nav.distTotalUnit)} to go",
                 style = MaterialTheme.typography.bodySmall,
-                color = GixxerTokens.textMuted, // token-mapped from 0xFF64748B
-                fontFamily = FontFamily.Monospace,
+                color = GixxerTokens.textMuted,
             )
         }
     }
+}
+
+@Composable
+private fun IdleClockBody(nav: NavFrame) {
+    // No nav active — bike shows clock + ambient temp + weather icon.
+    val time = formatEta(nav.eta)
+    val temp = nav.distTotal.toIntOrNull()
+    val weatherCode = nav.distNext.toIntOrNull() ?: 0
+    val (weatherLabel, weatherIcon) = weatherDescriptor(weatherCode)
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = weatherIcon,
+            contentDescription = weatherLabel,
+            tint = GixxerTokens.textPrimary,
+            modifier = Modifier.size(56.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = time,
+                style = MaterialTheme.typography.headlineMedium,
+                color = GixxerTokens.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = if (temp != null) "$temp °C · $weatherLabel" else weatherLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = GixxerTokens.textMuted,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Idle clock — bike cluster",
+                style = MaterialTheme.typography.bodySmall,
+                color = GixxerTokens.textMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingBody(nav: NavFrame) {
+    // Music ticker — distNext + distTotal are the first 8 chars of trackTitle.
+    val title = (nav.distNext + nav.distTotal).trim()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Outlined.MusicNote,
+            contentDescription = "Now playing",
+            tint = GixxerTokens.textPrimary,
+            modifier = Modifier.size(56.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title.ifEmpty { "—" },
+                style = MaterialTheme.typography.headlineMedium,
+                color = GixxerTokens.textPrimary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Now playing",
+                style = MaterialTheme.typography.bodyMedium,
+                color = GixxerTokens.textMuted,
+            )
+        }
+    }
+}
+
+/** "0001" + "k" → "1 km". Trims leading zeros + maps the one-letter unit byte
+ *  to a readable suffix. Returns "—" if [valueStr] is empty/garbage. */
+private fun humanizeDistance(valueStr: String, unitStr: String): String {
+    val v = valueStr.trimStart('0').ifEmpty { "0" }
+    val u = when (unitStr.trim()) {
+        "M", "m" -> "m"
+        "k", "K" -> "km"
+        "" -> ""
+        else -> unitStr.trim()
+    }
+    return if (u.isEmpty()) v else "$v $u"
+}
+
+/** "1226PM" → "12:26 PM". Idempotent for already-formatted strings. */
+private fun formatEta(eta: String): String {
+    if (eta.contains(':')) return eta
+    if (eta.length < 4) return eta
+    val tail = eta.takeLast(2)
+    val isAmPm = tail.equals("AM", ignoreCase = true) || tail.equals("PM", ignoreCase = true)
+    val digits = if (isAmPm) eta.dropLast(2) else eta
+    val ap = if (isAmPm) " ${tail.uppercase()}" else ""
+    if (digits.length < 3) return eta
+    val hh = digits.dropLast(2)
+    val mm = digits.takeLast(2)
+    return "$hh:$mm$ap"
+}
+
+/** Suzuki weather code (see WeatherCodeMap.kt) → (label, Material Symbol). */
+private fun weatherDescriptor(code: Int): Pair<String, androidx.compose.ui.graphics.vector.ImageVector> = when (code) {
+    1 -> "Sunny" to Icons.Outlined.WbSunny
+    2 -> "Cloudy" to Icons.Outlined.Cloud
+    3 -> "Fog" to Icons.Outlined.Cloud
+    4 -> "Light rain" to Icons.Outlined.Umbrella
+    5 -> "Thunderstorm" to Icons.Outlined.Bolt
+    6 -> "Rain" to Icons.Outlined.Umbrella
+    7 -> "Snow" to Icons.Outlined.AcUnit
+    8 -> "Sleet" to Icons.Outlined.AcUnit
+    9 -> "Hot" to Icons.Outlined.WbSunny
+    10 -> "Cold" to Icons.Outlined.AcUnit
+    11 -> "Windy" to Icons.Outlined.Air
+    else -> "Clear" to Icons.Outlined.WbSunny
 }
 
 /**
