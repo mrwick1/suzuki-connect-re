@@ -4,119 +4,15 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 
-/**
- * Maps Google Maps direction text -> Mappls maneuver IDs (the byte that
- * drives the cluster icon).
- *
- * Icon IDs come from enumerating every `ic_step_N.xml` drawable in
- * `apk/base.apk`. `C0897z.java:81` resolves `step_<N>` via getIdentifier at
- * runtime — whatever file is in the APK is what the cluster renders.
- * Safe IDs: 0-8, 10-25, 36, 37, 40, 41, 50-75.
- * Avoid 9, 26-35, 38-39, 42-49 — those gaps have no drawable.
- *
- * Every assignment below is verified against the decoded+rendered PNG of the
- * corresponding drawable (see docs/maneuver-id-table.md, 2026-05-25).
- *
- * Phase 2 (later): perceptual-hash the maneuver Bitmap, lookup table built
- * empirically. See [registerBitmapHash] / [fromBitmapHash] stubs.
- */
 object ManeuverMap {
 
     /**
-     * Default when nothing matches.
-     *
-     * ID 7 is a plain vertical up-arrow — verified vs ic_step_7.png 2026-05-25.
-     * NOTE: The old code used GENERIC_ARROW = 8, but ID 8 is a hollow circle
-     * (position marker), NOT a forward arrow. 7 is the correct straight-ahead icon.
+     * Default cluster byte for "show a forward arrow / generic". Equal to the
+     * cluster byte the OEM produces for Mappls ID 7 (straight/head). Used by
+     * downstream consumers ([IdleClockGenerator], [WelcomeFrame]) that don't
+     * have a Mappls ID and just need a renderable cluster byte.
      */
-    const val GENERIC_ARROW = 7
-
-    /**
-     * Heuristic text -> maneuver id. Matches longest / most-specific pattern first.
-     *
-     * Returns [GENERIC_ARROW] for null, empty, or unrecognized input.
-     */
-    fun fromText(instruction: String?): Int {
-        if (instruction.isNullOrBlank()) return GENERIC_ARROW
-        val s = instruction.lowercase()
-        // Priority-ordered (most specific first).
-        return when {
-            // U-turn: 6 = U-turn left (downward loop curving left), 41 = U-turn right.
-            // Google Maps always says "make a U-turn" without a side — use 6 (left)
-            // as the default since most U-turns on Indian roads swing left.
-            // verified vs ic_step_6.png + ic_step_41.png 2026-05-25.
-            "u-turn" in s || "u turn" in s || "make a u" in s -> 6
-
-            // Roundabouts: 72 = generic three-arrow roundabout symbol (clearest icon).
-            // IDs 58-71 are directional (by exit count/angle) but we cannot derive that
-            // from text alone. 72 is the unambiguous "roundabout" glyph.
-            // verified vs ic_step_72.png 2026-05-25.
-            "roundabout" in s -> 72
-
-            // Motorway/highway exits (dual-carriageway off-ramp icons):
-            // 73/74 = left exit (two vertical road lines + diagonal-left arrow at top).
-            // 75 = right exit (mirror). Better than 17/18 for highway context.
-            // verified vs ic_step_73.png + ic_step_75.png 2026-05-25.
-            "exit" in s && "left" in s -> 73
-            "exit" in s && "right" in s -> 75
-            "exit" in s -> 75
-
-            // Slight / sharp turns — verified geometry from rendered PNGs 2026-05-25:
-            // 1 = slight left (diagonal lower-left hook), 4 = slight right (lower-right hook).
-            // 2 = sharp left (diagonal upper-left, hard corner), 5 = sharp right (upper-right).
-            "slight right" in s || "bear right" in s -> 4
-            "slight left" in s || "bear left" in s -> 1
-            "sharp right" in s -> 5
-            "sharp left" in s -> 2
-
-            // Keep-lane variants (no turn, just lane discipline):
-            // 11 = keep left (horizontal left arrow + right-side vertical bar).
-            // 12 = keep right (horizontal right arrow + left-side vertical bar).
-            // verified vs ic_step_11.png + ic_step_12.png 2026-05-25.
-            "keep right" in s -> 12
-            "keep left" in s -> 11
-
-            // Merge onto highway:
-            // 19 = merge left (diagonal upper-left into vertical), 20 = merge right.
-            // verified vs ic_step_19.png + ic_step_20.png 2026-05-25.
-            "merge" in s && "left" in s -> 19
-            "merge" in s -> 20
-
-            // Plain turn left/right:
-            // 0 = turn left (L-arrow stem-right → up-left), 3 = turn right (L-arrow stem-left → up-right).
-            // verified vs ic_step_0.png + ic_step_3.png 2026-05-25.
-            "turn right" in s || "right onto" in s || "right on " in s -> 3
-            "turn left" in s || "left onto" in s || "left on " in s -> 0
-
-            // Continue / straight / head — straight up-arrow (ID 7).
-            // verified vs ic_step_7.png 2026-05-25.
-            "continue" in s || "straight" in s || "head " in s -> GENERIC_ARROW
-
-            // Departure compass directions (IDs 50-57 = compass rose + directional arrow).
-            // Only fired when Google Maps emits explicit cardinal-direction text.
-            // verified vs ic_step_50-57.png 2026-05-25.
-            "head north" in s -> 50
-            "head northeast" in s || "head north-east" in s -> 51
-            "head east" in s -> 52
-            "head southeast" in s || "head south-east" in s -> 53
-            "head south" in s -> 54
-            "head southwest" in s || "head south-west" in s -> 55
-            "head west" in s -> 56
-            "head northwest" in s || "head north-west" in s -> 57
-
-            // Ferry / tunnel (verified vs ic_step_36.png + ic_step_37.png 2026-05-25).
-            "ferry" in s || "take ferry" in s -> 36
-            "tunnel" in s -> 37
-
-            // Destination / arrival.
-            // ID 40 = waypoint circle (via-point); no dedicated "destination flag" exists
-            // in the APK's ic_step_* set. 40 is the closest unambiguous stop-point icon.
-            // verified vs ic_step_40.png 2026-05-25.
-            "arrive" in s || "destination" in s || "your destination" in s -> 40
-
-            else -> GENERIC_ARROW
-        }
-    }
+    const val DEFAULT_CLUSTER_BYTE = 8
 
     // -----------------------------------------------------------------------
     // Perceptual-hash table — empirically populated at runtime by

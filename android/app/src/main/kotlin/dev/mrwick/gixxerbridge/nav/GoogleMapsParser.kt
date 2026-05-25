@@ -84,10 +84,12 @@ object GoogleMapsParser {
         val selfTrain = kotlinx.coroutines.runBlocking {
             dev.mrwick.gixxerbridge.app.AppGraph.settings(context).maneuverSelfTrainEnabled.first()
         }
-        val maneuverId = ManeuverClassifier.classify(maneuverBitmap, instruction, selfTrain)
+        val mapplsId = ManeuverClassifier.classify(maneuverBitmap, instruction, selfTrain)
+        val maneuverId = ManeuverMap.mapplsIdToClusterByte(mapplsId, null)
+            ?: ManeuverMap.DEFAULT_CLUSTER_BYTE
         dev.mrwick.gixxerbridge.util.AppLog.i(
             "MapsParser",
-            "notif title=\"${title?.take(60)}\" bitmap=${maneuverBitmap != null} -> id=$maneuverId",
+            "notif title=\"${title?.take(60)}\" bitmap=${maneuverBitmap != null} -> mapplsId=$mapplsId clusterByte=$maneuverId",
         )
 
         return ParsedNavData(
@@ -174,7 +176,9 @@ object GoogleMapsParser {
         val (distNext, distNextUnit) = normalizeDistance(distRaw)
         val (distTotal, distTotalUnit) = extractTotalDistance(timeRaw)
         val eta = normalizeEta(timeRaw, twelveHour = true)
-        val maneuverId = ManeuverClassifier.classify(maneuverBitmap, instruction)
+        val mapplsId = ManeuverClassifier.classify(maneuverBitmap, instruction)
+        val maneuverId = ManeuverMap.mapplsIdToClusterByte(mapplsId, null)
+            ?: ManeuverMap.DEFAULT_CLUSTER_BYTE
 
         return ParsedNavData(
             maneuverId = maneuverId,

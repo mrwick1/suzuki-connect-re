@@ -15,7 +15,9 @@ import java.util.Locale
  */
 @Immutable
 data class ParsedNavData(
-    val maneuverId: Int,            // Mappls maneuver id; 8 = generic arrow
+    val maneuverId: Int,            // Suzuki cluster byte (1..52). 8 = straight/forward.
+                                    // Translated from Mappls ID by GoogleMapsParser
+                                    // via ManeuverMap.mapplsIdToClusterByte.
     val distNext: String,           // 4-char ASCII, e.g. "0220" or "01.2"
     val distNextUnit: String,       // "M" or "K"
     val eta: String,                // 6-char ASCII, e.g. "0530PM" or "173000"

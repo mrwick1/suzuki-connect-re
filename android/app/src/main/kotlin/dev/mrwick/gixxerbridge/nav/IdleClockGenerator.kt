@@ -8,7 +8,7 @@ import java.time.LocalTime
  *   - eta field      = current local time, formatted "HHMMAM"/"HHMMPM"
  *   - distTotal      = temp in °C (zero-padded int, max 4 digits)
  *   - distNext       = weather code, right-aligned in 4 chars (e.g. "0002")
- *   - maneuver       = [ManeuverMap.GENERIC_ARROW] (no real maneuver)
+ *   - maneuver       = [ManeuverMap.DEFAULT_CLUSTER_BYTE] (no real maneuver)
  *   - distNextUnit   = " " (space — no unit label for weather)
  *   - distTotalUnit  = "C"
  *
@@ -46,7 +46,7 @@ class IdleClockGenerator(
         val weatherStr = "%04d".format(suzukiWeatherCode.coerceIn(0, 99))
 
         return NavFrame(
-            maneuverId = ManeuverMap.GENERIC_ARROW,
+            maneuverId = ManeuverMap.DEFAULT_CLUSTER_BYTE,
             distNext = weatherStr,
             distNextUnit = " ",
             eta = eta,
@@ -63,7 +63,7 @@ class IdleClockGenerator(
      * single-line label (see [dev.mrwick.gixxerbridge.notifications.NowPlaying.forCluster]).
      *
      * Layout chosen (one a531 frame):
-     *   - maneuverId    = [ManeuverMap.GENERIC_ARROW] (8) — generic, no turn arrow
+     *   - maneuverId    = [ManeuverMap.DEFAULT_CLUSTER_BYTE] (8) — cluster byte for straight/forward (OEM-translated from Mappls 7)
      *   - eta           = "PLAYNG" (fixed 6-char label)
      *   - distNext      = first 4 chars of trackTitle.uppercase()
      *   - distNextUnit  = "@"
@@ -83,7 +83,7 @@ class IdleClockGenerator(
         return NavFrame(
             // ASSUMED: cluster will not draw a turn arrow for maneuverId=8 in
             // this layout; tolerates the text-only repurposing.
-            maneuverId = ManeuverMap.GENERIC_ARROW,
+            maneuverId = ManeuverMap.DEFAULT_CLUSTER_BYTE,
             distNext = chunk1,
             distNextUnit = "@",
             eta = "PLAYNG",

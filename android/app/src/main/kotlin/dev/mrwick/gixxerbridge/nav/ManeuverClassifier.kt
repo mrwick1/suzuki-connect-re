@@ -43,7 +43,9 @@ object ManeuverClassifier {
 
     /**
      * Classify the maneuver based on the captured icon [bitmap] and/or the raw
-     * [instruction] text. Returns a Mappls maneuver-id byte; never null.
+     * [instruction] text. Returns a Mappls maneuver-id (0..75); never null.
+     * Callers must apply [ManeuverMap.mapplsIdToClusterByte] before writing
+     * the result into a NavFrame.
      *
      * @param selfTrainEnabled if true, register fresh hash→text mappings on
      *   text-fallback decisions. Default false — self-training without verified
@@ -56,8 +58,8 @@ object ManeuverClassifier {
             "id=${result.id} src=${result.source} text=${result.textId} hash=${result.hashId ?: "-"} instr=\"${instruction?.take(60)}\"",
         )
         if (result.hashId != null &&
-            result.hashId != ManeuverMap.GENERIC_ARROW &&
-            result.textId != ManeuverMap.GENERIC_ARROW &&
+            result.hashId != MapplsIdGuesser.DEFAULT_MAPPLS_ID &&
+            result.textId != MapplsIdGuesser.DEFAULT_MAPPLS_ID &&
             result.hashId != result.textId
         ) {
             AppLog.w(
@@ -70,11 +72,11 @@ object ManeuverClassifier {
 
     /** Same as [classify] but returns the full diagnostic record. */
     fun classifyDetailed(bitmap: Bitmap?, instruction: String?, selfTrainEnabled: Boolean): Result {
-        val textId = ManeuverMap.fromText(instruction)
+        val textId = MapplsIdGuesser.fromText(instruction)
         if (bitmap == null) {
             return Result(
                 id = textId,
-                source = if (textId == ManeuverMap.GENERIC_ARROW) Source.DefaultArrow else Source.TextFallback,
+                source = if (textId == MapplsIdGuesser.DEFAULT_MAPPLS_ID) Source.DefaultArrow else Source.TextFallback,
                 textId = textId,
                 hashId = null,
                 hash = null,
@@ -91,7 +93,7 @@ object ManeuverClassifier {
                 hash = hash,
             )
         }
-        if (selfTrainEnabled && textId != ManeuverMap.GENERIC_ARROW) {
+        if (selfTrainEnabled && textId != MapplsIdGuesser.DEFAULT_MAPPLS_ID) {
             ManeuverMap.registerBitmapHash(hash, textId)
             AppLog.i(
                 TAG,
@@ -107,7 +109,7 @@ object ManeuverClassifier {
         }
         return Result(
             id = textId,
-            source = if (textId == ManeuverMap.GENERIC_ARROW) Source.DefaultArrow else Source.TextFallback,
+            source = if (textId == MapplsIdGuesser.DEFAULT_MAPPLS_ID) Source.DefaultArrow else Source.TextFallback,
             textId = textId,
             hashId = null,
             hash = hash,

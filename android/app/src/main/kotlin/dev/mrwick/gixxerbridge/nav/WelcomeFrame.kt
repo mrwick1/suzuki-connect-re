@@ -17,14 +17,14 @@ import dev.mrwick.gixxerbridge.protocol.NavFrame
  *
  * ASSUMED: every text slot is rendered verbatim by the cluster — already shown
  * to be true for printable ASCII via tools/forge_display.py and IdleClockGenerator.
- * ASSUMED: maneuverId=1 is a friendly "default arrow" icon for the greeting.
- * The actual icon mapping is empirical (see [ManeuverMap]); 1 is inside the
- * "safe" 0-8 range so it will render *something* — verify on the cluster.
+ * ASSUMED: cluster byte 8 (DEFAULT_CLUSTER_BYTE) is the friendly "default
+ * arrow" glyph for the greeting. Verify in the next sweep.
  */
 object WelcomeFrame {
 
-    /** ASSUMED: greeting maneuver icon — picked from the safe 0-8 range. */
-    private const val GREETING_MANEUVER_ID: Int = 1
+    // Cluster byte for "straight/forward" (= ManeuverMap.DEFAULT_CLUSTER_BYTE).
+    // Was previously a Mappls ID before the Stage 2 translation was added.
+    private const val GREETING_MANEUVER_ID = 8
 
     /**
      * Build the welcome [NavFrame].

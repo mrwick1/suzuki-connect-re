@@ -165,4 +165,49 @@ class ManeuverMapTest {
         assertNull(ManeuverMap.mapplsIdToClusterByte(36, null))
         assertNull(ManeuverMap.mapplsIdToClusterByte(36, "Burgman Street-TFT Edition"))
     }
+
+    // ----------------------------------------------------------------
+    // End-to-end Stage 1 → Stage 2 spot checks. Confirms our text
+    // heuristic + OEM table together produce the expected cluster byte
+    // for a small set of canonical Google Maps phrases observed in real
+    // ride logs (captures/ride-20260525-190341.log).
+    // ----------------------------------------------------------------
+
+    @Test
+    fun `end-to-end — turn right text yields cluster byte 4`() {
+        val mapplsId = MapplsIdGuesser.fromText("700 m · Turn right toward Nallalam Rd")
+        assertEquals(3, mapplsId)
+        assertEquals(4, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `end-to-end — turn left yields cluster byte 1`() {
+        val mapplsId = MapplsIdGuesser.fromText("400 m · Turn left onto Beach Road")
+        assertEquals(0, mapplsId)
+        assertEquals(1, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `end-to-end — straight yields cluster byte 8 DEFAULT_CLUSTER_BYTE`() {
+        val mapplsId = MapplsIdGuesser.fromText("Head toward MG Road")
+        assertEquals(MapplsIdGuesser.DEFAULT_MAPPLS_ID, mapplsId)
+        assertEquals(
+            ManeuverMap.DEFAULT_CLUSTER_BYTE,
+            ManeuverMap.mapplsIdToClusterByte(mapplsId, null),
+        )
+    }
+
+    @Test
+    fun `end-to-end — u-turn yields cluster byte 7`() {
+        val mapplsId = MapplsIdGuesser.fromText("Make a U-turn at the next light")
+        assertEquals(6, mapplsId)
+        assertEquals(7, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
+
+    @Test
+    fun `end-to-end — roundabout yields cluster byte 45`() {
+        val mapplsId = MapplsIdGuesser.fromText("Enter the roundabout")
+        assertEquals(72, mapplsId)
+        assertEquals(45, ManeuverMap.mapplsIdToClusterByte(mapplsId, null))
+    }
 }
