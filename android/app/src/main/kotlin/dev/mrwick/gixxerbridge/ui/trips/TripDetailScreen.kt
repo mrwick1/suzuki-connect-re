@@ -15,11 +15,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,12 +37,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,18 +51,20 @@ import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.export.GpxExporter
 import dev.mrwick.gixxerbridge.export.ShareCardRenderer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
-/** Detail screen for one ride: header with aggregates + monospaced per-sample list. */
+/** Detail screen for one ride: hero card with aggregates + GPX export + per-sample log. */
 @Composable
 fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
     LaunchedEffect(rideId) { vm.loadSamples(rideId) }
@@ -89,91 +96,123 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             }
             return@Column
         }
-        if (ride != null) {
-            var showRename by remember(ride.id) { mutableStateOf(false) }
-            val dateString = remember(ride.startedAtMillis) {
-                SimpleDateFormat("EEE, MMM d yyyy · HH:mm", Locale.US)
-                    .format(Date(ride.startedAtMillis))
-            }
-            val nameOrFallback = ride.name?.takeIf { it.isNotBlank() } ?: dateString
-            // Tap the title to rename. Always show the date below as
-            // unambiguous context, even when a name is set.
-            Text(
-                nameOrFallback,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.clickable { showRename = true },
-            )
-            if (nameOrFallback != dateString) {
+
+        var showRename by remember(ride.id) { mutableStateOf(false) }
+        val dateString = remember(ride.startedAtMillis) {
+            SimpleDateFormat("EEE, MMM d yyyy · HH:mm", Locale.US)
+                .format(Date(ride.startedAtMillis))
+        }
+        val nameOrFallback = ride.name?.takeIf { it.isNotBlank() } ?: dateString
+        val distance = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
+        val endMillis = ride.endedAtMillis ?: System.currentTimeMillis()
+        val durationMin = (endMillis - ride.startedAtMillis) / 60_000
+
+        // --- Hero card: large distance + duration, Inter weight 600 ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                // Tap title to rename; always show the date below as unambiguous context.
                 Text(
-                    dateString,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF94A3B8),
+                    nameOrFallback,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = GixxerTokens.textPrimary,
+                    modifier = Modifier.clickable { showRename = true },
                 )
-            } else {
-                Text(
-                    "Tap title to rename",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
-                )
+                if (nameOrFallback != dateString) {
+                    Text(
+                        dateString,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GixxerTokens.textMuted,
+                    )
+                } else {
+                    Text(
+                        "Tap title to rename",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GixxerTokens.textMuted,
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(32.dp),
+                ) {
+                    HeroStat(label = "Distance", value = "$distance km")
+                    HeroStat(label = "Duration", value = "$durationMin min")
+                    HeroStat(label = "Avg speed", value = "${"%.1f".format(ride.avgSpeedKmh)} km/h")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                    HeroStat(label = "Max speed", value = "${ride.maxSpeedKmh} km/h")
+                    HeroStat(label = "Samples", value = "${ride.sampleCount}")
+                }
             }
-            if (showRename) {
-                RenameRideDialog(
-                    current = ride.name.orEmpty(),
-                    onDismiss = { showRename = false },
-                    onConfirm = { newName ->
-                        vm.rename(ride.id, newName)
-                        showRename = false
-                    },
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Max speed: ${ride.maxSpeedKmh} km/h",
-                style = MaterialTheme.typography.bodyMedium,
+        }
+
+        if (showRename) {
+            RenameRideDialog(
+                current = ride.name.orEmpty(),
+                onDismiss = { showRename = false },
+                onConfirm = { newName ->
+                    vm.rename(ride.id, newName)
+                    showRename = false
+                },
             )
-            Text(
-                "Avg speed: ${"%.1f".format(ride.avgSpeedKmh)} km/h",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                "Samples: ${ride.sampleCount}",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    scope.launch {
-                        val locations = vm.locationsFor(ride.id)
-                        if (locations.isEmpty()) {
-                            Toast.makeText(
-                                context,
-                                "No GPS samples recorded for this ride",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            return@launch
-                        }
-                        // PERF: GPX serialisation + file write off the main
-                        // thread (audit finding 4.1). For long rides this can
-                        // be tens of ms; chooser launch is back on Main after.
-                        val uri = withContext(Dispatchers.IO) {
-                            val gpx = GpxExporter.toGpx(ride, locations)
-                            val cache = File(context.cacheDir, "ride-${ride.id}.gpx")
-                            cache.writeText(gpx)
-                            FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                cache,
-                            )
-                        }
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/gpx+xml"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Share ride"))
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // --- GPX export button: outlined, full-width, with icon ---
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    val rideLocations = vm.locationsFor(ride.id)
+                    if (rideLocations.isEmpty()) {
+                        Toast.makeText(
+                            context,
+                            "No GPS samples recorded for this ride",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@launch
                     }
-                }) { Text("Share GPX") }
-                Button(onClick = {
+                    val uri = withContext(Dispatchers.IO) {
+                        val gpx = GpxExporter.toGpx(ride, rideLocations)
+                        val cache = File(context.cacheDir, "ride-${ride.id}.gpx")
+                        cache.writeText(gpx)
+                        FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            cache,
+                        )
+                    }
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/gpx+xml"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Share ride"))
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.FileDownload,
+                contentDescription = null,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Text("Export GPX")
+        }
+
+        // Secondary exports (CSV + share card) — kept but less prominent.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TextButton(
+                onClick = {
                     scope.launch {
                         val rideSamples = vm.samplesFor(ride.id)
                         if (rideSamples.isEmpty()) {
@@ -184,9 +223,6 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                             ).show()
                             return@launch
                         }
-                        // PERF: CSV serialisation + file write off the main
-                        // thread (audit finding 4.1). Long rides can have
-                        // thousands of sample rows.
                         val uri = withContext(Dispatchers.IO) {
                             val csv = CsvExporter.rideSamplesToCsv(ride, rideSamples)
                             val cache = File(context.cacheDir, "ride-${ride.id}.csv")
@@ -204,8 +240,11 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                         }
                         context.startActivity(Intent.createChooser(intent, "Share ride CSV"))
                     }
-                }) { Text("Share CSV") }
-                Button(onClick = {
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text("Share CSV", color = GixxerTokens.textMuted) }
+            TextButton(
+                onClick = {
                     scope.launch {
                         val rideLocations = vm.locationsFor(ride.id)
                         val cardFile = withContext(Dispatchers.IO) {
@@ -223,12 +262,18 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                         }
                         context.startActivity(Intent.createChooser(intent, "Share ride card"))
                     }
-                }) { Text("Share card") }
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            RideTrackCard(locations)
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text("Share card", color = GixxerTokens.textMuted) }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        RideTrackCard(locations)
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = GixxerTokens.border,
+        )
+
         LazyColumn(modifier = Modifier.fillMaxWidth()) {
             items(samples, key = { it.id }) { s ->
                 Text(
@@ -244,10 +289,29 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                         s.fuelEconKml?.let { "%.1f".format(it) } ?: "-",
                     ),
                     style = MaterialTheme.typography.bodySmall,
+                    color = GixxerTokens.textMuted,
                     fontFamily = FontFamily.Monospace,
                 )
             }
         }
+    }
+}
+
+/** One hero stat: small label above large value, Inter weight 600. */
+@Composable
+private fun HeroStat(label: String, value: String) {
+    Column {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = GixxerTokens.textMuted,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.W600,
+            color = GixxerTokens.textPrimary,
+        )
     }
 }
 
@@ -291,11 +355,24 @@ private fun RenameRideDialog(
 @Composable
 private fun RideTrackCard(locations: List<RideLocationEntity>) {
     if (locations.size < 2) return
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Track", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Track",
+                style = MaterialTheme.typography.titleMedium,
+                color = GixxerTokens.textPrimary,
+            )
             Spacer(modifier = Modifier.height(4.dp))
-            Text("${locations.size} GPS samples", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "${locations.size} GPS samples",
+                style = MaterialTheme.typography.bodySmall,
+                color = GixxerTokens.textMuted,
+            )
             Spacer(modifier = Modifier.height(12.dp))
             Canvas(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
                 val lats = locations.map { it.lat }
@@ -311,9 +388,10 @@ private fun RideTrackCard(locations: List<RideLocationEntity>) {
                     x = ((lng - minLng) * scale + xOffset).toFloat(),
                     y = (size.height - ((lat - minLat) * scale + yOffset)).toFloat(),
                 )
-                val cyan = Color(0xFF22D3EE)
-                val dim = Color(0xFF334155)
-                drawRect(dim, size = size, style = Stroke(width = 1f))
+                // Use token-derived colors for the track canvas.
+                val trackColor = GixxerTokens.accent
+                val bgColor = GixxerTokens.surfaceElevated
+                drawRect(bgColor, size = size, style = Stroke(width = 1f))
                 val path = Path()
                 val first = project(locations[0].lat, locations[0].lng)
                 path.moveTo(first.x, first.y)
@@ -321,10 +399,14 @@ private fun RideTrackCard(locations: List<RideLocationEntity>) {
                     val p = project(locations[i].lat, locations[i].lng)
                     path.lineTo(p.x, p.y)
                 }
-                drawPath(path, color = cyan, style = Stroke(width = 4f, cap = StrokeCap.Round))
-                drawCircle(Color(0xFF10B981), radius = 8f, center = first)
+                drawPath(
+                    path,
+                    color = trackColor,
+                    style = Stroke(width = 4f, cap = StrokeCap.Round),
+                )
+                drawCircle(GixxerTokens.success, radius = 8f, center = first)
                 val last = project(locations.last().lat, locations.last().lng)
-                drawCircle(cyan, radius = 8f, center = last)
+                drawCircle(trackColor, radius = 8f, center = last)
             }
         }
     }
