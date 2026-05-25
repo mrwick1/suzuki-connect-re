@@ -54,6 +54,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val themeAccent = settings.themeAccent
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.DEFAULT_ACCENT)
+    val activeRideMetric = settings.activeRideMetric
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Settings.DEFAULT_ACTIVE_RIDE_METRIC)
     val greetings = greetingsStore.list
         .stateIn(viewModelScope, SharingStarted.Eagerly, Greetings.DEFAULT_GREETINGS)
 
@@ -116,6 +118,11 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** Set the named theme accent (must be a key in `ACCENT_PALETTE`). */
     fun setThemeAccent(name: String) {
         viewModelScope.launch { settings.setThemeAccent(name) }
+    }
+
+    /** Set the active-ride bottom-metric choice ("trip-a", "fuel", "eta", "road-type"). */
+    fun setActiveRideMetric(name: String) {
+        viewModelScope.launch { settings.setActiveRideMetric(name) }
     }
 
     /** Replace the full cluster-greeting pool. */

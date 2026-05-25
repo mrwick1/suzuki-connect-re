@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -78,6 +79,7 @@ fun SettingsScreen(
     val demoMode by vm.demoMode.collectAsStateWithLifecycle()
     val keepScreenOn by vm.keepScreenOn.collectAsStateWithLifecycle()
     val themeAccent by vm.themeAccent.collectAsStateWithLifecycle()
+    val activeRideMetric by vm.activeRideMetric.collectAsStateWithLifecycle()
     val greetings by vm.greetings.collectAsStateWithLifecycle()
 
     LazyColumn(
@@ -145,6 +147,11 @@ fun SettingsScreen(
             Section("Cluster") {
                 SwitchRow("Show clock + weather when nav idle", idleClock, vm::setIdleClockEnabled)
                 SwitchRow("Show Now Playing scrolling text", nowPlaying, vm::setNowPlayingOnCluster)
+                Spacer(modifier = Modifier.height(12.dp))
+                ActiveRideMetricPicker(
+                    selected = activeRideMetric,
+                    onSelect = vm::setActiveRideMetric,
+                )
             }
         }
         item {
@@ -330,6 +337,41 @@ private fun AccentSwatchRow(selected: String, onSelect: (String) -> Unit) {
                     .clickable { onSelect(name) }
                     .semantics { contentDescription = "Accent $name${if (isSelected) " (selected)" else ""}" },
             )
+        }
+    }
+}
+
+/**
+ * FilterChip row for picking the active-ride overlay bottom metric.
+ *
+ * Options: Trip A / Fuel / ETA / Road type. Uses M3 [FilterChip] since a
+ * segmented-control equivalent isn't a first-class M3 component yet.
+ * Each chip shows its label; the selected chip uses the primary container color.
+ */
+@Composable
+private fun ActiveRideMetricPicker(selected: String, onSelect: (String) -> Unit) {
+    val options = listOf(
+        "trip-a" to "Trip A",
+        "fuel" to "Fuel",
+        "eta" to "ETA",
+        "road-type" to "Road type",
+    )
+    Column {
+        Text(
+            "Active-ride bottom metric",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { (key, label) ->
+                FilterChip(
+                    selected = key == selected,
+                    onClick = { onSelect(key) },
+                    label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                )
+            }
         }
     }
 }
