@@ -246,4 +246,97 @@ object ManeuverMap {
             Log.w(TAG, "Failed to persist hash entry: $t")
         }
     }
+
+    // ------------------------------------------------------------------
+    // Stage 2: Mappls maneuver ID -> Suzuki cluster byte.
+    //
+    // Ported verbatim from the if-chain in A0.C() at jadx-retry/.../A0.java:458.
+    // The Mappls SDK populates an internal maneuverID (0..75) into AdviseInfo.f;
+    // A0.C() then translates that to the byte that is actually written to a531
+    // byte 2. The two integers are not the same — see the design spec for
+    // background.
+    //
+    // Default branch covers all bikes except {e-ACCESS, Access-TFT Edition,
+    // Burgman Street-TFT Edition, Access} and anything whose BTID contains
+    // "SBS51". Our Gixxer SF 150 falls in the default branch.
+    // ------------------------------------------------------------------
+
+    private val BURGMAN_LIKE_MODELS = setOf(
+        "e-ACCESS",
+        "Access-TFT Edition",
+        "Burgman Street-TFT Edition",
+        "Access",
+    )
+
+    /**
+     * Translate a Mappls maneuver ID to the cluster byte that goes in a531 byte 2.
+     *
+     * @param mapplsId the Mappls maneuver ID (typically 0..75) from
+     *     [com.mappls.sdk.navigation.model.a.f]
+     * @param vehicleModel the bike's vehicle_name (as the OEM stored it after
+     *     pairing); null means use the default branch (Gixxer behavior).
+     * @return cluster byte 1..52, or null if the Mappls ID has no defined
+     *     translation. Null means "leave the cluster showing whatever glyph it
+     *     was last sent" — matches the OEM behavior of leaving e0 untouched in
+     *     the fallthrough branches.
+     */
+    fun mapplsIdToClusterByte(mapplsId: Int, vehicleModel: String?): Int? {
+        val isBurgmanLike = vehicleModel != null && vehicleModel in BURGMAN_LIKE_MODELS
+        return when (mapplsId) {
+            0 -> 1
+            1 -> 2
+            2 -> 3
+            3 -> 4
+            4 -> 5
+            5 -> 6
+            6 -> 7
+            7 -> 8
+            8, 9, 10 -> 9
+            11 -> 11
+            12 -> 12
+            13 -> 13
+            14 -> 14
+            15 -> 31
+            16 -> 32
+            17 -> 29
+            18 -> 30
+            19 -> 27
+            20 -> 28
+            21 -> 33
+            22 -> 34
+            23 -> 35
+            24 -> 36
+            25 -> 37
+            26, 27, 28 -> 31
+            30, 31 -> 32
+            41 -> 39
+            50 -> 40
+            51 -> 41
+            52 -> 42
+            53 -> 15
+            54 -> 16
+            55 -> 17
+            56 -> 18
+            57 -> 19
+            58 -> if (isBurgmanLike) 44 else 46
+            59 -> 47
+            60 -> 48
+            61 -> 49
+            62 -> 50
+            63 -> 51
+            64 -> 52
+            65 -> 20
+            66 -> 21
+            67 -> 22
+            68 -> 23
+            69 -> 24
+            70 -> 25
+            71 -> 26
+            72 -> 45
+            73 -> 38
+            74 -> if (isBurgmanLike) 38 else 44
+            75 -> 10
+            else -> null
+        }
+    }
 }

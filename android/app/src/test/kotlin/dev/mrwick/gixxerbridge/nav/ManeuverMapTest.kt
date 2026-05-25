@@ -1,105 +1,148 @@
 package dev.mrwick.gixxerbridge.nav
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** Tests for the text->maneuver-id heuristic in [ManeuverMap]. */
+/**
+ * Tests for the OEM-ported Mappls-ID -> cluster-byte translation in
+ * [ManeuverMap.mapplsIdToClusterByte]. Source of truth: A0.C() in the
+ * decompiled Suzuki Connect APK (see docs/superpowers/specs/2026-05-25-maneuver-id-rework-design.md).
+ *
+ * The "default" branch is what our Gixxer SF 150 hits; the "Burgman" branch
+ * is preserved for correctness on the small set of bikes the OEM special-cases.
+ */
 class ManeuverMapTest {
 
     @Test
-    fun `null and empty input return generic arrow`() {
-        assertEquals(ManeuverMap.GENERIC_ARROW, ManeuverMap.fromText(null))
-        assertEquals(ManeuverMap.GENERIC_ARROW, ManeuverMap.fromText(""))
-        assertEquals(ManeuverMap.GENERIC_ARROW, ManeuverMap.fromText("   "))
+    fun `default branch table — straight maneuvers (0_dot_dot_7)`() {
+        assertEquals(1, ManeuverMap.mapplsIdToClusterByte(0, null))
+        assertEquals(2, ManeuverMap.mapplsIdToClusterByte(1, null))
+        assertEquals(3, ManeuverMap.mapplsIdToClusterByte(2, null))
+        assertEquals(4, ManeuverMap.mapplsIdToClusterByte(3, null))
+        assertEquals(5, ManeuverMap.mapplsIdToClusterByte(4, null))
+        assertEquals(6, ManeuverMap.mapplsIdToClusterByte(5, null))
+        assertEquals(7, ManeuverMap.mapplsIdToClusterByte(6, null))
+        assertEquals(8, ManeuverMap.mapplsIdToClusterByte(7, null))
     }
 
     @Test
-    fun `unknown text falls back to generic arrow`() {
-        assertEquals(ManeuverMap.GENERIC_ARROW, ManeuverMap.fromText("dance the macarena"))
+    fun `default branch — 8,9,10 collapse to cluster byte 9`() {
+        assertEquals(9, ManeuverMap.mapplsIdToClusterByte(8, null))
+        assertEquals(9, ManeuverMap.mapplsIdToClusterByte(9, null))
+        assertEquals(9, ManeuverMap.mapplsIdToClusterByte(10, null))
     }
 
     @Test
-    fun `u-turn variants map to 23`() {
-        assertEquals(23, ManeuverMap.fromText("Make a U-turn at MG Road"))
-        assertEquals(23, ManeuverMap.fromText("Make a u turn"))
-        assertEquals(23, ManeuverMap.fromText("Make a U at the next light"))
+    fun `default branch — 26,27,28 collapse to 31`() {
+        assertEquals(31, ManeuverMap.mapplsIdToClusterByte(26, null))
+        assertEquals(31, ManeuverMap.mapplsIdToClusterByte(27, null))
+        assertEquals(31, ManeuverMap.mapplsIdToClusterByte(28, null))
     }
 
     @Test
-    fun `roundabout maps to 71`() {
-        assertEquals(71, ManeuverMap.fromText("Enter the roundabout"))
-        assertEquals(71, ManeuverMap.fromText("At the roundabout, take the exit"))
+    fun `default branch — 30,31 collapse to 32`() {
+        assertEquals(32, ManeuverMap.mapplsIdToClusterByte(30, null))
+        assertEquals(32, ManeuverMap.mapplsIdToClusterByte(31, null))
     }
 
     @Test
-    fun `exit right and left are distinct`() {
-        assertEquals(25, ManeuverMap.fromText("Take exit to the right"))
-        assertEquals(24, ManeuverMap.fromText("Take exit on the left"))
-        // Plain "Take exit" → right (default)
-        assertEquals(25, ManeuverMap.fromText("Take exit 4B"))
+    fun `default branch — keep-lane and turn variants`() {
+        assertEquals(11, ManeuverMap.mapplsIdToClusterByte(11, null))
+        assertEquals(12, ManeuverMap.mapplsIdToClusterByte(12, null))
+        assertEquals(13, ManeuverMap.mapplsIdToClusterByte(13, null))
+        assertEquals(14, ManeuverMap.mapplsIdToClusterByte(14, null))
+        assertEquals(31, ManeuverMap.mapplsIdToClusterByte(15, null))
+        assertEquals(32, ManeuverMap.mapplsIdToClusterByte(16, null))
+        assertEquals(29, ManeuverMap.mapplsIdToClusterByte(17, null))
+        assertEquals(30, ManeuverMap.mapplsIdToClusterByte(18, null))
+        assertEquals(27, ManeuverMap.mapplsIdToClusterByte(19, null))
+        assertEquals(28, ManeuverMap.mapplsIdToClusterByte(20, null))
+        assertEquals(33, ManeuverMap.mapplsIdToClusterByte(21, null))
+        assertEquals(34, ManeuverMap.mapplsIdToClusterByte(22, null))
+        assertEquals(35, ManeuverMap.mapplsIdToClusterByte(23, null))
+        assertEquals(36, ManeuverMap.mapplsIdToClusterByte(24, null))
+        assertEquals(37, ManeuverMap.mapplsIdToClusterByte(25, null))
     }
 
     @Test
-    fun `slight and sharp variants beat plain turn`() {
-        assertEquals(7, ManeuverMap.fromText("Slight right onto Highway 8"))
-        assertEquals(6, ManeuverMap.fromText("Slight left onto Brigade Road"))
-        assertEquals(5, ManeuverMap.fromText("Sharp right onto Service Road"))
-        assertEquals(4, ManeuverMap.fromText("Sharp left onto Service Road"))
+    fun `default branch — compass departures 50-57`() {
+        assertEquals(40, ManeuverMap.mapplsIdToClusterByte(50, null))
+        assertEquals(41, ManeuverMap.mapplsIdToClusterByte(51, null))
+        assertEquals(42, ManeuverMap.mapplsIdToClusterByte(52, null))
+        assertEquals(15, ManeuverMap.mapplsIdToClusterByte(53, null))
+        assertEquals(16, ManeuverMap.mapplsIdToClusterByte(54, null))
+        assertEquals(17, ManeuverMap.mapplsIdToClusterByte(55, null))
+        assertEquals(18, ManeuverMap.mapplsIdToClusterByte(56, null))
+        assertEquals(19, ManeuverMap.mapplsIdToClusterByte(57, null))
     }
 
     @Test
-    fun `keep right and keep left`() {
-        assertEquals(21, ManeuverMap.fromText("Keep right at the fork"))
-        assertEquals(20, ManeuverMap.fromText("Keep left at the fork"))
+    fun `default branch — roundabouts 58-72`() {
+        assertEquals(46, ManeuverMap.mapplsIdToClusterByte(58, null))
+        assertEquals(47, ManeuverMap.mapplsIdToClusterByte(59, null))
+        assertEquals(48, ManeuverMap.mapplsIdToClusterByte(60, null))
+        assertEquals(49, ManeuverMap.mapplsIdToClusterByte(61, null))
+        assertEquals(50, ManeuverMap.mapplsIdToClusterByte(62, null))
+        assertEquals(51, ManeuverMap.mapplsIdToClusterByte(63, null))
+        assertEquals(52, ManeuverMap.mapplsIdToClusterByte(64, null))
+        assertEquals(20, ManeuverMap.mapplsIdToClusterByte(65, null))
+        assertEquals(21, ManeuverMap.mapplsIdToClusterByte(66, null))
+        assertEquals(22, ManeuverMap.mapplsIdToClusterByte(67, null))
+        assertEquals(23, ManeuverMap.mapplsIdToClusterByte(68, null))
+        assertEquals(24, ManeuverMap.mapplsIdToClusterByte(69, null))
+        assertEquals(25, ManeuverMap.mapplsIdToClusterByte(70, null))
+        assertEquals(26, ManeuverMap.mapplsIdToClusterByte(71, null))
+        assertEquals(45, ManeuverMap.mapplsIdToClusterByte(72, null))
     }
 
     @Test
-    fun `plain turn left and right`() {
-        assertEquals(3, ManeuverMap.fromText("Turn right onto MG Road"))
-        assertEquals(3, ManeuverMap.fromText("Right onto MG Road"))
-        assertEquals(3, ManeuverMap.fromText("Right on MG Road"))
-        assertEquals(2, ManeuverMap.fromText("Turn left onto Brigade Road"))
-        assertEquals(2, ManeuverMap.fromText("Left onto Brigade Road"))
-        assertEquals(2, ManeuverMap.fromText("Left on Brigade Road"))
+    fun `default branch — motorway exits 73,74,75 and u-turn 41`() {
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(73, null))
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(74, null))
+        assertEquals(10, ManeuverMap.mapplsIdToClusterByte(75, null))
+        assertEquals(39, ManeuverMap.mapplsIdToClusterByte(41, null))
     }
 
     @Test
-    fun `continue straight head all map to generic arrow`() {
-        assertEquals(8, ManeuverMap.fromText("Continue straight for 2 km"))
-        assertEquals(8, ManeuverMap.fromText("Go straight"))
-        assertEquals(8, ManeuverMap.fromText("Head north on Outer Ring Road"))
+    fun `Burgman branch — 58 and 74 diverge from default`() {
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, "Burgman Street-TFT Edition"))
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(74, "Burgman Street-TFT Edition"))
+
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, "e-ACCESS"))
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(74, "e-ACCESS"))
+
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, "Access-TFT Edition"))
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(74, "Access-TFT Edition"))
+
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, "Access"))
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(74, "Access"))
     }
 
     @Test
-    fun `arrive at destination maps to 50`() {
-        assertEquals(50, ManeuverMap.fromText("You have arrived at your destination"))
-        assertEquals(50, ManeuverMap.fromText("Destination on the right"))
-        assertEquals(50, ManeuverMap.fromText("Arrive at MG Road"))
+    fun `Burgman branch — all other rows match default`() {
+        assertEquals(1, ManeuverMap.mapplsIdToClusterByte(0, "Burgman Street-TFT Edition"))
+        assertEquals(4, ManeuverMap.mapplsIdToClusterByte(3, "Burgman Street-TFT Edition"))
+        assertEquals(45, ManeuverMap.mapplsIdToClusterByte(72, "Burgman Street-TFT Edition"))
+        assertEquals(10, ManeuverMap.mapplsIdToClusterByte(75, "Burgman Street-TFT Edition"))
     }
 
     @Test
-    fun `merge maps to 11`() {
-        assertEquals(11, ManeuverMap.fromText("Merge onto Highway 4"))
+    fun `unmapped Mappls IDs return null (cluster keeps previous glyph)`() {
+        assertNull(ManeuverMap.mapplsIdToClusterByte(29, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(32, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(33, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(40, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(42, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(45, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(76, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(255, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(-1, null))
     }
 
     @Test
-    fun `slight-right beats turn-right (priority ordering)`() {
-        // "Slight right" contains "right" — proves the priority cascade is correct.
-        assertEquals(7, ManeuverMap.fromText("Slight right onto Service Road"))
-        // And "sharp right" doesn't accidentally hit plain "right"
-        assertEquals(5, ManeuverMap.fromText("Sharp right onto Service Road"))
-    }
-
-    @Test
-    fun `u-turn beats turn-left (priority ordering)`() {
-        // "U-turn" must not be parsed as "turn ... left/right"
-        assertEquals(23, ManeuverMap.fromText("Make a u-turn at the next intersection"))
-    }
-
-    @Test
-    fun `bitmap-hash registration works`() {
-        ManeuverMap.registerBitmapHash(0xDEADBEEFL, 42)
-        assertEquals(42, ManeuverMap.fromBitmapHash(0xDEADBEEFL))
-        assertEquals(null, ManeuverMap.fromBitmapHash(0xABCDEF01L))
+    fun `Mappls 36 (ferry) returns null — OEM leaves e0 untouched`() {
+        assertNull(ManeuverMap.mapplsIdToClusterByte(36, null))
+        assertNull(ManeuverMap.mapplsIdToClusterByte(36, "Burgman Street-TFT Edition"))
     }
 }
