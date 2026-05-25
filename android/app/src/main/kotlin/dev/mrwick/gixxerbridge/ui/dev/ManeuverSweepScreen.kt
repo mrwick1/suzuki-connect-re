@@ -32,6 +32,7 @@ import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.protocol.NavFrame
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import dev.mrwick.gixxerbridge.util.AppLog
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -39,8 +40,9 @@ import java.io.File
 /**
  * Empirical verification tool for the Suzuki cluster's byte→glyph table.
  *
- * Iterates cluster bytes 1..52 (the output range of `A0.C()` in the OEM
- * decompile; see `docs/superpowers/specs/2026-05-25-maneuver-id-rework-design.md`).
+ * Iterates cluster bytes 1..53 (1..52 is the OEM `A0.C()` output range; 43
+ * and 53 are added as out-of-table probes — see
+ * `docs/superpowers/specs/2026-05-25-maneuver-id-rework-design.md`).
  * For each byte, sends an a531 NavFrame at 1 Hz for [BURST_SECONDS] seconds
  * so the cluster's nav-mode latch has time to engage (single-shot writes
  * during 2026-05-25 sweep failed to update the cluster — see DISCOVERIES.md).
@@ -60,6 +62,7 @@ fun ManeuverSweepScreen() {
     var lastSent by remember { mutableStateOf<String?>(null) }
     val glyphNotes = remember { mutableStateMapOf<Int, String>() }
     val tsvFile = remember { File(ctx.filesDir, GLYPH_TSV_FILENAME) }
+    var activeBurstJob by remember { mutableStateOf<Job?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
@@ -68,7 +71,7 @@ fun ManeuverSweepScreen() {
             color = GixxerTokens.textPrimary,
         )
         Text(
-            "Sends each cluster byte 1..52 to a531 byte 2 at 1 Hz for ${BURST_SECONDS}s. " +
+            "Sends each cluster byte 1..53 to a531 byte 2 at 1 Hz for ${BURST_SECONDS}s. " +
                 "Watch the cluster; type what you see. Use ONLY when no nav is active.",
             style = MaterialTheme.typography.bodySmall,
             color = GixxerTokens.textMuted,
@@ -97,8 +100,9 @@ fun ManeuverSweepScreen() {
                         }
                     },
                     onSend = {
-                        scope.launch {
-                            val ts = java.text.SimpleDateFormat("HH:mm:ss")
+                        activeBurstJob?.cancel()
+                        activeBurstJob = scope.launch {
+                            val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
                                 .format(java.util.Date())
                             lastSent = "byte=$byte burst starting at $ts"
                             AppLog.i("ClusterSweep", "burst start byte=$byte for ${BURST_SECONDS}s")
