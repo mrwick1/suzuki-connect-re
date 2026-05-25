@@ -18,10 +18,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.ServiceItemHealth
+import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.ble.BikeBridgeService
 import dev.mrwick.gixxerbridge.ble.ConnectionState
-import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.ui.cluster.ClusterPreview
 import dev.mrwick.gixxerbridge.ui.home.LastParkedCard
@@ -163,31 +164,33 @@ private fun stateColor(s: ConnectionState): Color = when (s) {
 }
 
 /**
- * Red banner that appears when the bike's odo has clocked past the user's
- * service interval. Tap "Mark serviced" to bump [Settings.lastServiceOdoKm]
- * to the current reading.
+ * Red banner that appears when at least one periodic-service item is overdue
+ * (km gate negative OR days gate negative). The shown item is the worst —
+ * the one with the smallest "fraction of life remaining" across all five.
  *
- * ASSUMED: it's OK to construct a [Settings] instance per composition — the
- * underlying DataStore is process-wide so this is just a thin handle. Matches
- * the existing pattern elsewhere in the UI layer.
+ * Tap "Mark serviced" to stamp this item's baseline to "now" + current odo.
+ * Items without a baseline are excluded so a fresh install doesn't false-flag.
+ *
+ * Service-detection model documented in DISCOVERIES.md 2026-05-25.
  */
 @Composable
 private fun ServiceDueBanner() {
     val context = LocalContext.current
-    // PERF: use the process-wide Settings singleton via AppGraph instead of
-    // constructing a fresh handle here — avoids the per-composable allocation
-    // duplicated across every consumer (audit finding 1.1).
     val settings = remember(context) { AppGraph.settings(context) }
-    val intervalKm by settings.serviceIntervalKm.collectAsStateWithLifecycle(
-        initialValue = Settings.DEFAULT_SERVICE_INTERVAL_KM,
-    )
-    val lastServiced by settings.lastServiceOdoKm.collectAsStateWithLifecycle(initialValue = 0)
+    val schedule by settings.serviceSchedule
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
     val telemetry by TelemetryRepository.latest.collectAsStateWithLifecycle()
-    val currentOdo = telemetry?.odometerKm ?: 0
+    val currentOdo = telemetry?.odometerKm
+    val worst: ServiceItemHealth? = remember(schedule, currentOdo) {
+        ServiceSchedule.mostOverdue(schedule.values, currentOdo).worst
+    }
+    val isOverdue = worst != null && (
+        (worst.kmRemaining != null && worst.kmRemaining < 0) ||
+        (worst.daysRemaining != null && worst.daysRemaining < 0)
+    )
+    if (!isOverdue) return
+    val item = worst!!
 
-    if (currentOdo <= 0 || (currentOdo - lastServiced) < intervalKm) return
-
-    val nextServiceOdo = lastServiced + intervalKm
     val scope = rememberCoroutineScope()
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -195,24 +198,31 @@ private fun ServiceDueBanner() {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "Service due!",
+                "Service due: ${item.state.item.label}",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                "Logged $currentOdo km, last serviced at $lastServiced km " +
-                    "(next service was due at $nextServiceOdo km).",
+                buildOverdueDetail(item),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = {
-                scope.launch { settings.setLastServiceOdoKm(currentOdo) }
+                scope.launch { settings.markServiceDone(item.state.item, currentOdo) }
             }) {
                 Text("Mark serviced")
             }
         }
     }
+}
+
+/** "Overdue by 320 km / 14 days." (one or both clauses, depending on what's negative). */
+private fun buildOverdueDetail(h: ServiceItemHealth): String {
+    val parts = mutableListOf<String>()
+    h.kmRemaining?.takeIf { it < 0 }?.let { parts += "${-it} km" }
+    h.daysRemaining?.takeIf { it < 0 }?.let { parts += "${-it} days" }
+    return "Overdue by " + parts.joinToString(" / ") + "."
 }

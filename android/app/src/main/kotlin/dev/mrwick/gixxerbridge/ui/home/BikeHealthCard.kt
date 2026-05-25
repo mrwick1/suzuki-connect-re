@@ -27,11 +27,21 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.analytics.BikeHealth
 import dev.mrwick.gixxerbridge.analytics.RideStreak
+import dev.mrwick.gixxerbridge.analytics.ServiceItemHealth
+import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 
-/** Home-screen card: bike health gauge + sub-scores + ride-streak line. */
+/**
+ * Home-screen card: bike-health gauge + sub-scores + ride-streak line.
+ *
+ * The service sub-score and the headline caption come from the per-item
+ * periodic-service schedule (mirrors the five Suzuki items — see
+ * DISCOVERIES.md 2026-05-25). Fuel and connection sub-scores still come from
+ * [BikeHealth.compute]; we feed it the worst-item baseline so the composite
+ * total tracks the per-item gauge instead of the legacy single km interval.
+ */
 @Composable
 fun BikeHealthCard() {
     val ctx = LocalContext.current
@@ -39,37 +49,60 @@ fun BikeHealthCard() {
     val store = remember(ctx) { AppGraph.rideStore(ctx) }
     val telemetry by TelemetryRepository.latest.collectAsStateWithLifecycle()
     val rides by store.observeRides().collectAsStateWithLifecycle(initialValue = emptyList())
-    val intervalKm by settings.serviceIntervalKm
+    val schedule by settings.serviceSchedule
+        .collectAsStateWithLifecycle(initialValue = emptyMap())
+    val legacyIntervalKm by settings.serviceIntervalKm
         .collectAsStateWithLifecycle(initialValue = Settings.DEFAULT_SERVICE_INTERVAL_KM)
-    val lastServiced by settings.lastServiceOdoKm.collectAsStateWithLifecycle(initialValue = 0)
+    val legacyLastServiced by settings.lastServiceOdoKm
+        .collectAsStateWithLifecycle(initialValue = 0)
 
-    val score = remember(telemetry, rides, intervalKm, lastServiced) {
+    val currentOdo = telemetry?.odometerKm
+    val scheduleHealth = remember(schedule, currentOdo) {
+        ServiceSchedule.mostOverdue(schedule.values, currentOdo)
+    }
+    // Service sub-score: prefer the per-item worst when at least one item has
+    // a recorded baseline. Falls back to the legacy single-interval calc when
+    // nothing has been logged yet so first-run installs aren't stuck at 50.
+    val perItemServiceScore: Int? = scheduleHealth.worst?.let { worstScoreFromFraction(it) }
+    val baseScore = remember(telemetry, rides, legacyIntervalKm, legacyLastServiced) {
         BikeHealth.compute(
-            currentOdo = telemetry?.odometerKm,
-            lastServiceOdo = lastServiced,
-            serviceIntervalKm = intervalKm,
+            currentOdo = currentOdo,
+            lastServiceOdo = legacyLastServiced,
+            serviceIntervalKm = legacyIntervalKm,
             fuelBars = telemetry?.fuelBars,
             rides = rides,
         )
     }
+    val serviceScore = perItemServiceScore ?: baseScore.service
+    val total = blendTotal(serviceScore, baseScore.fuel, baseScore.connection)
+    val grade = gradeFor(total)
+    val caption = captionFor(scheduleHealth.worst)
+
     val streak = remember(rides) { RideStreak.compute(rides) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                HealthGauge(score.total, modifier = Modifier.size(80.dp))
+                HealthGauge(total, modifier = Modifier.size(80.dp))
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Bike health", style = MaterialTheme.typography.labelLarge)
                     Text(
-                        score.grade,
+                        grade,
                         style = MaterialTheme.typography.titleLarge,
-                        color = colorForScore(score.total),
+                        color = colorForScore(total),
                     )
                     Text(
-                        "Service ${score.service} • Fuel ${score.fuel} • Connection ${score.connection}",
+                        "Service $serviceScore • Fuel ${baseScore.fuel} • Connection ${baseScore.connection}",
                         style = MaterialTheme.typography.labelSmall,
                     )
+                    if (caption != null) {
+                        Text(
+                            caption,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (streak.current > 0) {
@@ -81,6 +114,38 @@ fun BikeHealthCard() {
             }
         }
     }
+}
+
+/**
+ * Map a per-item remaining fraction (1.0 = freshly serviced, 0.0 = at/past
+ * threshold) to the same 0-100 scale [BikeHealth] uses, so the sub-score
+ * label keeps reading as a percentage.
+ */
+private fun worstScoreFromFraction(worst: ServiceItemHealth): Int {
+    val frac = worst.remainingFraction ?: return 50
+    return (frac * 100.0).toInt().coerceIn(0, 100)
+}
+
+/** Same fixed-weight blend as [BikeHealth.compute] (service 34%, fuel 33%, connection 33%). */
+private fun blendTotal(service: Int, fuel: Int, connection: Int): Int =
+    ((service * 0.34) + (fuel * 0.33) + (connection * 0.33)).toInt().coerceIn(0, 100)
+
+/** Mirrors [dev.mrwick.gixxerbridge.analytics.BikeHealthScore.grade]'s bands. */
+private fun gradeFor(total: Int): String = when {
+    total >= 85 -> "Excellent"
+    total >= 65 -> "Good"
+    total >= 40 -> "Fair"
+    else -> "Needs attention"
+}
+
+/** "Engine oil — next in 320 km", or null when no item has a baseline. */
+private fun captionFor(worst: ServiceItemHealth?): String? {
+    if (worst == null) return null
+    val parts = mutableListOf<String>()
+    worst.kmRemaining?.let { parts += if (it >= 0) "$it km left" else "${-it} km overdue" }
+    worst.daysRemaining?.let { parts += if (it >= 0) "$it days left" else "${-it} days overdue" }
+    if (parts.isEmpty()) return null
+    return "${worst.state.item.label} — " + parts.joinToString(" / ")
 }
 
 /** Circular Canvas gauge: dim ring + coloured arc proportional to [score]/100. */

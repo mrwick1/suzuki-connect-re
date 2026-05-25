@@ -85,6 +85,39 @@ class SettingsTest {
         assertNull(decodeNullableDouble(encodeNullableDouble(null)))
     }
 
+    // ---------- Int <-> nullable ----------
+
+    @Test fun encodeNullIntIsMinusOne() {
+        assertEquals(-1, encodeNullableInt(null))
+    }
+
+    @Test fun encodeNonNullIntRoundTrips() {
+        assertEquals(3500, encodeNullableInt(3500))
+        assertEquals(0, encodeNullableInt(0))
+    }
+
+    @Test fun decodeMinusOneIsNull() {
+        assertNull(decodeNullableInt(-1))
+    }
+
+    @Test fun decodeMissingIntIsNull() {
+        assertNull(decodeNullableInt(null))
+    }
+
+    @Test fun decodeNonNegativeIntPassesThrough() {
+        assertEquals(0, decodeNullableInt(0))
+        assertEquals(120, decodeNullableInt(120))
+    }
+
+    @Test fun intRoundTripPreservesValue() {
+        assertEquals(8000, decodeNullableInt(encodeNullableInt(8000)))
+        assertEquals(0, decodeNullableInt(encodeNullableInt(0)))
+    }
+
+    @Test fun intRoundTripPreservesNull() {
+        assertNull(decodeNullableInt(encodeNullableInt(null)))
+    }
+
     // ---------- Public defaults ----------
 
     @Test fun defaultRiderNameIsRider() {

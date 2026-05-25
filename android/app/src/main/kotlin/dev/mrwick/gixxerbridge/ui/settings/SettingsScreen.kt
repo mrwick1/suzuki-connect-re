@@ -42,6 +42,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
+import dev.mrwick.gixxerbridge.data.ServiceItem
+import dev.mrwick.gixxerbridge.data.ServiceItemState
+import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.ui.about.AboutCardLink
 import dev.mrwick.gixxerbridge.ui.safety.SafetySection
 import dev.mrwick.gixxerbridge.ui.safety.SafetyViewModel
@@ -55,6 +59,7 @@ fun SettingsScreen(
     onOpenPairing: () -> Unit,
     onOpenAllowlist: () -> Unit,
     onOpenInspector: () -> Unit = {},
+    onOpenDiagnostics: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onOpenMileage: () -> Unit = {},
     onOpenServiceHistory: () -> Unit = {},
@@ -67,6 +72,9 @@ fun SettingsScreen(
     val nowPlaying by vm.nowPlayingOnCluster.collectAsStateWithLifecycle()
     val dnd by vm.autoDndOnConnect.collectAsStateWithLifecycle()
     val service by vm.serviceIntervalKm.collectAsStateWithLifecycle()
+    val serviceSchedule by vm.serviceSchedule.collectAsStateWithLifecycle()
+    val telemetry by TelemetryRepository.latest.collectAsStateWithLifecycle()
+    val currentOdoKm = telemetry?.odometerKm?.takeIf { it > 0 }
     val demoMode by vm.demoMode.collectAsStateWithLifecycle()
     val keepScreenOn by vm.keepScreenOn.collectAsStateWithLifecycle()
     val themeAccent by vm.themeAccent.collectAsStateWithLifecycle()
@@ -99,6 +107,37 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenPairing, modifier = Modifier.fillMaxWidth()) {
                     Text(if (bikeMac == null) "Pair a bike" else "Re-pair")
+                }
+                if (bikeMac != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    var confirm by remember { mutableStateOf(false) }
+                    OutlinedButton(
+                        onClick = { confirm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Forget this bike") }
+                    if (confirm) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { confirm = false },
+                            title = { Text("Forget paired bike?") },
+                            text = {
+                                Text(
+                                    "GixxerBridge will stop trying to auto-connect to " +
+                                        "${bikeMac}. You can pair again from this screen.",
+                                )
+                            },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    vm.forgetBike()
+                                    confirm = false
+                                }) { Text("Forget") }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = { confirm = false }) {
+                                    Text("Cancel")
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -147,6 +186,33 @@ fun SettingsScreen(
         item { DndAccessPermissionRow() }
         item {
             Section("Maintenance") {
+                Text(
+                    "Five periodic-service items mirrored from the Suzuki Connect app " +
+                        "(see DISCOVERIES.md 2026-05-25). Each has a km gate (when applicable) " +
+                        "and a days gate — the bike has no oil sensor, so this is purely a reminder.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                ServiceItem.entries.forEach { item ->
+                    val state = serviceSchedule[item] ?: defaultStateFor(item)
+                    ServiceItemEditor(
+                        state = state,
+                        currentOdoKm = currentOdoKm,
+                        onUpdateThresholds = { km, days ->
+                            vm.setServiceItemThresholds(item, km, days)
+                        },
+                        onMarkServiced = { vm.markServiceDone(item, currentOdoKm) },
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Legacy single-gauge interval (used by the bike-health card until the per-item gauge replaces it).",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
                 var t by remember(service) { mutableStateOf(service.toString()) }
                 OutlinedTextField(
                     value = t,
@@ -154,7 +220,7 @@ fun SettingsScreen(
                         t = raw.filter { c -> c.isDigit() }.take(6)
                         t.toIntOrNull()?.let { km -> vm.setServiceIntervalKm(km) }
                     },
-                    label = { Text("Service interval (km)") },
+                    label = { Text("Legacy service interval (km)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -178,6 +244,8 @@ fun SettingsScreen(
                 SwitchRow("Demo mode (simulated bike telemetry)", demoMode, vm::setDemoMode)
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenInspector, modifier = Modifier.fillMaxWidth()) { Text("Open frame inspector") }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Diagnostics / log viewer") }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = { vm.resetOnboarding() }) {
                     Text("Reset onboarding (replay wizard)")
@@ -252,6 +320,125 @@ private fun AccentSwatchRow(selected: String, onSelect: (String) -> Unit) {
                     .semantics { contentDescription = "Accent $name${if (isSelected) " (selected)" else ""}" },
             )
         }
+    }
+}
+
+/** Bare-default [ServiceItemState] used when the schedule map hasn't loaded yet. */
+private fun defaultStateFor(item: ServiceItem): ServiceItemState =
+    ServiceItemState(
+        item = item,
+        kmThreshold = item.defaultKm,
+        daysThreshold = item.defaultDays,
+        lastServiceDateMs = null,
+        lastServiceOdoKm = null,
+    )
+
+/**
+ * One service item's editor row: name + "next due" sub-text + km/days inputs +
+ * "I just serviced this" button. Inputs are debounced via local state so each
+ * keystroke doesn't fire a DataStore write; the actual save happens on every
+ * change the same as the other settings rows (DataStore preference writes are
+ * cheap and coalesced internally).
+ */
+@Composable
+private fun ServiceItemEditor(
+    state: ServiceItemState,
+    currentOdoKm: Int?,
+    onUpdateThresholds: (kmThreshold: Int?, daysThreshold: Int) -> Unit,
+    onMarkServiced: () -> Unit,
+) {
+    val health = remember(state, currentOdoKm) {
+        ServiceSchedule.healthFor(state, currentOdoKm)
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(state.item.label, style = MaterialTheme.typography.titleSmall)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = nextDueSubtext(health.daysRemaining, health.kmRemaining, state),
+            style = MaterialTheme.typography.bodySmall,
+            color = subtextColor(health.daysRemaining, health.kmRemaining),
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (state.kmThreshold != null || state.item.defaultKm != null) {
+                var kmText by remember(state.kmThreshold) {
+                    mutableStateOf((state.kmThreshold ?: state.item.defaultKm ?: 0).toString())
+                }
+                OutlinedTextField(
+                    value = kmText,
+                    onValueChange = { raw ->
+                        kmText = raw.filter { it.isDigit() }.take(6)
+                        val parsed = kmText.toIntOrNull()
+                        if (parsed != null && parsed > 0) {
+                            onUpdateThresholds(parsed, state.daysThreshold)
+                        }
+                    },
+                    label = { Text("km") },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                // Days-only item (brake oil) — keep layout balanced with a
+                // disabled placeholder so the days field doesn't stretch.
+                Text(
+                    "Days-only (no km gate)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            var daysText by remember(state.daysThreshold) {
+                mutableStateOf(state.daysThreshold.toString())
+            }
+            OutlinedTextField(
+                value = daysText,
+                onValueChange = { raw ->
+                    daysText = raw.filter { it.isDigit() }.take(5)
+                    val parsed = daysText.toIntOrNull()
+                    if (parsed != null && parsed > 0) {
+                        onUpdateThresholds(state.kmThreshold, parsed)
+                    }
+                },
+                label = { Text("days") },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(onClick = onMarkServiced, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (state.lastServiceDateMs == null) "I just serviced this"
+                else "I just serviced this again",
+            )
+        }
+    }
+}
+
+/** Render "Next due in X km / Y days" — or "Set a baseline" when nothing recorded. */
+private fun nextDueSubtext(daysRemaining: Int?, kmRemaining: Int?, state: ServiceItemState): String {
+    if (state.lastServiceDateMs == null && state.lastServiceOdoKm == null) {
+        return "No baseline yet — tap below after your next service."
+    }
+    val parts = mutableListOf<String>()
+    if (kmRemaining != null) parts += formatGate(kmRemaining, "km")
+    if (daysRemaining != null) parts += formatGate(daysRemaining, "days")
+    if (parts.isEmpty()) return "Baseline partial — set both date and odometer to enable the gauge."
+    return "Next due in " + parts.joinToString(" / ")
+}
+
+/** "in 1234 km" → "1234 km left"; negative → "overdue by N km". */
+private fun formatGate(remaining: Int, unit: String): String =
+    if (remaining >= 0) "$remaining $unit" else "${-remaining} $unit overdue"
+
+/** Red for overdue, amber for near-due, default for healthy. */
+@Composable
+private fun subtextColor(daysRemaining: Int?, kmRemaining: Int?): Color {
+    val worst = listOfNotNull(daysRemaining, kmRemaining).minOrNull() ?: return MaterialTheme.colorScheme.onSurfaceVariant
+    return when {
+        worst < 0 -> Color(0xFFEF4444)
+        worst < 30 -> Color(0xFFFBBF24)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }
 

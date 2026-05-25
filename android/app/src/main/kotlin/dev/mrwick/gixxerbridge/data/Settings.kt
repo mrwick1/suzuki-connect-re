@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -63,13 +64,34 @@ class Settings(context: Context) {
     val autoDndOnConnect: Flow<Boolean> =
         ds.data.map { it[Keys.AUTO_DND_ON_CONNECT] ?: false }
 
-    /** Service interval in km between scheduled services; defaults to 5000. */
+    /**
+     * Legacy single-service interval in km; defaults to 5000.
+     *
+     * Kept as a global override for code paths that still want a single
+     * "service threshold" number (e.g. the v0 [dev.mrwick.gixxerbridge.analytics.BikeHealth.compute]
+     * signature). The richer per-item model lives in [serviceSchedule] / the
+     * `ServiceItem` enum, mirroring the five real periodic-service items the
+     * Suzuki Connect app tracks (see DISCOVERIES.md 2026-05-25).
+     */
     val serviceIntervalKm: Flow<Int> =
         ds.data.map { it[Keys.SERVICE_INTERVAL_KM] ?: DEFAULT_SERVICE_INTERVAL_KM }
 
-    /** Odometer reading (km) at last service; defaults to 0. */
+    /** Legacy single-service "odometer at last service"; defaults to 0. See [serviceIntervalKm] doc. */
     val lastServiceOdoKm: Flow<Int> =
         ds.data.map { it[Keys.LAST_SERVICE_ODO_KM] ?: 0 }
+
+    /**
+     * Per-item periodic-service state for all five items the Suzuki Connect
+     * app tracks (engine oil / air filter / spark plug / brake oil / battery).
+     *
+     * Returned as a `Map<ServiceItem, ServiceItemState>` containing exactly
+     * one entry per enum value — values fall back to [ServiceItem]'s defaults
+     * if the rider hasn't customised them, and [ServiceItemState.lastServiceDateMs]
+     * / [ServiceItemState.lastServiceOdoKm] are null when no service has been
+     * recorded for that item.
+     */
+    val serviceSchedule: Flow<Map<ServiceItem, ServiceItemState>> =
+        ds.data.map { prefs -> ServiceItem.entries.associateWith { readServiceItem(prefs, it) } }
 
     /** Set of package names whose notifications are mirrored to the bike. */
     val mirrorAllowlist: Flow<Set<String>> =
@@ -152,6 +174,40 @@ class Settings(context: Context) {
         ds.edit { it[Keys.LAST_SERVICE_ODO_KM] = v }
     }
 
+    /**
+     * Update the km / days thresholds for one service item. Pass null for
+     * [kmThreshold] only on items whose [ServiceItem.defaultKm] is null
+     * (brake oil) — passing null on a km-gated item disables its km gate
+     * entirely, which is almost never what the rider means.
+     */
+    suspend fun setServiceItemThresholds(item: ServiceItem, kmThreshold: Int?, daysThreshold: Int) {
+        ds.edit {
+            it[Keys.kmThresholdKey(item)] = encodeNullableInt(kmThreshold)
+            it[Keys.daysThresholdKey(item)] = daysThreshold.coerceAtLeast(1)
+        }
+    }
+
+    /**
+     * Record a service event for one item: stamps "now" as the last-service
+     * date and pins the current odometer as the new baseline. Pass null for
+     * [odoKm] when the current odo isn't known (rider hasn't connected the
+     * bike yet) — the days gate will still tick, the km gate will dim.
+     */
+    suspend fun markServiceDone(item: ServiceItem, odoKm: Int?, atMillis: Long = System.currentTimeMillis()) {
+        ds.edit {
+            it[Keys.lastServiceDateKey(item)] = atMillis
+            it[Keys.lastServiceOdoKey(item)] = encodeNullableInt(odoKm)
+        }
+    }
+
+    /** Wipe one item's recorded last-service so the gauge resets to "no baseline". */
+    suspend fun clearServiceItemBaseline(item: ServiceItem) {
+        ds.edit {
+            it.remove(Keys.lastServiceDateKey(item))
+            it.remove(Keys.lastServiceOdoKey(item))
+        }
+    }
+
     /** Replace the notification-mirror allowlist. */
     suspend fun setMirrorAllowlist(packages: Set<String>) {
         ds.edit { it[Keys.MIRROR_ALLOWLIST] = packages }
@@ -207,6 +263,29 @@ class Settings(context: Context) {
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_while_connected")
         val THEME_ACCENT = stringPreferencesKey("theme_accent")
+
+        // Per-item service schedule (4 keys × 5 items). Key prefix uses the
+        // ServiceItem.id string so rename-the-enum doesn't silently drop data
+        // (it'll fall back to defaults loudly instead).
+        fun kmThresholdKey(item: ServiceItem) = intPreferencesKey("svc_${item.id}_km_threshold")
+        fun daysThresholdKey(item: ServiceItem) = intPreferencesKey("svc_${item.id}_days_threshold")
+        fun lastServiceDateKey(item: ServiceItem) = longPreferencesKey("svc_${item.id}_last_date_ms")
+        fun lastServiceOdoKey(item: ServiceItem) = intPreferencesKey("svc_${item.id}_last_odo_km")
+    }
+
+    /** Decode one [ServiceItem]'s persisted thresholds + baseline; missing keys fall back to the item's defaults. */
+    private fun readServiceItem(prefs: Preferences, item: ServiceItem): ServiceItemState {
+        val km = prefs[Keys.kmThresholdKey(item)]
+        val days = prefs[Keys.daysThresholdKey(item)]
+        val lastDate = prefs[Keys.lastServiceDateKey(item)]
+        val lastOdo = prefs[Keys.lastServiceOdoKey(item)]
+        return ServiceItemState(
+            item = item,
+            kmThreshold = if (km == null) item.defaultKm else decodeNullableInt(km),
+            daysThreshold = days ?: item.defaultDays,
+            lastServiceDateMs = if (lastDate == null || lastDate <= 0L) null else lastDate,
+            lastServiceOdoKm = decodeNullableInt(lastOdo),
+        )
     }
 
     companion object {
@@ -245,6 +324,7 @@ class Settings(context: Context) {
 // fields are encoded via sentinels:
 //   - null String <=> "" (empty string)
 //   - null Double <=> Double.NaN
+//   - null non-negative Int <=> -1
 
 /** Encode a nullable [String] to its preference-store representation ("" == null). */
 internal fun encodeNullableString(s: String?): String = s ?: ""
@@ -259,6 +339,13 @@ internal fun encodeNullableDouble(d: Double?): Double = d ?: Double.NaN
 /** Decode a preference-store [Double] back to nullable (NaN or missing => null). */
 internal fun decodeNullableDouble(d: Double?): Double? =
     if (d == null || d.isNaN()) null else d
+
+/** Encode a nullable non-negative [Int] to its preference-store representation (`-1` == null). */
+internal fun encodeNullableInt(i: Int?): Int = i ?: -1
+
+/** Decode a preference-store [Int] back to nullable (negative or missing => null). */
+internal fun decodeNullableInt(i: Int?): Int? =
+    if (i == null || i < 0) null else i
 
 // ASSUMED: a single DataStore file named "gixxer_settings" is sufficient for all
 // app preferences. The extension property below is the canonical instance.
