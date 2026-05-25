@@ -83,6 +83,18 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
+        // Auto-start the bike BLE service on every app launch. Cheap (idempotent
+        // — service uses START_STICKY + the same singleton state when already
+        // running) and removes the "where is the start button?" UX question we
+        // used to handle with a button on Home.
+        try {
+            androidx.core.content.ContextCompat.startForegroundService(
+                this,
+                android.content.Intent(this, dev.mrwick.gixxerbridge.ble.BikeBridgeService::class.java),
+            )
+        } catch (t: Throwable) {
+            android.util.Log.w("MainActivity", "auto-start BikeBridgeService threw", t)
+        }
         setContent {
             // Re-render with the user's chosen accent. Falls back to cyan until
             // the first DataStore read completes (initial value below).
@@ -274,7 +286,44 @@ private fun AppShell() {
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             NavHost(navController = nav, startDestination = Tab.Home.route) {
-                composable(Tab.Home.route) { HomeScreen(onOpenPairing = { nav.navigate("pairing") }) }
+                composable(Tab.Home.route) {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    HomeScreen(
+                        onOpenPairing = { nav.navigate("pairing") },
+                        onStartRide = {
+                            // No "manual ride start" API yet — rides auto-detect from
+                            // telemetry. Sending the user to Trips is the most useful
+                            // action this button can take today; future: bind to a
+                            // manual rideLogger.startManual() once that exists.
+                            nav.navigate(Tab.Trips.route) {
+                                popUpTo(Tab.Home.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        onOpenNav = {
+                            // Launch Google Maps with no specific destination — opens
+                            // the app to its main screen so the rider can search /
+                            // navigate. Falls back to a generic geo: intent if Maps
+                            // isn't installed (other map apps will handle it).
+                            val launchMaps = ctx.packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
+                            val intent = launchMaps ?: android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("geo:0,0?q="),
+                            )
+                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try { ctx.startActivity(intent) }
+                            catch (_: android.content.ActivityNotFoundException) { /* no map app installed */ }
+                        },
+                        onOpenMaintenance = {
+                            nav.navigate(Tab.Settings.route) {
+                                popUpTo(Tab.Home.route) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                    )
+                }
                 composable(Tab.Dashboard.route) { DashboardScreen(viewModel()) }
                 composable(Tab.Trips.route) {
                     val ctx = androidx.compose.ui.platform.LocalContext.current

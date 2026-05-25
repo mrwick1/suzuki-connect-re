@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mrwick.gixxerbridge.ble.ConnectionState
+import dev.mrwick.gixxerbridge.ui.cluster.ClusterPreview
 import dev.mrwick.gixxerbridge.ui.home.components.ConnectionDot
 import dev.mrwick.gixxerbridge.ui.home.components.QuickActionsRow
 import dev.mrwick.gixxerbridge.ui.home.components.TodayHeroCard
@@ -37,6 +38,7 @@ fun HomeScreen(
     onOpenPairing: () -> Unit,
     onStartRide: () -> Unit = {},
     onOpenNav: () -> Unit = {},
+    onOpenMaintenance: () -> Unit = {},
     vm: HomeViewModel = viewModel(),
 ) {
     val connectionState by vm.connectionState.collectAsStateWithLifecycle(initialValue = ConnectionState.Idle)
@@ -57,12 +59,15 @@ fun HomeScreen(
             riderName = riderName,
         )
 
+        ClusterPreview()
+
         TodayHeroCard(
             todayKm = todayKm,
             streakDays = streak,
             nextServiceLabel = nextService?.label,
             nextServiceDueIn = nextService?.dueInText,
             nextServiceOverdue = nextService?.overdue == true,
+            onNextServiceClick = onOpenMaintenance,
         )
 
         QuickActionsRow(

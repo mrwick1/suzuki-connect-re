@@ -247,6 +247,17 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) { Text("Diagnostics / log viewer") }
                 Spacer(modifier = Modifier.height(8.dp))
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                Button(
+                    onClick = {
+                        androidx.core.content.ContextCompat.startForegroundService(
+                            ctx,
+                            android.content.Intent(ctx, dev.mrwick.gixxerbridge.ble.BikeBridgeService::class.java),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Restart bike service") }
+                Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = { vm.resetOnboarding() }) {
                     Text("Reset onboarding (replay wizard)")
                 }

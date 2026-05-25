@@ -55,9 +55,9 @@ fun ClusterPreview(modifier: Modifier = Modifier) {
     val nav by ClusterState.latestNav.collectAsStateWithLifecycle()
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = GixxerTokens.bg),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
@@ -65,8 +65,8 @@ fun ClusterPreview(modifier: Modifier = Modifier) {
                 LivePulse()
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Cluster preview",
-                    style = MaterialTheme.typography.labelSmall,
+                    "CLUSTER PREVIEW",
+                    style = MaterialTheme.typography.labelMedium,
                     color = GixxerTokens.textMuted,
                 )
                 Spacer(Modifier.weight(1f))
@@ -74,12 +74,12 @@ fun ClusterPreview(modifier: Modifier = Modifier) {
                     StatusBars(nav!!.status)
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
             if (nav == null) {
                 Text(
-                    "(no a531 frames yet — start the service)",
-                    color = GixxerTokens.textMuted, // token-mapped from 0xFF64748B
-                    style = MaterialTheme.typography.bodySmall,
+                    "Waiting for bike",
+                    color = GixxerTokens.textMuted,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             } else {
                 ClusterBody(nav!!)

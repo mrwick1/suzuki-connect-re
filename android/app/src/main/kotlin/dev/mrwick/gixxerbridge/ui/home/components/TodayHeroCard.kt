@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.ui.home.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,7 @@ fun TodayHeroCard(
     nextServiceLabel: String?,
     nextServiceDueIn: String?,
     nextServiceOverdue: Boolean,
+    onNextServiceClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -72,6 +74,7 @@ fun TodayHeroCard(
                 label = nextServiceLabel ?: "Next service",
                 value = nextServiceDueIn ?: "Set a baseline",
                 valueColor = if (nextServiceOverdue) GixxerTokens.danger else GixxerTokens.textPrimary,
+                onClick = onNextServiceClick,
             )
         }
     }
@@ -83,8 +86,14 @@ private fun HeroRow(
     label: String,
     value: String,
     valueColor: Color,
+    onClick: (() -> Unit)? = null,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+    val rowModifier = if (onClick != null) {
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp)
+    } else {
+        Modifier.fillMaxWidth()
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = rowModifier) {
         Icon(icon, contentDescription = null, tint = GixxerTokens.textMuted, modifier = Modifier.width(20.dp).height(20.dp))
         Spacer(Modifier.width(12.dp))
         Text(
