@@ -32,6 +32,7 @@ import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
  * Home-screen card: bike-health gauge + sub-scores + ride-streak line.
@@ -156,7 +157,7 @@ private fun HealthGauge(score: Int, modifier: Modifier) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val stroke = 8.dp.toPx()
             drawArc(
-                color = Color(0xFF334155),
+                color = GixxerTokens.surfaceElevated, // token-mapped from 0xFF334155 (dim gauge ring)
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -174,10 +175,10 @@ private fun HealthGauge(score: Int, modifier: Modifier) {
     }
 }
 
-/** Map a 0-100 score to the gauge / grade colour (green/cyan/amber/red). */
+/** Map a 0-100 score to the gauge / grade colour (green/accent/amber/red). */
 private fun colorForScore(s: Int): Color = when {
-    s >= 85 -> Color(0xFF10B981)
-    s >= 65 -> Color(0xFF22D3EE)
-    s >= 40 -> Color(0xFFFBBF24)
-    else -> Color(0xFFEF4444)
+    s >= 85 -> GixxerTokens.success         // token-mapped from 0xFF10B981
+    s >= 65 -> GixxerTokens.accent          // token-mapped from 0xFF22D3EE (ClusterPreview mapping)
+    s >= 40 -> GixxerTokens.warning         // token-mapped from 0xFFFBBF24
+    else -> GixxerTokens.danger             // token-mapped from 0xFFEF4444
 }
