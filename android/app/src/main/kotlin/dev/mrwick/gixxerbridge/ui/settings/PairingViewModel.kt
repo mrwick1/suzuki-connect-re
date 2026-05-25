@@ -14,10 +14,12 @@ import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.util.AppLog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -28,8 +30,12 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
     private val scanner = BleScanner(app)
     private val settings = Settings(app)
 
-    /** Live map of discovered bikes keyed by MAC (see [BleScanner.results]). */
-    val results = scanner.results
+    /** Throttled map of discovered bikes keyed by MAC. Scanner emits ~10 Hz; we
+     *  sample at 500 ms so the UI sort doesn't visibly reshuffle on every RSSI
+     *  jitter. RSSI itself is already EMA-smoothed inside [BleScanner]. */
+    val results: StateFlow<Map<String, DiscoveredBike>> = scanner.results
+        .sample(500)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     /** The currently-saved bike MAC (or null if none paired). UI shows this at the
      *  top of the pair screen because BLE scan results will NOT include a device

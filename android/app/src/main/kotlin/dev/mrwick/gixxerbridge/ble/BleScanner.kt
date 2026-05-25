@@ -59,11 +59,21 @@ class BleScanner(context: Context) {
             val bonded = result.device.bondState == BluetoothDevice.BOND_BONDED
             val prev = _results.value[mac]
             val isNew = prev == null
+            // EMA smoothing on RSSI to stop the list churning. Raw BLE scan RSSI
+            // jumps ±5 dBm just from antenna jitter; without smoothing the list
+            // visibly reshuffles every fraction of a second. 0.3 weight on the
+            // new sample = ~3-sample effective window, fast enough to track real
+            // signal trends, slow enough to ignore noise.
+            val smoothedRssi = if (prev != null && prev.rssi != Int.MIN_VALUE) {
+                (0.3f * result.rssi + 0.7f * prev.rssi).toInt()
+            } else {
+                result.rssi
+            }
             val bike = DiscoveredBike(
                 mac = mac,
                 name = rawName,
                 vendor = vendor,
-                rssi = result.rssi,
+                rssi = smoothedRssi,
                 bonded = bonded,
             )
             // RSSI updates every scan; only log once-per-device for noise control.
