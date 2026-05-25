@@ -2059,3 +2059,45 @@ Purpose: empirically verify that the bike cluster's firmware renders the same ic
 **Unlike the Maneuver Sweep, there are no phone-side previews.** The Suzuki APK does not ship cluster weather drawables — only three large in-app PNGs (`weather_sunny.png`, `weather_partially_cloudy.png`, `weather_rainy.png`) used by the phone's own dashboard UI, keyed by matching Mappls weather text strings, not by the 0–11 cluster byte. The cluster's 12 weather icons are firmware-baked and not recoverable from the APK.
 
 Caveat for on-bike use: the regular 1 Hz heartbeat loop overwrites byte 21 almost immediately. Rider needs to shoot fast or pause Maps before sending a Weather Sweep frame.
+
+## 2026-05-25 — Mappls maneuver ID ≠ Suzuki cluster byte
+
+**Wrong assumption:** The Mappls SDK's maneuver ID (the integer that drives
+the phone-side nav-strip widget) is the same integer that the bike's cluster
+ROM uses to look up its turn-arrow glyph.
+
+**Reality:** They are different integers. The OEM Suzuki Connect app runs a
+hand-rolled translation in `A0.C()` (`com.suzuki.application.fragment.A0`)
+that maps Mappls IDs (0..75) to a separate cluster-byte space (1..52). The
+cluster has its own icon ROM indexed by the translated byte; the
+`ic_step_N.xml` drawables in `apk/base.apk` are *not* what the cluster shows
+— those are phone-side widgets rendered inside the Suzuki Connect UI.
+
+**Symptom that surfaced the bug:** During the 2026-05-25 18:48 ride with
+GixxerBridge driving the BLE, every turn arrow on the cluster pointed the
+wrong way. Separately, the in-app `ManeuverSweep` dev tool sent NavFrames
+(confirmed via writer log `BikeBridge: writer: TX composer type=0x31`) but
+the cluster never changed across the swept IDs.
+
+**Evidence that established the truth:** Decompiled the OEM app with
+`jadx --no-imports --use-dx --deobf` (jadx-retry output). Read
+`decompiled/jadx-retry/sources/com/suzuki/application/fragment/A0.java:458`
+(`public final void C(com.mappls.sdk.navigation.model.a aVar)`) — a 200-line
+if-chain that switches on `aVar.f` (the Mappls maneuver ID per the
+`model.a.toString()` label `maneuverID=`) and assigns `this.e0` (the byte
+that ends up in NavFrame byte 2 via `A0.D(int i, ...)` at A0.java:455).
+
+**Resolution:** See spec
+`docs/superpowers/specs/2026-05-25-maneuver-id-rework-design.md` and the
+implementation plan
+`docs/superpowers/plans/2026-05-25-maneuver-id-rework.md`. Stage 2
+translation added at `ManeuverMap.mapplsIdToClusterByte`; pipeline rewired
+to apply it at the `GoogleMapsParser → ParsedNavData` boundary so everything
+downstream is cluster bytes. The `docs/maneuver-id-table.md` file is renamed
+to `docs/mappls-id-icons.md` to reflect what it actually describes.
+
+**Lesson:** Wireshark labels mislabeled UUIDs in M0. APK drawables mislabeled
+themselves as cluster icons in M5. In both cases, the No-Assumptions rule
+applies: tool-derived labels are heuristic until you trace them to source.
+"`ic_step_N.xml` exists therefore the cluster renders it" was an inference,
+not an observation.

@@ -1,10 +1,17 @@
-# Authoritative Mappls maneuver-id → Suzuki cluster icon table
+# Mappls maneuver-ID → phone-side step icon table
 
-Source: `apk/base.apk:res/drawable-nodpi-v4/ic_step_*.xml`. The Suzuki
-Connect app's `C0897z.java:81` resolves `step_<N>` drawable at runtime
-via `getIdentifier("step_" + bVar.h, "drawable", …)` where `bVar.h` is the
-integer maneuver-id from the Mappls SDK. Whatever `ic_step_N.xml` exists in
-the APK is exactly what the cluster renders — no other mapping layer.
+Source: `apk/base.apk:res/drawable-nodpi-v4/ic_step_*.xml`.
+
+**⚠️ These drawables are NOT what the bike's cluster renders.** They are the
+phone-side nav-strip icons that the Suzuki Connect app draws inside its own
+turn-by-turn widget (see `C0897z.java:62-64`, `imageView.setImageResource(...)`).
+The cluster has its own icon ROM keyed by a *cluster byte*, which is produced
+by translating the Mappls ID via `A0.C()` in the OEM bytecode. See
+`docs/cluster-byte-glyphs.md` for the cluster-byte table.
+
+The translation Mappls-ID → cluster-byte is implemented in
+`ManeuverMap.mapplsIdToClusterByte` and verified against the OEM if-chain at
+`decompiled/jadx-retry/.../A0.java:458`.
 
 Decoded with: androguard 4.1.3 (`androguard.core.axml.AXMLPrinter`).
 Rendered with: rsvg-convert (librsvg) from hand-converted SVG.
