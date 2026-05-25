@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.ble.DiscoveredBike
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import kotlinx.coroutines.delay
 
 /** First-run + re-pair wizard: scans for nearby BLE devices and saves the picked MAC.
@@ -173,7 +174,7 @@ private fun PairOverlay(
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFF10B981),
+                            tint = GixxerTokens.success,
                             modifier = Modifier.size(48.dp),
                         )
                         Spacer(Modifier.height(16.dp))
@@ -210,17 +211,17 @@ private fun CurrentlyPairedRow(
 ) {
     val (label, dotColor) = when (state) {
         is dev.mrwick.gixxerbridge.ble.ConnectionState.Ready ->
-            "Connected" to Color(0xFF10B981)
+            "Connected" to GixxerTokens.success
         is dev.mrwick.gixxerbridge.ble.ConnectionState.Connecting ->
-            "Connecting…" to Color(0xFFFBBF24)
+            "Connecting…" to GixxerTokens.warning
         is dev.mrwick.gixxerbridge.ble.ConnectionState.Discovering ->
-            "Discovering services…" to Color(0xFFFBBF24)
+            "Discovering services…" to GixxerTokens.warning
         is dev.mrwick.gixxerbridge.ble.ConnectionState.Disconnected ->
-            "Waiting for bike key-on" to Color(0xFF94A3B8)
+            "Waiting for bike key-on" to GixxerTokens.textMuted
         is dev.mrwick.gixxerbridge.ble.ConnectionState.Failed ->
             "Failed: ${state.reason}" to MaterialTheme.colorScheme.error
         dev.mrwick.gixxerbridge.ble.ConnectionState.Idle ->
-            "Idle" to Color(0xFF64748B)
+            "Idle" to GixxerTokens.textMuted
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -256,7 +257,13 @@ private fun CurrentlyPairedRow(
             androidx.compose.material3.OutlinedButton(
                 onClick = onForget,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Forget this bike") }
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    GixxerTokens.danger,
+                ),
+            ) {
+                Text("Forget this bike", color = GixxerTokens.danger)
+            }
         }
     }
 }
@@ -306,7 +313,7 @@ private fun BikeRow(bike: DiscoveredBike, likely: Boolean, onPick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(14.dp),
         ) {
-            Dot(color = if (likely) Color(0xFF10B981) else Color(0xFF334155))
+            Dot(color = if (likely) GixxerTokens.success else GixxerTokens.surfaceElevated)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 // Title: actual BT name if present, else vendor label, else "(no name)".
