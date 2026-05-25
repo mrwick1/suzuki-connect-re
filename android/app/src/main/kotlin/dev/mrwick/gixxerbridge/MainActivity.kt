@@ -48,6 +48,7 @@ import dev.mrwick.gixxerbridge.ui.onboarding.OnboardingViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.material3.CircularProgressIndicator
 import kotlinx.coroutines.flow.first
+import dev.mrwick.gixxerbridge.ui.safety.SafetyViewModel
 import dev.mrwick.gixxerbridge.ui.settings.AllowlistScreen
 import dev.mrwick.gixxerbridge.ui.settings.AllowlistViewModel
 import dev.mrwick.gixxerbridge.ui.settings.PairingScreen
@@ -419,15 +420,44 @@ private fun AppShell() {
                 composable("diagnostics") { DiagnosticsScreen() }
                 composable(Tab.Settings.route) {
                     SettingsScreen(
+                        onOpenBike = { nav.navigate("settings/bike") },
+                        onOpenCluster = { nav.navigate("settings/cluster") },
+                        onOpenNotifications = { nav.navigate("settings/notifications") },
+                        onOpenMaintenance = { nav.navigate("settings/maintenance") },
+                        onOpenDeveloper = { nav.navigate("settings/developer") },
+                        onOpenAbout = { nav.navigate("about") },
+                    )
+                }
+                composable("settings/bike") {
+                    dev.mrwick.gixxerbridge.ui.settings.BikeSettingsScreen(
                         vm = viewModel(),
                         safetyVm = viewModel(),
                         onOpenPairing = { nav.navigate("pairing") },
+                    )
+                }
+                composable("settings/cluster") {
+                    dev.mrwick.gixxerbridge.ui.settings.ClusterSettingsScreen(
+                        vm = viewModel(),
+                    )
+                }
+                composable("settings/notifications") {
+                    dev.mrwick.gixxerbridge.ui.settings.NotificationsSettingsScreen(
+                        vm = viewModel(),
                         onOpenAllowlist = { nav.navigate("allowlist") },
-                        onOpenInspector = { nav.navigate("inspector") },
-                        onOpenDiagnostics = { nav.navigate("diagnostics") },
-                        onOpenAbout = { nav.navigate("about") },
+                    )
+                }
+                composable("settings/maintenance") {
+                    dev.mrwick.gixxerbridge.ui.settings.MaintenanceSettingsScreen(
+                        vm = viewModel(),
                         onOpenMileage = { nav.navigate("mileage") },
                         onOpenServiceHistory = { nav.navigate("service-history") },
+                    )
+                }
+                composable("settings/developer") {
+                    dev.mrwick.gixxerbridge.ui.settings.DeveloperSettingsScreen(
+                        vm = viewModel(),
+                        onOpenInspector = { nav.navigate("inspector") },
+                        onOpenDiagnostics = { nav.navigate("diagnostics") },
                     )
                 }
                 composable("pairing") {
