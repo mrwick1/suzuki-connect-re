@@ -334,7 +334,12 @@ private fun AppShell() {
                         },
                     )
                 }
-                composable(Tab.Dashboard.route) { DashboardScreen(viewModel()) }
+                composable(Tab.Dashboard.route) {
+                    DashboardScreen(
+                        vm = viewModel(),
+                        onOpenPairing = { nav.navigate("pairing") },
+                    )
+                }
                 composable(Tab.Trips.route) {
                     val ctx = androidx.compose.ui.platform.LocalContext.current
                     val vm: TripsViewModel = viewModel(factory = object : androidx.lifecycle.ViewModelProvider.Factory {
