@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import dev.mrwick.gixxerbridge.util.AppLog
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -146,8 +146,8 @@ private fun LogRow(e: AppLog.Entry) {
     val color = when (e.level) {
         AppLog.Level.D -> MaterialTheme.colorScheme.onSurfaceVariant
         AppLog.Level.I -> MaterialTheme.colorScheme.onSurface
-        AppLog.Level.W -> Color(0xFFFBBF24)
-        AppLog.Level.E -> MaterialTheme.colorScheme.error
+        AppLog.Level.W -> GixxerTokens.warning
+        AppLog.Level.E -> GixxerTokens.danger
     }
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(
