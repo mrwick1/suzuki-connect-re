@@ -28,13 +28,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
  * Generic "permission required" card: title + rationale on the left, either a
@@ -81,8 +81,8 @@ fun PermissionRow(
             Spacer(modifier = Modifier.width(12.dp))
             if (granted) {
                 Surface(
-                    color = Color(0xFF064E3B),
-                    contentColor = Color(0xFFA7F3D0),
+                    color = GixxerTokens.surface,
+                    contentColor = GixxerTokens.success,
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Text(

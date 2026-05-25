@@ -49,7 +49,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +61,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.ble.BikeBridgeService
 import dev.mrwick.gixxerbridge.notifications.NotificationCaptureService
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
  * First-run wizard. Four steps:
@@ -299,8 +299,8 @@ private fun PermissionRow(label: String, rationale: String, granted: Boolean, on
 @Composable
 private fun GrantedPill() {
     Surface(
-        color = Color(0xFF064E3B),
-        contentColor = Color(0xFFA7F3D0),
+        color = GixxerTokens.surface,
+        contentColor = GixxerTokens.success,
         shape = MaterialTheme.shapes.small,
     ) {
         Row(
@@ -359,7 +359,7 @@ private fun PairStep(vm: OnboardingViewModel, onContinue: () -> Unit, onBack: ()
                     modifier = Modifier.padding(16.dp).fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF34D399))
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GixxerTokens.success)
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Already paired", style = MaterialTheme.typography.titleMedium)
@@ -452,7 +452,7 @@ private fun StartStep(vm: OnboardingViewModel, onBack: () -> Unit) {
             Icons.Default.CheckCircle,
             contentDescription = null,
             modifier = Modifier.size(96.dp),
-            tint = Color(0xFF34D399),
+            tint = GixxerTokens.success,
         )
         Spacer(Modifier.height(24.dp))
         Text(
@@ -519,8 +519,8 @@ private fun StepIndicator(step: Int, total: Int) {
                 modifier = Modifier
                     .size(8.dp)
                     .background(
-                        if (active) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant,
+                        if (active) GixxerTokens.accent
+                        else GixxerTokens.surfaceElevated,
                         CircleShape,
                     ),
             )

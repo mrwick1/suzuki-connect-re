@@ -9,13 +9,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.mrwick.gixxerbridge.notifications.NotificationCaptureService
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
  * One-tap fix for the most common confusion: "the app doesn't see my Maps
@@ -56,8 +56,8 @@ fun NotificationAccessRow() {
             Spacer(modifier = Modifier.width(12.dp))
             if (granted) {
                 Surface(
-                    color = Color(0xFF064E3B),
-                    contentColor = Color(0xFFA7F3D0),
+                    color = GixxerTokens.surface,
+                    contentColor = GixxerTokens.success,
                     shape = MaterialTheme.shapes.small,
                 ) {
                     Text(
