@@ -178,6 +178,12 @@ private sealed class Tab(val route: String, val label: String, val icon: ImageVe
 
 private val tabs = listOf(Tab.Home, Tab.Dashboard, Tab.Stats, Tab.Trips, Tab.Settings)
 
+/** Adapter from the internal `Tab` sealed class to the public GixxerNavTab DTO
+ *  that the custom bottom-nav composable consumes. */
+private val navTabs: List<dev.mrwick.gixxerbridge.ui.nav.GixxerNavTab> = tabs.map { t ->
+    dev.mrwick.gixxerbridge.ui.nav.GixxerNavTab(route = t.route, label = t.label, icon = t.icon)
+}
+
 @Composable
 private fun AppShell() {
     val nav = rememberNavController()
@@ -237,39 +243,33 @@ private fun AppShell() {
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
-            // Two-layer setup so the bar BACKGROUND stays edge-to-edge while the
-            // 5 ITEM SLOTS are pushed inward by 12.dp. Without this layering, the
-            // M3 active-indicator pill (fixed ~64 dp) bleeds past the screen edge
-            // on the leftmost (Home) and rightmost (Settings) tabs on phones where
-            // the per-slot width is narrower than the indicator. Just padding the
-            // NavigationBar itself left visible gutters of screen colour on either
-            // side — fixed here by making the outer Surface paint the bar's M3
-            // surfaceContainer color full-width, then placing a transparent-bg
-            // NavigationBar inside with horizontal padding for the item slots.
-            androidx.compose.material3.Surface(
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-            ) {
-                NavigationBar(
-                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 12.dp),
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                ) {
-                    tabs.forEach { tab ->
-                        NavigationBarItem(
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                nav.navigate(tab.route) {
-                                    popUpTo(Tab.Home.route) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = tab.label) },
-                            label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
-                        )
+            // Custom premium nav (see ui/nav/GixxerBottomNav.kt) — replaces the M3
+            // NavigationBar pill indicator with a minimal icon+label+accent-dot.
+            // currentRoute may be a sub-route (e.g. "pairing"), in which case no
+            // tab matches and all dots are hidden — that's the correct visual.
+            dev.mrwick.gixxerbridge.ui.nav.GixxerBottomNav(
+                tabs = navTabs,
+                currentRoute = currentRoute,
+                onTabSelected = { tab ->
+                    // Sub-route → tab tap: pop any sub-routes off and switch to
+                    // the chosen tab. Without this branch the old code's
+                    // popUpTo(Home) with saveState/restoreState could no-op when
+                    // pairing screen was on top — user reported "tapping Home does
+                    // nothing" from the pairing wizard.
+                    val onSubRoute = currentRoute != null && currentRoute !in navTabs.map { it.route }
+                    nav.navigate(tab.route) {
+                        if (onSubRoute) {
+                            // Hard pop — clear everything down to (and including)
+                            // the start destination, then land on the chosen tab.
+                            popUpTo(nav.graph.startDestinationId) { inclusive = false }
+                        } else {
+                            popUpTo(Tab.Home.route) { saveState = true }
+                        }
+                        launchSingleTop = true
+                        restoreState = !onSubRoute
                     }
-                }
-            }
+                },
+            )
         },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
