@@ -49,20 +49,21 @@ data class GixxerNavTab(
 )
 
 /**
- * GixxerBridge bottom nav — Wave 1 redesign.
+ * GixxerBridge bottom nav — Wave 1 redesign (icons-only, no container).
  *
- * Replaces the M3 NavigationBar pill indicator with a minimal pattern:
- *   - Bar background is GixxerTokens.surface, edge-to-edge with safe-area
- *     padding for the gesture-nav inset.
- *   - Each tab is a Column with icon (22 dp) + label (11 sp) + 4 dp accent
- *     dot indicator below.
- *   - Selected: textPrimary icon + textPrimary label + accent dot visible.
- *   - Unselected: textMuted icon + textMuted label + dot hidden (transparent).
- *   - Color transitions use Motion.SpringStandard for crisp feedback.
+ * Mirrors the Instagram / X / Threads pattern: just the icons sitting at
+ * the bottom of the screen on transparent background, with a small accent
+ * dot indicating the selected tab. No labels, no surface fill, no pill.
  *
- * Why custom: the M3 NavigationBarItem pill indicator (fixed ~64 dp wide)
- * doesn't fit the per-slot width on dense 5-tab layouts AND its visual
- * weight reads as "Material default" rather than premium.
+ *   - Background: transparent — the screen below shows through.
+ *   - Each tab: 24 dp icon + 4 dp accent dot below.
+ *   - Selected: textPrimary icon + accent dot visible.
+ *   - Unselected: textMuted icon + dot hidden.
+ *   - Sized just enough for the gesture-nav inset + small breathing room.
+ *
+ * Why custom: the M3 NavigationBar can't be reduced this much (forces a
+ * 80 dp min height, paints a surface). And we want the icons sitting on
+ * pure bg with no chrome.
  */
 @Composable
 fun GixxerBottomNav(
@@ -71,28 +72,23 @@ fun GixxerBottomNav(
     onTabSelected: (GixxerNavTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        color = GixxerTokens.surface,
-        modifier = modifier.fillMaxWidth(),
+    // No Surface wrapper — the bar is whatever colour the screen below it is.
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceAround,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .heightIn(min = 64.dp)
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            tabs.forEach { tab ->
-                val isSelected = currentRoute == tab.route
-                NavTabItem(
-                    tab = tab,
-                    isSelected = isSelected,
-                    onClick = { onTabSelected(tab) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+        tabs.forEach { tab ->
+            val isSelected = currentRoute == tab.route
+            NavTabItem(
+                tab = tab,
+                isSelected = isSelected,
+                onClick = { onTabSelected(tab) },
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -133,16 +129,11 @@ private fun NavTabItem(
     ) {
         Icon(
             imageVector = tab.icon,
-            contentDescription = tab.label,
+            contentDescription = tab.label,   // a11y — label still readable to screen readers
             tint = fgColor,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(24.dp),
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = tab.label,
-            style = MaterialTheme.typography.labelSmall.copy(color = fgColor),
-        )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .size(4.dp)
