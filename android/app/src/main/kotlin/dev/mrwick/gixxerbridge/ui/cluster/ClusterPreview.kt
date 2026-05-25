@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.protocol.NavFrame
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
  * Faux-bike-cluster card showing the latest a531 frame sent to the bike. Goes
@@ -54,7 +55,7 @@ fun ClusterPreview(modifier: Modifier = Modifier) {
     val nav by ClusterState.latestNav.collectAsStateWithLifecycle()
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF050B1A)),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.bg),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -66,7 +67,7 @@ fun ClusterPreview(modifier: Modifier = Modifier) {
                 Text(
                     "Cluster preview",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.textMuted,
                 )
                 Spacer(Modifier.weight(1f))
                 if (nav != null) {
@@ -77,7 +78,7 @@ fun ClusterPreview(modifier: Modifier = Modifier) {
             if (nav == null) {
                 Text(
                     "(no a531 frames yet — start the service)",
-                    color = Color(0xFF64748B),
+                    color = GixxerTokens.textMuted, // token-mapped from 0xFF64748B
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
@@ -103,7 +104,7 @@ private fun LivePulse() {
         modifier = Modifier
             .size(8.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(Color(0xFF22D3EE).copy(alpha = alpha)),
+            .background(GixxerTokens.accent.copy(alpha = alpha)),
     )
 }
 
@@ -115,11 +116,11 @@ private fun LivePulse() {
 @Composable
 private fun StatusBars(status: String) {
     val (filled, color) = when (status) {
-        "1" -> 4 to Color(0xFF22D3EE)
-        "3" -> 3 to Color(0xFF22D3EE)
-        "5" -> 3 to Color(0xFF22D3EE)
-        "0", "2", "4", "6" -> 1 to Color(0xFFF59E0B)
-        else -> 2 to Color(0xFF64748B)
+        "1" -> 4 to GixxerTokens.accent
+        "3" -> 3 to GixxerTokens.accent
+        "5" -> 3 to GixxerTokens.accent
+        "0", "2", "4", "6" -> 1 to GixxerTokens.warning
+        else -> 2 to GixxerTokens.textMuted // token-mapped from 0xFF64748B
     }
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         repeat(4) { i ->
@@ -129,7 +130,7 @@ private fun StatusBars(status: String) {
                     .width(3.dp)
                     .height((4 + i * 3).dp)
                     .clip(RoundedCornerShape(1.dp))
-                    .background(if (on) color else Color(0xFF1F2937)),
+                    .background(if (on) color else GixxerTokens.surfaceElevated), // token-mapped from 0xFF1F2937
             )
         }
     }
@@ -144,21 +145,21 @@ private fun ClusterBody(nav: NavFrame) {
             Text(
                 text = "${nav.distNext} ${nav.distNextUnit}",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color(0xFFA7F3D0),
+                color = GixxerTokens.textPrimary, // token-mapped from 0xFFA7F3D0
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
             )
             Text(
                 text = "ETA ${nav.eta}",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.textMuted,
                 fontFamily = FontFamily.Monospace,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "${nav.distTotal} ${nav.distTotalUnit} to go",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF64748B),
+                color = GixxerTokens.textMuted, // token-mapped from 0xFF64748B
                 fontFamily = FontFamily.Monospace,
             )
         }
@@ -178,7 +179,7 @@ private fun ManeuverIcon(maneuverId: Int, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val cx = size.width / 2
         val cy = size.height / 2
-        val arrowColor = Color(0xFF22D3EE)
+        val arrowColor = GixxerTokens.accent
         val stroke = Stroke(width = 6f, cap = StrokeCap.Round)
         when (maneuverId) {
             2 -> {
