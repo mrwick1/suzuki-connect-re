@@ -408,9 +408,9 @@ private fun PairStep(vm: OnboardingViewModel, onContinue: () -> Unit, onBack: ()
                         Icon(Icons.Default.TwoWheeler, contentDescription = null)
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(bike.name, style = MaterialTheme.typography.titleMedium)
+                            Text(bike.displayName, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "${bike.mac}  · RSSI ${bike.rssi}",
+                                "${bike.mac}  · ${if (bike.rssi == Int.MIN_VALUE) "saved" else "RSSI ${bike.rssi}"}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

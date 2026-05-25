@@ -1681,3 +1681,200 @@ For our protocol library, no changes needed — `HeartbeatFrame` already exposes
 - Capture a call / SMS / WhatsApp event with HCI snoop running to validate the a532 / a534 / a535 templates
 - `c.G`, `c.M`, `c.N` semantic verification (mode-byte / angle/bearing-byte) — needs a live ride
 - Whether `K.g` for Gixxer SF 150 specifically is true or false — depends on the cluster's BLE name; our LOCAL_NOTES.md has the cluster MAC but probably not the name char-by-char. Quick check next session.
+
+## 2026-05-25 — Oil change / periodic-service detection is APP-side, not bike-side
+
+### Context
+
+While testing the live Dashboard with a freshly-connected bike, Arjun asked: how does the bike detect that it's time for an oil change? Sensor? Hardcoded km?
+
+### Finding
+
+The bike has **no oil-life or service sensor**. Service detection is **entirely app-side**: the Suzuki Connect app holds hardcoded calendar-day + odometer-km thresholds and compares them against the live odometer reading (from a537) and a stored install/reset date.
+
+Source: `decompiled/jadx-out/sources/com/suzuki/activity/PeriodicVehicleServiceActivity.java:158-180`. The `n(...)` call sets up a reminder; the 6th arg is days, the 7th is km threshold (range string or `""` for no km gate):
+
+```
+Air Filter Replacement    →  365 days  OR 12000 km
+Brake Oil Change          →  730 days  (no km gate)
+Periodic Service (engine) →  120 days  OR 3500-4000 km
+Spark Plug Change         →  240 days  OR  8000 km
+Battery Checkup           →  120 days  OR 3500-4000 km
+```
+
+The app fires a notification (and writes a reminder into local storage — see `NotificationHistoryActivity.java:162` keys: `_ServiceDate`, `_Kilometers`, `_PriorDays`, `_VehicleName`) when either threshold crosses. The bike-side a537 payload has no service-related byte; it's purely speed / odo / Trip A / Trip B / fuel bars / fuel economy.
+
+### Why this matters
+
+- Our GixxerBridge `Settings.serviceIntervalKm` mirrors this model — km-based gate computed in-app from the live odometer. No additional BLE work needed.
+- Replacing the official app does NOT lose any service-detection capability. The Suzuki app isn't reading anything special from the bike; it's just doing the same odometer arithmetic we already do.
+- The "Bike health · Service N" gauge on Home is functionally equivalent to what the Suzuki app shows, as long as we track per-service km thresholds independently (currently we only track one). Future enhancement: per-service intervals matching the table above.
+
+### What this closes
+
+- "Is there an oil sensor?" → No.
+- "Where does service-due come from?" → Hardcoded constants × odometer + install date, both app-side.
+- "Does the bike push a service warning over BLE?" → No frame for it; bike never tells the phone when service is due.
+
+## 2026-05-25 — BLE handshake timing: the bike drops the link if identity is late
+
+### Context
+
+First end-to-end live test of the GixxerBridge replacement app against the bike. Connection reached `Ready` cleanly, heartbeats wrote OK at 1 Hz, but bike stayed in "pairing mode" on the cluster and dropped the link after ~26-35 s with `status=8` (`HCI_ERR_CONN_TIMEOUT`). Repeated across multiple attempts.
+
+### Root cause
+
+Three distinct problems, only fully diagnosed by adding `BluetoothStatusCodes` Int-level logging to `BleClient.write` and cross-referencing the M0 pcap.
+
+**(1) Identity (a536) `writeCharacteristic` was returning `false` *immediately* after Ready.** Our old code flipped `_state.value = Ready` synchronously inside `onServicesDiscovered`, before the CCC descriptor write completed. Android's BLE stack allows **only one outstanding GATT op** per connection — the identity write raced the still-pending descriptor write and the stack rejected it. The bike never saw a536, sat in pairing mode waiting, and TCP-equivalent supervision timed out the link.
+
+Pcap proof of the right ordering (`captures/m0-pairing-and-first-nav-20260523-1712.pcap` — official Suzuki Connect app):
+
+```
+63.082  Exchange MTU Req (client=517)
+63.104  Exchange MTU Resp (bike caps at 65)
+63.642  Sent Write Request → CCC of 0xFFF2     ← 538 ms gap
+63.749  Rcvd Write Response (ack)
+63.799  Sent Write Request → a536 IDENTITY     ← 50 ms after CCC ack, not before
+63.885  Rcvd Write Response
+64.201  Rcvd Handle Value Notification (a537 starts streaming)
+```
+
+The decompiled APK does this same dance in `MyBleService.a(BleDevice)` with an explicit `postDelayed(500)` between MTU negotiation and the notify subscription (already noted in DISCOVERIES 2026-05-24 "Connection handshake fully mapped" line 1008).
+
+**(2) Even after waiting for the CCC ack, the first 1-1.5 s of `writeCharacteristic` calls still returned synchronous failures.** On TIRAMISU+ the new overload returns `BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY` (= 201) for a brief window after a descriptor write completes — the stack is still draining its internal queue. The old boolean-returning overload masked this as a generic `false`. Heartbeats happened to succeed ~1.5 s later (after the URGENT identity write had already been given up on), which is why we saw a connection that *seemed* live but the bike was sitting silent.
+
+**(3) The writer drain was dropping entries when the link wasn't Ready.** Old code: `take(); if (!Ready) { delay(100); continue; }` — that `continue` silently discards the dequeued entry. URGENT identity racing a fresh connect could be eaten outright. Fixed by re-enqueueing instead of dropping.
+
+### Fixes shipped (commit pending)
+
+All in `android/app/src/main/kotlin/dev/mrwick/gixxerbridge/ble/`:
+
+- **`BleClient.runHandshake(gatt)`** (new) — replaces inline `onServicesDiscovered` work. Sequence: `requestMtu(65)` → wait `onMtuChanged` → `delay(500)` → `setCharacteristicNotification` → `writeDescriptor(CCC, ENABLE)` → wait `onDescriptorWrite` → only THEN mark `_state = Ready`. Two new `CompletableDeferred` paired with `onMtuChanged` and `onDescriptorWrite` callbacks.
+- **`BleClient.write` retry loop** — polls `writeCharacteristic` every 50 ms for up to 2 s on transient `BUSY (201)` returns. Identity now lands on the 2nd attempt. Logs `write: ok type=0x36 after N attempts (busy backoff)` so the success-after-retry is visible in the diag log.
+- **`writeStatusName` helper** — maps `BluetoothStatusCodes` Ints to friendly names (`SUCCESS`, `BUSY`, `WRITE_NOT_ALLOWED`, `DEVICE_NOT_BONDED`, …) so the diag log no longer says "returned false" without context.
+- **`BikeBridgeService` writer drain** — re-enqueues instead of dropping when not Ready, and logs every TX with type byte for easy correlation with bike behavior.
+
+### Proof it works (2026-05-25 09:24 diag log)
+
+```
+09:24:05.653  onDescriptorWrite status=0 (SUCCESS)
+09:24:05.655  CCC notify-enable ack received — handshake clear to send
+09:24:05.656  Ready
+09:24:05.832  write: ok type=0x36 after 2 attempts (busy backoff)   ← IDENTITY landed
+09:24:05.925  writer: TX identity type=0x36
+```
+
+Bike then left pairing mode, accepted welcome a531, started streaming a537. Arjun confirmed cluster greeting displayed correctly.
+
+### What this updates
+
+- The earlier DISCOVERIES 2026-05-24 entry ("Connection handshake fully mapped") was accurate about what the *Suzuki app* does but didn't call out that the 500 ms delay and the CCC ack wait are **load-bearing** for a third-party client, not cosmetic. A correct client cannot skip either. Same goes for the post-descriptor-write busy window — that's an Android stack quirk, not protocol-level.
+
+---
+
+## 2026-05-25 — Suzuki cluster uses TI OUI 74:B8:39, but BLE name may go missing
+
+### Findings during pair-screen testing
+
+1. **The Suzuki cluster's confirmed public MAC OUI is `74:B8:39`** (Texas Instruments BLE SoC range). Cluster name advertised: `SBM110202788` (`SBM` = Suzuki Bike Model prefix + 9-digit serial). Used as a "likely your bike" heuristic in the pair UI.
+
+2. **One earlier session showed a different MAC** `22:1E:DA:75:57:B4` saved in DataStore — leading byte `0x22 = 00100010`, top 2 bits `00` = **non-resolvable random BLE address**. Either the cluster occasionally rotates address (rare for a fixed peripheral), or this was a stale leftover from a different test device. Worth a follow-up confirmation that `74:B8:39:54:DA:F1` is the stable address for this bike across power cycles.
+
+3. **Most non-Suzuki nearby BLE devices advertise no name at all** (31-byte adv packet fills up fast; phones/buds put their name only in the scan response or omit entirely). Without a vendor label, the pair list showed raw MACs and "(unknown)" titles. Fixed by `BleVendor.identify(ScanResult)` (`android/app/src/main/kotlin/dev/mrwick/gixxerbridge/ble/BleVendor.kt`) which derives a label from, in priority order:
+   - Manufacturer-specific data → 16-bit Bluetooth SIG company ID (Apple=0x004C, Samsung=0x0075, Google=0x00E0, Microsoft=0x0006, …). Works on randomized-MAC devices because companies still embed their company ID.
+   - Service data UUIDs → 16-bit member service (Fast Pair=0xFEF3, Eddystone=0xFEAA, …).
+   - MAC OUI → vendor (curated table — Suzuki/TI specifically + common phone vendors).
+
+   Live test result: previously-unknown devices now show "Google (Fast Pair / Find My)", "Samsung", etc.
+
+### What's open
+
+- Cluster MAC stability across power cycles — verify `74:B8:39:54:DA:F1` doesn't change. If it does, scanning by service-UUID-or-name (instead of MAC) is the only durable identity.
+
+### 2026-05-25 (later) — Cluster MAC stability: evidence-based answer
+
+Follow-up investigation on the H1/H2 question above (does the cluster rotate its BLE MAC across power cycles?). Three independent evidence channels were checked.
+
+#### 1. The official Suzuki Connect app reconnects by NAME, not by MAC — FACT
+
+The official app uses the [FastBle](https://github.com/Jasonchenlijian/FastBLE) library (`com.clj.fastble.*` in the decompile). All scan/connect paths route through `com.clj.fastble.b`:
+
+- **Scan** (`b.i(callback)`, decompiled/jadx-out/sources/com/clj/fastble/b.java:221) calls `startLeScan(null, ...)` — a totally unfiltered scan that delivers every nearby BLE advertisement.
+- **Connect** (`b.b(BleDevice, callback)`, b.java:47) — takes a `BleDevice` (which wraps an `android.bluetooth.BluetoothDevice`) and calls into the standard `BluetoothGatt` connect path on its `getRemoteDevice(mac)` instance.
+
+The crucial question is therefore **what produces the `BleDevice` passed into `b.b()`** in both the first-time pair and the reconnect-after-disconnect paths.
+
+**First-time pair** (`DeviceListingScanActivity`, decompiled/jadx-out/sources/com/suzuki/activity/DeviceListingScanActivity.java + `adapter/C0882j.java`):
+- The scan callback `G(this, 0).y(BleDevice)` (decompiled/jadx-out/sources/com/suzuki/activity/G.java:114-119) forwards every result into `C0882j.a(BleDevice)`.
+- `C0882j.a()` filters by **NAME**: it accepts a device only if `bleDevice.c()` (= `BluetoothDevice.getName()`) contains `"SC"`, `"SB"`, or `"SA"` **and** is exactly 12 chars long (adapter/C0882j.java:48). Our bike's name `SBM110202788` matches: starts with `SB`, 12 chars.
+- When the rider taps a row, on `onConnectSuccess` (`C0855q0.b()` case `default`, activity/C0855q0.java:75-127) the app saves **both** the name AND the MAC into SharedPreferences `BLE_DEVICE`:
+  - `prev_cluster` = `bleDevice.c()` = the BLE name (e.g. `SBM110202788`)
+  - `prev_cluster_macAddr` = `bleDevice.b()` = the MAC (e.g. `74:b8:39:54:da:f1`)
+  - And the *name* (not the MAC) is mirrored into the in-memory `LiveData<String>` `com.google.android.gms.measurement.internal.K.t`.
+
+**Reconnect after disconnect** (`HomeScreenActivity.p()`, activity/HomeScreenActivity.java:527-534):
+- The reconnect path **starts a fresh scan** (`bVar.i(new G(this, 1))`), not a `getRemoteDevice(savedMac).connectGatt()`.
+- Scan callback case 1 (G.java:121-129) compares the discovered `bleDevice.c()` (NAME) against `com.suzuki.application.fragment.C.b1` (the saved cluster name, populated from `K.t.d()` which was set from `bleDevice.c()` at first pair).
+- On match: the app logs `"cluster found"` and proceeds.
+- The saved MAC (`prev_cluster_macAddr` in SharedPrefs) is read by `MyBleService` and `services/d.java` paths, but the **primary key for re-identifying the bike is the BLE name**, not the MAC.
+
+**Conclusion (fact)**: The official Suzuki Connect app's reconnect path is **name-based, not MAC-based**. Even though it persists the MAC, the actual scan→match logic compares names. This is strong indirect evidence that Suzuki's engineering team considers the cluster MAC *possibly* unstable (otherwise the canonical scan-then-match-by-name approach would be wasteful — `getRemoteDevice(mac).connectGatt()` is much simpler).
+
+#### 2. Multiple historical captures of this bike all show the same MAC — FACT
+
+Across four `.pcap` files in `captures/` from 2 distinct days (2026-05-23 afternoon + evening, 2026-05-24 ride), `tshark -T fields -e bthci_evt.bd_addr` yields exactly one MAC in the `74:b8:39:*` OUI:
+
+| Capture file | Date | `74:b8:39:*` BD_ADDR hits | Distinct MACs |
+|---|---|---|---|
+| `m0-pairing-and-first-nav-20260523-1712.pcap` | 2026-05-23 ~17:12 | 332 | `74:b8:39:54:da:f1` |
+| `m0-with-2-nav-20260523-1719.pcap` | 2026-05-23 ~17:19 | 332 | `74:b8:39:54:da:f1` |
+| `with-sim-nav-20260523-1840.pcap` | 2026-05-23 ~18:40 | 5 | `74:b8:39:54:da:f1` |
+| `ride-20260524-1810.pcap` | 2026-05-24 ~18:10 | 14 | `74:b8:39:54:da:f1` |
+
+No occurrence of `22:1e:da:*` in any pcap. Each pcap spans at least one full connection lifecycle (advertisement → discovery → GATT connect → identity write → notify stream), so every connection event observed across two days used the same MAC.
+
+#### 3. The MAC is in the bike's hardware via 2a23 System ID — FACT
+
+NOTES.md line 363 documents that reading the standard BLE Device Info Service characteristic `2a23 System ID` returns `f1da54000039b874` — that's `74:b8:39:54:da:f1` in big-endian with a 2-byte manufacturer-ID stub (`0x0000`) inserted between the upper and lower MAC halves, exactly per the BLE System ID spec (lower 3 bytes of MAC, then 2 manufacturer bytes, then upper 3 bytes of MAC). This is a hardware-burned identifier that a peripheral with rotating/non-resolvable random addresses *would not* expose — non-resolvable random BLE addresses by definition are unrelated to the chip's IEEE EUI-48.
+
+A TI BLE SoC with a public IEEE-allocated OUI (`74:b8:39`) and a `2a23 System ID` that matches the advertised BD_ADDR is the canonical signature of a **fixed public BLE address**.
+
+#### Answer to H1 vs H2
+
+- **H1 (cluster rotates MAC every power cycle): falsified by current evidence.** Across 4 pcaps spanning ~25 hours and multiple key-on/key-off cycles, the bike's BLE BD_ADDR is `74:b8:39:54:da:f1` every time. Plus the hardware-burned `2a23 System ID` matches that MAC byte-for-byte, which is incompatible with random/rotating addresses.
+
+- **H2 (the `22:1E:DA:75:57:B4` DataStore entry was a stale leftover): supported.** That MAC's top 2 bits are `0b00` (non-resolvable random), and the OUI prefix `22:1E:DA` does not match the bike's TI OUI. No pcap contains it, and no current code persists it. Most plausible explanation: it was written in a prior debug build by either a typo, a different test device, or by an Android stack quirk where a peripheral's transient random address got cached before bonding upgraded to identity-resolved.
+
+#### Caveats / what this doesn't prove
+
+- **All 4 pcaps were captured within ~25 hours.** Longer-term rotation (e.g. weekly, on FW update, after battery disconnect) is not ruled out — only short-term per-power-cycle rotation. The diag-file hook below is the durable verification path.
+- **All captures are on a single phone (Redmi K20 Pro / LineageOS 16).** If another phone's BT stack ever sees a different address for this same cluster, that would be new evidence — but the `2a23` hardware ID would still be the source of truth.
+- **The official Suzuki app uses name-based reconnect.** That's evidence the *Suzuki engineers* might have been uncertain about MAC stability, but it could equally be a FastBle library convention. Doesn't independently prove the MAC actually rotates.
+
+#### Implication for GixxerBridge — RECOMMENDED CHANGE (not done in this commit)
+
+Today `BleClient.connect(mac)` uses the saved MAC directly via `adapter.getRemoteDevice(mac).connectGatt(...)`. Given the current evidence, this is safe **for this specific bike right now**. But to be robust if rotation ever does happen (and to match the official app's strategy), the durable identity should be the saved BLE name with the MAC as a tie-breaker.
+
+Suggested future change (tracked here, not in this commit):
+
+1. Persist `bikeName` (e.g. `SBM110202788`) alongside `bikeMac` in `Settings`.
+2. On reconnect: first try `getRemoteDevice(savedMac).connectGatt()` (fast path).
+3. On `CONN_TIMEOUT` (status=8) for >N seconds, fall back to: scan with `ScanFilter` matching the saved name (or no filter + adapter-side filter), pick the first SBM* result whose name == saved name, and connect on the freshly discovered MAC. Update saved MAC if it changed.
+
+Not shipped now because (a) current evidence says rotation is unlikely, (b) the diag hook below will give empirical confirmation over the next few power cycles, (c) it's a substantial refactor touching the autoConnect contract.
+
+#### Diag hook shipped this commit
+
+`android/app/src/main/kotlin/dev/mrwick/gixxerbridge/ble/BleScanner.kt` now appends one JSONL row to `filesDir/diag/cluster-mac-history.jsonl` every time the scanner sees a fresh device whose advertised name starts with `SBM`. File is capped at 50 entries (oldest dropped on overflow). Pull command:
+
+```bash
+adb shell run-as dev.mrwick.gixxerbridge.debug cat files/diag/cluster-mac-history.jsonl
+```
+
+Line format (UTC timestamp, ISO8601 millis):
+```
+{"t":"2026-05-25T09:24:05.123Z","name":"SBM110202788","mac":"74:B8:39:54:DA:F1","rssi":-50}
+```
+
+To-verify protocol: open the GixxerBridge pair screen → key the bike on → confirm a row is appended → key the bike off + power-cycle the cluster (turn bike fully off, count to 10, key on again) → open pair screen again → confirm a second row. Repeat across 5-10 power cycles over a few days. If all rows for `SBM110202788` show the same MAC, H2 is empirically confirmed. If any row shows a different MAC for the same serial, H1 becomes the live case and the name-based fallback above becomes load-bearing.

@@ -16,6 +16,8 @@ import androidx.lifecycle.lifecycleScope
 import dev.mrwick.gixxerbridge.GixxerApp
 import dev.mrwick.gixxerbridge.MainActivity
 import dev.mrwick.gixxerbridge.R
+import dev.mrwick.gixxerbridge.app.AppEvent
+import dev.mrwick.gixxerbridge.app.AppEvents
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.Greetings
@@ -39,6 +41,7 @@ import dev.mrwick.gixxerbridge.telemetry.PhoneState
 import dev.mrwick.gixxerbridge.telemetry.RideLogger
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.weather.WeatherCache
+import dev.mrwick.gixxerbridge.util.AppLog
 import dev.mrwick.gixxerbridge.weather.WeatherProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -231,6 +234,21 @@ class BikeBridgeService : LifecycleService() {
         lifecycleScope.launch {
             bleClient.notifications.collect { bytes ->
                 AppGraph.frameStream.emit(FrameEvent(FrameEvent.Direction.RX, bytes))
+                // Diag-log every notify so the user can see if real bike telemetry is
+                // arriving (vs demo source). Log just the type byte + size to keep it
+                // skim-friendly in the Diagnostics screen.
+                val typeHex = if (bytes.size >= 2) "0x${"%02x".format(bytes[1].toInt() and 0xFF)}" else "??"
+                AppLog.i(tag, "RX notify type=$typeHex size=${bytes.size}")
+                // Real-bike-beats-demo: if an a537 arrives while demo is still ON,
+                // flip demo off so the Dashboard stops mixing synthetic and real
+                // values. We re-check demoMode every a537 (not once-per-session) so
+                // a manual re-enable while connected gets overridden by the next
+                // real frame — by design, see task spec.
+                if (bytes.size >= 2 && (bytes[1].toInt() and 0xFF) == 0x37 && settings.demoMode.first()) {
+                    settings.setDemoMode(false)
+                    AppLog.i(tag, "auto-disabled Demo mode — first real a537 received")
+                    AppEvents.emit(AppEvent.DemoModeAutoDisabled)
+                }
                 try {
                     val frame = decodeFrame(bytes)
                     if (frame is TelemetryFrame) TelemetryRepository.update(frame)
@@ -377,20 +395,45 @@ class BikeBridgeService : LifecycleService() {
             while (true) {
                 val entry = frameWriter.take()
                 if (bleClient.state.value !is ConnectionState.Ready) {
+                    // BUGFIX: previously we did `continue` here, which silently dropped
+                    // the dequeued entry. URGENT entries (identity / call / sms) racing
+                    // a fresh connect could be lost mid-handshake. Now we re-enqueue
+                    // and back off so the entry is held until the link is Ready.
+                    AppLog.d(tag, "writer: holding ${entry.note} until Ready (state=${bleClient.state.value})")
+                    frameWriter.enqueue(entry)
                     delay(100)
                     continue
                 }
                 val ok = bleClient.write(entry.frame)
                 AppGraph.frameStream.emit(FrameEvent(FrameEvent.Direction.TX, entry.frame, note = entry.note))
-                if (!ok) Log.w(tag, "write failed: ${entry.note}")
+                if (!ok) AppLog.w(tag, "writer: write failed for ${entry.note} (type=0x${"%02x".format(entry.frame[1].toInt() and 0xFF)})")
+                else AppLog.i(tag, "writer: TX ${entry.note} type=0x${"%02x".format(entry.frame[1].toInt() and 0xFF)}")
             }
         }
 
-        // Kick off the BLE connection
+        // Observe paired-bike MAC. Reconnect whenever the user picks a (different) bike
+        // from the pair wizard, or disconnect if they clear it. Previously this only
+        // read .first() once at onCreate, so a fresh pair while the service was already
+        // running was silently ignored — the MAC was saved to DataStore but nothing
+        // ever connected, and the pair screen looked like a no-op to the user.
         lifecycleScope.launch {
-            val mac = settings.bikeMac.first()
-            if (mac != null) bleClient.connect(mac)
-            else Log.w(tag, "no bike MAC set; service idle until pairing wizard saves one")
+            settings.bikeMac.distinctUntilChanged().collect { mac ->
+                if (mac != null) {
+                    AppLog.i(tag, "bikeMac=$mac → bleClient.connect()")
+                    bleClient.connect(mac)
+                } else {
+                    AppLog.i(tag, "bikeMac cleared → bleClient.disconnect()")
+                    bleClient.disconnect()
+                }
+            }
+        }
+        // Mirror BleClient state transitions to AppLog so the user can see the full
+        // connect lifecycle in the Diagnostics screen even when off-tether from adb.
+        lifecycleScope.launch {
+            // StateFlow already deduplicates so no distinctUntilChanged() needed.
+            bleClient.state.collect { s ->
+                AppLog.i(tag, "ConnectionState → $s")
+            }
         }
     }
 

@@ -9,7 +9,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -31,6 +33,7 @@ import dev.mrwick.gixxerbridge.ui.compose.FrameComposerViewModel
 import dev.mrwick.gixxerbridge.ui.dashboard.DashboardScreen
 import dev.mrwick.gixxerbridge.ui.dashboard.DashboardViewModel
 import dev.mrwick.gixxerbridge.ui.home.HomeScreen
+import dev.mrwick.gixxerbridge.ui.diagnostics.DiagnosticsScreen
 import dev.mrwick.gixxerbridge.ui.inspector.InspectorScreen
 import dev.mrwick.gixxerbridge.ui.inspector.InspectorViewModel
 import dev.mrwick.gixxerbridge.ui.KeepScreenOnEffect
@@ -56,7 +59,10 @@ import dev.mrwick.gixxerbridge.ui.stats.StatsViewModel
 import dev.mrwick.gixxerbridge.ui.trips.TripDetailScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsViewModel
+import dev.mrwick.gixxerbridge.app.AppEvent
+import dev.mrwick.gixxerbridge.app.AppEvents
 import dev.mrwick.gixxerbridge.app.AppGraph
+import kotlinx.coroutines.launch
 
 /**
  * Entry activity. FragmentActivity for biometric prompt compatibility (see ui/lock).
@@ -180,6 +186,38 @@ private fun AppShell() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val activity = context as? android.app.Activity
 
+    // Process-wide one-shot event bus -> snackbar host. Lives at the shell so
+    // any active screen (Dashboard, Settings, Trips, etc.) surfaces transient
+    // signals fired from the foreground service (e.g. demo-mode auto-disable).
+    // SnackbarHostState is remembered across recompositions so a snackbar that
+    // started showing isn't lost when the user navigates between tabs.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val settingsForEvents = remember(context) { AppGraph.settings(context) }
+    LaunchedEffect(Unit) {
+        AppEvents.events.collect { event ->
+            when (event) {
+                is AppEvent.DemoModeAutoDisabled -> {
+                    // Drop any currently-shown snackbar so back-to-back
+                    // auto-disables (e.g. user re-enabled, next a537 arrived)
+                    // don't queue up behind a stale one.
+                    snackbarHostState.currentSnackbarData?.dismiss()
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Real bike telemetry detected — Demo mode turned off.",
+                        actionLabel = "Undo",
+                        withDismissAction = true,
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        // User explicitly chose to re-enable. The next a537 will
+                        // disable it again — that's by design (see BikeBridgeService).
+                        scope.launch { settingsForEvents.setDemoMode(true) }
+                    }
+                }
+            }
+        }
+    }
+
     // Root-level back handler: when we're on the Home tab, "back" should minimise
     // the app (moveTaskToBack) rather than call finish(). This keeps BikeBridgeService
     // alive in the background and avoids the Suzuki Connect-style "exit?" UX.
@@ -197,21 +235,39 @@ private fun AppShell() {
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
-            NavigationBar {
-                tabs.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentRoute == tab.route,
-                        onClick = {
-                            nav.navigate(tab.route) {
-                                popUpTo(Tab.Home.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
-                    )
+            // Two-layer setup so the bar BACKGROUND stays edge-to-edge while the
+            // 5 ITEM SLOTS are pushed inward by 12.dp. Without this layering, the
+            // M3 active-indicator pill (fixed ~64 dp) bleeds past the screen edge
+            // on the leftmost (Home) and rightmost (Settings) tabs on phones where
+            // the per-slot width is narrower than the indicator. Just padding the
+            // NavigationBar itself left visible gutters of screen colour on either
+            // side — fixed here by making the outer Surface paint the bar's M3
+            // surfaceContainer color full-width, then placing a transparent-bg
+            // NavigationBar inside with horizontal padding for the item slots.
+            androidx.compose.material3.Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+            ) {
+                NavigationBar(
+                    modifier = androidx.compose.ui.Modifier.padding(horizontal = 12.dp),
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                ) {
+                    tabs.forEach { tab ->
+                        NavigationBarItem(
+                            selected = currentRoute == tab.route,
+                            onClick = {
+                                nav.navigate(tab.route) {
+                                    popUpTo(Tab.Home.route) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            icon = { Icon(tab.icon, contentDescription = tab.label) },
+                            label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
                 }
             }
         },
@@ -285,6 +341,7 @@ private fun AppShell() {
                     })
                     InspectorScreen(vm)
                 }
+                composable("diagnostics") { DiagnosticsScreen() }
                 composable(Tab.Settings.route) {
                     SettingsScreen(
                         vm = viewModel(),
@@ -292,6 +349,7 @@ private fun AppShell() {
                         onOpenPairing = { nav.navigate("pairing") },
                         onOpenAllowlist = { nav.navigate("allowlist") },
                         onOpenInspector = { nav.navigate("inspector") },
+                        onOpenDiagnostics = { nav.navigate("diagnostics") },
                         onOpenAbout = { nav.navigate("about") },
                         onOpenMileage = { nav.navigate("mileage") },
                         onOpenServiceHistory = { nav.navigate("service-history") },

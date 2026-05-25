@@ -50,13 +50,24 @@ fun DashboardScreen(vm: DashboardViewModel) {
     ) {
         ClusterPreview()
         SpeedHeroCard(t)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            FuelCard(t, kmPerBar, modifier = Modifier.weight(1f))
-            OdoCard(t, modifier = Modifier.weight(1f))
+        // IntrinsicSize.Min + fillMaxHeight on each card → both cards in the row
+        // grow to the tallest sibling's intrinsic height, so Fuel (which has bars +
+        // range text + optional LOW FUEL pill) and Odometer (just two text lines)
+        // end up the same height. Was: each card sized to its own content, so the
+        // Odometer card looked stubby next to the taller Fuel card.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        ) {
+            FuelCard(t, kmPerBar, modifier = Modifier.weight(1f).fillMaxHeight())
+            OdoCard(t, modifier = Modifier.weight(1f).fillMaxHeight())
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            TripCard(label = "Trip A", value = t?.tripAKm, modifier = Modifier.weight(1f))
-            TripCard(label = "Trip B", value = t?.tripBKm, modifier = Modifier.weight(1f))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        ) {
+            TripCard(label = "Trip A", value = t?.tripAKm, modifier = Modifier.weight(1f).fillMaxHeight())
+            TripCard(label = "Trip B", value = t?.tripBKm, modifier = Modifier.weight(1f).fillMaxHeight())
         }
         FuelEconomyCard(t)
     }

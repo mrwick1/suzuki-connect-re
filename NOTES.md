@@ -387,6 +387,33 @@ Captured via direct GATT walk from laptop on M0 with bike key ON, Suzuki Connect
 - **Gate 5 (full BLE surface enumerated)**: complete. One service (0xFFF0) with one write char (0xFFF1) and one notify char (0xFFF2). 7 message types total, all decoded.
 - **Gate 2 (send valid third-party message)**: RESOLVED 2026-05-24. No application-layer auth — no PKOC, no HMAC, no session key, no signed messages. To send a valid frame: construct the 30 bytes with our `protocol.py` library (checksum auto-computed) and write to 0xFFF1. Whether BLE-layer bonding is required is still TBD (Hypothesis B in DISCOVERIES.md 2026-05-24 "Connection handshake" section) — needs a custom-client test.
 
+### Connection handshake — required sequence for a working client
+
+A third-party Central MUST perform this exact sequence after `BluetoothDevice.connectGatt()`. Skipping or reordering any step causes the bike to silently sit in pairing mode and drop the link with `HCI_ERR_CONN_TIMEOUT` (status=8) after ~26-35 s.
+
+```
+1. connectGatt → onConnectionStateChange(STATE_CONNECTED)
+2. discoverServices() → onServicesDiscovered
+3. requestMtu(65) → wait for onMtuChanged
+4. delay(500 ms)
+5. setCharacteristicNotification(0xFFF2, true)
+   + writeDescriptor(CCC, ENABLE_NOTIFICATION_VALUE)
+6. wait for onDescriptorWrite ack (status=GATT_SUCCESS)
+7. write a536 IDENTITY frame to 0xFFF1  (retry-on-busy, see below)
+8. bike begins streaming a537 on 0xFFF2 every ~5 s
+```
+
+Why each step is load-bearing:
+
+- **`requestMtu(65)`** — bike's GATT server caps MTU at 65 bytes; requesting higher still negotiates down to 65. Required before any write.
+- **`delay(500 ms)` between MTU and CCC** — matches Suzuki app's `postDelayed(500)` in `MyBleService.a(BleDevice)`. Empirically the bike's stack is not ready for descriptor writes immediately after MTU negotiation.
+- **Wait for `onDescriptorWrite` ack before any 0xFFF1 write** — Android's BLE stack allows only one outstanding GATT op per connection. Issuing a536 while the CCC write is still in flight will be rejected and the bike will never receive identity.
+- **Send a536 within ~30 s of connect** — bike's supervision timeout drops the link with status=8 if identity does not arrive in time.
+
+**Android `writeCharacteristic` BUSY window (TIRAMISU+ gotcha):** for ~1 s after `onDescriptorWrite` returns, `writeCharacteristic` returns `BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY` (= 201) while the stack drains its internal queue. The pre-TIRAMISU boolean-returning overload masks this as a generic `false`. A correct client MUST retry-on-busy with backoff (50 ms poll, up to ~2 s); the identity write typically lands on the 2nd attempt.
+
+See DISCOVERIES.md 2026-05-24 "Connection handshake fully mapped" for the decompile trace of `C0855q0.b()` + `MyBleService.a()`, and DISCOVERIES.md 2026-05-25 "BLE handshake timing" for the pcap timing reference and proof-of-fix diag log from the GixxerBridge client.
+
 ## Message types and structure (M0 preliminary, M5 will refine)
 
 All messages on `0xFFF1` (write) and `0xFFF2` (notify) share a common frame:
