@@ -39,6 +39,7 @@ fun DeveloperSettingsScreen(
     val autoStart by vm.autoStartOnBoot.collectAsStateWithLifecycle()
     val keepScreenOn by vm.keepScreenOn.collectAsStateWithLifecycle()
     val appLock by vm.appLockEnabled.collectAsStateWithLifecycle()
+    val maneuverSelfTrain by vm.maneuverSelfTrainEnabled.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
     LazyColumn(
@@ -51,6 +52,11 @@ fun DeveloperSettingsScreen(
                     "Demo mode (simulated bike telemetry)",
                     demoMode,
                     vm::setDemoMode,
+                )
+                DevSwitchRow(
+                    "Maneuver self-train (bitmap hash from text)",
+                    maneuverSelfTrain,
+                    vm::setManeuverSelfTrainEnabled,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenInspector, modifier = Modifier.fillMaxWidth()) {

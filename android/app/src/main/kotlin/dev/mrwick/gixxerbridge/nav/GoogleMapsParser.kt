@@ -10,6 +10,7 @@ import android.service.notification.StatusBarNotification
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import kotlinx.coroutines.flow.first
 import android.widget.TextView
 
 /**
@@ -77,7 +78,17 @@ object GoogleMapsParser {
 
         // Maneuver bitmap: largeIcon on this notification is the turn arrow.
         val maneuverBitmap = extractLargeIconBitmap(context, n)
-        val maneuverId = ManeuverClassifier.classify(maneuverBitmap, instruction)
+        // Read self-train pref synchronously via runBlocking on the DataStore flow.
+        // Cheap (one read per Maps notification, ~2 Hz max); avoids threading the
+        // pref through the whole parse API.
+        val selfTrain = kotlinx.coroutines.runBlocking {
+            dev.mrwick.gixxerbridge.app.AppGraph.settings(context).maneuverSelfTrainEnabled.first()
+        }
+        val maneuverId = ManeuverClassifier.classify(maneuverBitmap, instruction, selfTrain)
+        dev.mrwick.gixxerbridge.util.AppLog.i(
+            "MapsParser",
+            "notif title=\"${title?.take(60)}\" bitmap=${maneuverBitmap != null} -> id=$maneuverId",
+        )
 
         return ParsedNavData(
             maneuverId = maneuverId,

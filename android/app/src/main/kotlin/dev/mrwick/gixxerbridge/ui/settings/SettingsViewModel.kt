@@ -50,6 +50,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         )
     val demoMode = settings.demoMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val maneuverSelfTrainEnabled = settings.maneuverSelfTrainEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val keepScreenOn = settings.keepScreenOnWhileConnected
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val themeAccent = settings.themeAccent
@@ -103,6 +105,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setDemoMode(v: Boolean) {
         viewModelScope.launch { settings.setDemoMode(v) }
+    }
+
+    fun setManeuverSelfTrainEnabled(v: Boolean) {
+        viewModelScope.launch { settings.setManeuverSelfTrainEnabled(v) }
     }
 
     /** Toggle the "keep screen on while connected" preference. */

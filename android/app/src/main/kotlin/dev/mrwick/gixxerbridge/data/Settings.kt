@@ -101,6 +101,14 @@ class Settings(context: Context) {
     val demoMode: Flow<Boolean> =
         ds.data.map { it[Keys.DEMO_MODE] ?: false }
 
+    /** When true, [dev.mrwick.gixxerbridge.nav.ManeuverClassifier] self-trains
+     *  its bitmap-hash → maneuver-id table from text classifier results. Default
+     *  OFF — see DISCOVERIES.md 2026-05-25 nav-arrow diagnosis: a single text
+     *  miss can poison the bitmap table indefinitely. Turn on only once the
+     *  bike's maneuver-id semantics have been empirically verified. */
+    val maneuverSelfTrainEnabled: Flow<Boolean> =
+        ds.data.map { it[Keys.MANEUVER_SELF_TRAIN] ?: false }
+
     /** Phone number (E.164 or local digits) for the SOS contact; null if not configured. */
     val emergencyContactPhone: Flow<String?> =
         ds.data.map { decodeNullableString(it[Keys.EMERGENCY_CONTACT_PHONE]) }
@@ -227,6 +235,10 @@ class Settings(context: Context) {
         ds.edit { it[Keys.DEMO_MODE] = v }
     }
 
+    suspend fun setManeuverSelfTrainEnabled(v: Boolean) {
+        ds.edit { it[Keys.MANEUVER_SELF_TRAIN] = v }
+    }
+
     /** Set the emergency-contact phone number; pass null/empty to clear. */
     suspend fun setEmergencyContactPhone(v: String?) {
         ds.edit { it[Keys.EMERGENCY_CONTACT_PHONE] = encodeNullableString(v) }
@@ -275,6 +287,7 @@ class Settings(context: Context) {
         val LAST_SERVICE_ODO_KM = intPreferencesKey("last_service_odo_km")
         val MIRROR_ALLOWLIST = stringSetPreferencesKey("mirror_allowlist")
         val DEMO_MODE = booleanPreferencesKey("demo_mode")
+        val MANEUVER_SELF_TRAIN = booleanPreferencesKey("maneuver_self_train")
         val EMERGENCY_CONTACT_PHONE = stringPreferencesKey("emergency_contact_phone")
         val CRASH_DETECTION_ENABLED = booleanPreferencesKey("crash_detection_enabled")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
