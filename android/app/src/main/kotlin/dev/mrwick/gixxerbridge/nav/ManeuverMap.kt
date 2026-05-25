@@ -275,13 +275,21 @@ object ManeuverMap {
      *     [com.mappls.sdk.navigation.model.a.f]
      * @param vehicleModel the bike's vehicle_name (as the OEM stored it after
      *     pairing); null means use the default branch (Gixxer behavior).
+     * @param btid the bike's Bluetooth device ID (as the OEM stored it after
+     *     pairing); null means it doesn't trigger the SBS51 branch. The OEM
+     *     treats any BTID containing "SBS51" the same as the Burgman-like
+     *     vehicle-name set for Mappls IDs 58 and 74.
      * @return cluster byte 1..52, or null if the Mappls ID has no defined
      *     translation. Null means "leave the cluster showing whatever glyph it
      *     was last sent" — matches the OEM behavior of leaving e0 untouched in
      *     the fallthrough branches.
      */
-    fun mapplsIdToClusterByte(mapplsId: Int, vehicleModel: String?): Int? {
-        val isBurgmanLike = vehicleModel != null && vehicleModel in BURGMAN_LIKE_MODELS
+    fun mapplsIdToClusterByte(mapplsId: Int, vehicleModel: String?, btid: String? = null): Int? {
+        // OEM checks BOTH conditions (A0.java:646 + :660): vehicleModel in the
+        // special-cased set OR BTID containing "SBS51". The two are independent
+        // — some bikes match one but not the other.
+        val isBurgmanLike = (vehicleModel != null && vehicleModel in BURGMAN_LIKE_MODELS) ||
+            (btid != null && btid.contains("SBS51"))
         return when (mapplsId) {
             0 -> 1
             1 -> 2

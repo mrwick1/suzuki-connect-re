@@ -128,6 +128,26 @@ class ManeuverMapTest {
     }
 
     @Test
+    fun `SBS51 BTID triggers Burgman branch regardless of vehicleModel`() {
+        // A0.java:646 + :660 check d.k().contains("SBS51") in addition to the
+        // vehicle-name set. Any BTID containing that substring takes the
+        // Burgman path for Mappls 58 and 74.
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, null, "SBS51-ABC123"))
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(74, null, "SBS51-ABC123"))
+
+        // Substring match: contains, not equals.
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, null, "BIKE-SBS51-X"))
+        assertEquals(38, ManeuverMap.mapplsIdToClusterByte(74, null, "BIKE-SBS51-X"))
+
+        // BTID without SBS51 + vehicleModel not in Burgman set → default branch.
+        assertEquals(46, ManeuverMap.mapplsIdToClusterByte(58, null, "GIXXER-001"))
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(74, null, "GIXXER-001"))
+
+        // SBS51 in BTID overrides default-branch vehicleModel.
+        assertEquals(44, ManeuverMap.mapplsIdToClusterByte(58, "Gixxer SF 150", "SBS51"))
+    }
+
+    @Test
     fun `unmapped Mappls IDs return null (cluster keeps previous glyph)`() {
         assertNull(ManeuverMap.mapplsIdToClusterByte(29, null))
         assertNull(ManeuverMap.mapplsIdToClusterByte(32, null))
