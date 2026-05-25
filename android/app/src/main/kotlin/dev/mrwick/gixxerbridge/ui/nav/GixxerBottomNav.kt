@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -49,21 +50,19 @@ data class GixxerNavTab(
 )
 
 /**
- * GixxerBridge bottom nav — Wave 1 redesign (icons-only, no container).
+ * GixxerBridge bottom nav — Wave 1 redesign (floating pill).
  *
- * Mirrors the Instagram / X / Threads pattern: just the icons sitting at
- * the bottom of the screen on transparent background, with a small accent
- * dot indicating the selected tab. No labels, no surface fill, no pill.
+ * Single rounded container hugging the 5 icons, floating above the bottom
+ * of the screen with padding from the edges. Looks "lifted" rather than
+ * bolted to the bezel.
  *
- *   - Background: transparent — the screen below shows through.
- *   - Each tab: 24 dp icon + 4 dp accent dot below.
- *   - Selected: textPrimary icon + accent dot visible.
+ *   - Outer Box: full-width, bottom-center, padded for gesture-nav inset.
+ *   - Inner pill: GixxerTokens.surfaceElevated, 28 dp rounded corners,
+ *     1 dp hairline border, ~64 dp wide of internal content with the 5
+ *     icons packed close.
+ *   - Each tab: 22 dp icon + 4 dp accent dot below.
+ *   - Selected: textPrimary icon + accent dot.
  *   - Unselected: textMuted icon + dot hidden.
- *   - Sized just enough for the gesture-nav inset + small breathing room.
- *
- * Why custom: the M3 NavigationBar can't be reduced this much (forces a
- * 80 dp min height, paints a surface). And we want the icons sitting on
- * pure bg with no chrome.
  */
 @Composable
 fun GixxerBottomNav(
@@ -72,23 +71,36 @@ fun GixxerBottomNav(
     onTabSelected: (GixxerNavTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // No Surface wrapper — the bar is whatever colour the screen below it is.
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        tabs.forEach { tab ->
-            val isSelected = currentRoute == tab.route
-            NavTabItem(
-                tab = tab,
-                isSelected = isSelected,
-                onClick = { onTabSelected(tab) },
-                modifier = Modifier.weight(1f),
-            )
+        Surface(
+            color = GixxerTokens.surfaceElevated,
+            shape = RoundedCornerShape(28.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, GixxerTokens.border),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tabs.forEach { tab ->
+                    val isSelected = currentRoute == tab.route
+                    NavTabItem(
+                        tab = tab,
+                        isSelected = isSelected,
+                        onClick = { onTabSelected(tab) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
     }
 }
