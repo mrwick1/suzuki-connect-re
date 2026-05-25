@@ -121,6 +121,15 @@ class Settings(context: Context) {
     val themeAccent: Flow<String> =
         ds.data.map { it[Keys.THEME_ACCENT] ?: Settings.DEFAULT_ACCENT }
 
+    /**
+     * Chosen metric for the Active-ride overlay lower third. Defaults to [DEFAULT_ACTIVE_RIDE_METRIC].
+     * Options: "trip-a", "fuel", "eta", "road-type".
+     *
+     * Setter: [setActiveRideMetric] (added in Task C / Wave 2).
+     */
+    val activeRideMetric: Flow<String> =
+        ds.data.map { it[Keys.ACTIVE_RIDE_METRIC] ?: DEFAULT_ACTIVE_RIDE_METRIC }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }
@@ -243,6 +252,14 @@ class Settings(context: Context) {
         ds.edit { it[Keys.THEME_ACCENT] = name }
     }
 
+    /**
+     * Persist the active-ride bottom-metric choice.
+     * Valid values: "trip-a", "fuel", "eta", "road-type".
+     */
+    suspend fun setActiveRideMetric(name: String) {
+        ds.edit { it[Keys.ACTIVE_RIDE_METRIC] = name }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -263,6 +280,7 @@ class Settings(context: Context) {
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_while_connected")
         val THEME_ACCENT = stringPreferencesKey("theme_accent")
+        val ACTIVE_RIDE_METRIC = stringPreferencesKey("active_ride_metric")
 
         // Per-item service schedule (4 keys × 5 items). Key prefix uses the
         // ServiceItem.id string so rename-the-enum doesn't silently drop data
@@ -297,6 +315,9 @@ class Settings(context: Context) {
 
         /** Default theme accent name; matches the canonical cyan brand colour. */
         const val DEFAULT_ACCENT: String = "cyan"
+
+        /** Default active-ride bottom-metric; shows Trip A distance. */
+        const val DEFAULT_ACTIVE_RIDE_METRIC: String = "trip-a"
 
         /**
          * Default package allowlist for notification mirroring.

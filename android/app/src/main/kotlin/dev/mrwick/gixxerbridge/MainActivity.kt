@@ -63,6 +63,7 @@ import dev.mrwick.gixxerbridge.ui.trips.TripsViewModel
 import dev.mrwick.gixxerbridge.app.AppEvent
 import dev.mrwick.gixxerbridge.app.AppEvents
 import dev.mrwick.gixxerbridge.app.AppGraph
+import dev.mrwick.gixxerbridge.ui.active.ActiveRideLayer
 import kotlinx.coroutines.launch
 
 /**
@@ -214,6 +215,12 @@ private fun AppShell() {
         )
     }
 
+    // Active-ride metric: read from Settings so ActiveRideLayer knows which
+    // metric to display in the overlay lower third.
+    val activeRideMetric by AppGraph.settings(context).activeRideMetric.collectAsState(
+        initial = dev.mrwick.gixxerbridge.data.Settings.DEFAULT_ACTIVE_RIDE_METRIC,
+    )
+
     // Process-wide one-shot event bus -> snackbar host. Lives at the shell so
     // any active screen (Dashboard, Settings, Trips, etc.) surfaces transient
     // signals fired from the foreground service (e.g. demo-mode auto-disable).
@@ -262,6 +269,10 @@ private fun AppShell() {
         }
     }
 
+    // Active-ride overlay: wraps the Scaffold so the overlay is full-bleed,
+    // covering bottom nav and status bar. The underlying UI stays composed
+    // behind the overlay so returning is instant.
+    ActiveRideLayer(metric = activeRideMetric) {
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
@@ -434,4 +445,5 @@ private fun AppShell() {
             }
         }
     }
+    } // end ActiveRideLayer
 }
