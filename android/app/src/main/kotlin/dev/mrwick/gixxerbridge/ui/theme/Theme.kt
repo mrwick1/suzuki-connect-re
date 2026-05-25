@@ -9,25 +9,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * GixxerBridge design system.
+ * GixxerBridge theme — Wave 1 of the May 2026 UI overhaul.
  *
- * Inspired by the bike's own LCD cluster: deep navy backgrounds, soft cyan
- * accents, monospaced numerals for data, and a clear separation between
- * surface cards and the page background.
+ * Colors flow from [GixxerTokens]. The `accent` parameter overrides the
+ * primary slot (kept for the user-pickable accent in Settings until the
+ * Wave 4 settings split removes it).
  *
- * One theme — dark only. Light theme isn't useful in a helmet, and a
- * matte black UI carries less power draw on the OLED panels typical of
- * recent Android phones.
+ * Dark theme only — a matte black UI saves OLED power and reads well in
+ * sunlight, which matters for a rider glancing at the phone.
  */
 @Composable
 fun GixxerTheme(
-    accent: Color = Color(0xFF22D3EE),  // BrandCyan; file-level forward ref not allowed, so duplicated literal
+    accent: Color = GixxerTokens.accent,
     content: @Composable () -> Unit,
 ) {
     val scheme = GixxerColors.copy(
@@ -44,13 +42,11 @@ fun GixxerTheme(
 }
 
 /**
- * Named accent palette the user can pick between in Settings.
- *
- * Keys are the persisted strings (see `Settings.themeAccent`); values are the
- * Compose `Color` swapped into [androidx.compose.material3.ColorScheme.primary]
- * by [GixxerTheme]. Cyan matches the original brand and is the default.
+ * Named accent palette the user can pick in Settings. Wave 1 keeps the
+ * accent picker working but the design system defaults to GixxerTokens.accent.
  */
 val ACCENT_PALETTE: Map<String, Color> = linkedMapOf(
+    "red" to GixxerTokens.accent,
     "cyan" to Color(0xFF22D3EE),
     "amber" to Color(0xFFFBBF24),
     "magenta" to Color(0xFFEC4899),
@@ -58,115 +54,103 @@ val ACCENT_PALETTE: Map<String, Color> = linkedMapOf(
     "orange" to Color(0xFFFB923C),
 )
 
-/** Look up an accent by its persisted name, falling back to cyan if unknown. */
 fun accentColorFor(name: String?): Color =
-    ACCENT_PALETTE[name] ?: ACCENT_PALETTE.getValue("cyan")
+    ACCENT_PALETTE[name] ?: ACCENT_PALETTE.getValue("red")
 
-// --- Color palette ---------------------------------------------------------
-//
-// Sourced from the Tailwind slate / cyan / amber families. Mapped onto the
-// Material3 ColorScheme roles so vanilla Material widgets pick up the brand
-// automatically.
-
-private val BrandCyan = Color(0xFF22D3EE)        // primary accent
-private val BrandCyanDim = Color(0xFF0E7490)     // pressed / container
-private val BrandAmber = Color(0xFFFBBF24)       // secondary / warning
-private val BrandRed = Color(0xFFEF4444)         // destructive / error
-private val BrandGreen = Color(0xFF10B981)       // success / online
-
-// Surfaces stair-step from page background to top cards.
-private val BgBase = Color(0xFF050B1A)           // page bg (almost black, slight blue)
-private val BgSurface = Color(0xFF0F172A)        // standard card
-private val BgSurfaceHigh = Color(0xFF1E293B)    // raised card / app bar
-private val BgSurfaceMax = Color(0xFF334155)     // selected / focus tint
-private val Outline = Color(0xFF334155)
-
-private val TextPrimary = Color(0xFFF1F5F9)
-private val TextSecondary = Color(0xFF94A3B8)
-private val TextOnAccent = Color(0xFF052E36)
+// --- Color scheme: wired from GixxerTokens ---------------------------------
 
 val GixxerColors = darkColorScheme(
-    primary = BrandCyan,
-    onPrimary = TextOnAccent,
-    primaryContainer = BrandCyanDim,
-    onPrimaryContainer = TextPrimary,
-    secondary = BrandAmber,
-    onSecondary = Color(0xFF1F1300),
-    tertiary = BrandGreen,
-    onTertiary = Color(0xFF003920),
-    error = BrandRed,
-    onError = Color.White,
-    background = BgBase,
-    onBackground = TextPrimary,
-    surface = BgSurface,
-    onSurface = TextPrimary,
-    surfaceVariant = BgSurfaceHigh,
-    onSurfaceVariant = TextSecondary,
-    surfaceContainer = BgSurface,
-    surfaceContainerHigh = BgSurfaceHigh,
-    surfaceContainerHighest = BgSurfaceMax,
-    surfaceContainerLow = Color(0xFF0A1020),
-    outline = Outline,
-    outlineVariant = Color(0xFF1F2937),
-    inverseSurface = TextPrimary,
-    inverseOnSurface = BgBase,
+    primary = GixxerTokens.accent,
+    onPrimary = GixxerTokens.textPrimary,
+    primaryContainer = GixxerTokens.accent.copy(alpha = 0.7f),
+    onPrimaryContainer = GixxerTokens.textPrimary,
+    secondary = GixxerTokens.warning,
+    onSecondary = GixxerTokens.bg,
+    tertiary = GixxerTokens.success,
+    onTertiary = GixxerTokens.bg,
+    error = GixxerTokens.danger,
+    onError = GixxerTokens.textPrimary,
+    background = GixxerTokens.bg,
+    onBackground = GixxerTokens.textPrimary,
+    surface = GixxerTokens.surface,
+    onSurface = GixxerTokens.textPrimary,
+    surfaceVariant = GixxerTokens.surfaceElevated,
+    onSurfaceVariant = GixxerTokens.textMuted,
+    surfaceContainer = GixxerTokens.surface,
+    surfaceContainerHigh = GixxerTokens.surfaceElevated,
+    surfaceContainerHighest = GixxerTokens.surfaceElevated,
+    surfaceContainerLow = GixxerTokens.bg,
+    outline = GixxerTokens.border,
+    outlineVariant = GixxerTokens.border,
+    inverseSurface = GixxerTokens.textPrimary,
+    inverseOnSurface = GixxerTokens.bg,
 )
 
-// Brand accents exposed for cluster-style flourishes that need them by name.
+/**
+ * Brand-name aliases for places that need a color by intent rather than role.
+ * Prefer MaterialTheme.colorScheme.* when possible; this is for the few
+ * cluster-style flourishes that want explicit semantics.
+ */
 object GixxerBrand {
-    val accent = BrandCyan
-    val accentDim = BrandCyanDim
-    val warning = BrandAmber
-    val danger = BrandRed
-    val success = BrandGreen
-    val textSubtle = TextSecondary
+    val accent = GixxerTokens.accent
+    val accentHero = GixxerTokens.accentHero
+    val warning = GixxerTokens.warning
+    val danger = GixxerTokens.danger
+    val success = GixxerTokens.success
+    val textSubtle = GixxerTokens.textMuted
 }
 
-// --- Typography ------------------------------------------------------------
+// --- Typography: Inter + Geist Mono via Google Fonts ------------------------
 //
-// Two voices:
-//   - sans (FontFamily.Default = Roboto on Android): all readable copy
-//   - mono (FontFamily.Monospace): cluster-like numerals — speed, distance,
-//     timestamps, hex frames in the Inspector. Monospace keeps digits
-//     visually aligned across redraws.
-//
-// We keep Material3's role names so widgets pick this up automatically.
-
-private val Sans = FontFamily.Default
-private val Mono = FontFamily.Monospace
+// Type scale: opinionated weights (Airbnb 2025 modest 500/600 rather than
+// heavy 700/800 except the speed display). Tabular numerics on every
+// monospaced style — required to stop the layout jitter on per-frame
+// value changes.
 
 val GixxerTypography = Typography(
-    displayLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 56.sp, lineHeight = 60.sp),
-    displayMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 44.sp, lineHeight = 48.sp),
-    displaySmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 34.sp, lineHeight = 40.sp),
-    headlineLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 32.sp),
-    headlineMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp),
-    headlineSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp),
-    titleLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp),
-    titleMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 15.sp, lineHeight = 20.sp),
-    titleSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp),
-    bodyLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp),
-    bodyMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp),
-    bodySmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp),
-    labelLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp),
-    labelMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.4.sp),
-    labelSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 0.5.sp),
+    displayLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W600, fontSize = 48.sp, lineHeight = 52.sp),
+    displayMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W600, fontSize = 36.sp, lineHeight = 40.sp),
+    displaySmall = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W600, fontSize = 28.sp, lineHeight = 32.sp),
+
+    headlineLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W600, fontSize = 24.sp, lineHeight = 28.sp),
+    headlineMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W600, fontSize = 20.sp, lineHeight = 24.sp),
+    headlineSmall = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W500, fontSize = 18.sp, lineHeight = 22.sp),
+
+    titleLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W600, fontSize = 20.sp, lineHeight = 24.sp),
+    titleMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W500, fontSize = 16.sp, lineHeight = 20.sp),
+    titleSmall = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W500, fontSize = 14.sp, lineHeight = 18.sp),
+
+    bodyLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W400, fontSize = 15.sp, lineHeight = 22.sp),
+    bodyMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W400, fontSize = 14.sp, lineHeight = 20.sp),
+    bodySmall = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W400, fontSize = 12.sp, lineHeight = 16.sp),
+
+    labelLarge = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W500, fontSize = 13.sp, lineHeight = 16.sp, letterSpacing = 0.2.sp),
+    labelMedium = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W500, fontSize = 12.sp, lineHeight = 14.sp, letterSpacing = 0.3.sp),
+    labelSmall = TextStyle(fontFamily = InterFamily, fontWeight = FontWeight.W500, fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 0.4.sp),
 )
 
-/** Monospaced text styles for data — speed, distance, hex frames, timestamps. */
+/**
+ * Monospaced text styles for live numerics — speed, odo, trip km, fuel
+ * range, hex frames. Every style includes `tnum` so digits never shift
+ * horizontally as values change.
+ */
 object GixxerMono {
-    val display = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 64.sp, lineHeight = 64.sp)
-    val headline = TextStyle(fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 32.sp)
-    val body = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 18.sp)
-    val label = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp)
+    /** 144 sp Geist Mono — single use: SpeedDisplay. */
+    val display = TextStyle(fontFamily = GeistMonoFamily, fontWeight = FontWeight.W700, fontSize = 144.sp, lineHeight = 144.sp, fontFeatureSettings = "tnum")
+    /** Post-ride summary numbers, large data values. */
+    val headline = TextStyle(fontFamily = GeistMonoFamily, fontWeight = FontWeight.W500, fontSize = 32.sp, lineHeight = 36.sp, fontFeatureSettings = "tnum")
+    /** Odo, trip km, fuel range — most data lines. */
+    val body = TextStyle(fontFamily = GeistMonoFamily, fontWeight = FontWeight.W400, fontSize = 14.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum")
+    /** Caption-sized numerics — sub-text in cards. */
+    val label = TextStyle(fontFamily = GeistMonoFamily, fontWeight = FontWeight.W500, fontSize = 11.sp, lineHeight = 14.sp, fontFeatureSettings = "tnum")
 }
 
-// --- Shapes ---------------------------------------------------------------
+// --- Shapes: 8 / 12 / 16 / 28 (chips / small / cards / sheets) -------------
 
 val GixxerShapes = Shapes(
-    extraSmall = RoundedCornerShape(6.dp),
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(20.dp),
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
     extraLarge = RoundedCornerShape(28.dp),
 )
