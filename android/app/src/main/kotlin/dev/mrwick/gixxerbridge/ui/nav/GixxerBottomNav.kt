@@ -118,39 +118,26 @@ private fun NavTabItem(
         animationSpec = Motion.SpringStandard.colorSpec(),
         label = "navTabFg",
     )
-    val dotColor by animateColorAsState(
-        targetValue = if (isSelected) GixxerTokens.accent else Color.Transparent,
-        animationSpec = Motion.SpringStandard.colorSpec(),
-        label = "navTabDot",
-    )
 
-    Column(
+    // Box (not Column) — single icon, no dot, no spacer. Color contrast
+    // (bright white vs muted grey) IS the selection indicator.
+    Box(
         modifier = modifier
             .clip(MaterialTheme.shapes.small)
-            // No ripple/indication — a custom premium nav uses color shift
-            // rather than the M3 ripple-on-press visual.
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.Tab,
                 onClick = onClick,
             )
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = tab.icon,
-            contentDescription = tab.label,   // a11y — label still readable to screen readers
+            contentDescription = tab.label,   // a11y — label still announced by screen readers
             tint = fgColor,
             modifier = Modifier.size(24.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .size(4.dp)
-                .clip(CircleShape)
-                .background(dotColor),
         )
     }
 }
