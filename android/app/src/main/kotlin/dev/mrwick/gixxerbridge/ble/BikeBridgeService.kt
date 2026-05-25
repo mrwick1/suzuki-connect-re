@@ -187,6 +187,7 @@ class BikeBridgeService : LifecycleService() {
             store = RideStore(GixxerDatabase.get(applicationContext).rideDao()),
             telemetry = TelemetryRepository.latest,
             locationTracker = RideLocationTracker(applicationContext),
+            onRideEnded = { rideId -> AppGraph.publishLastFinishedRideId(rideId) },
         )
         rideLogger.attach(lifecycleScope)
 

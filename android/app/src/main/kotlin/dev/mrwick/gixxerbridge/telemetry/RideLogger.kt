@@ -29,6 +29,15 @@ class RideLogger(
     private val telemetry: StateFlow<TelemetryFrame?>,
     private val locationTracker: RideLocationTracker? = null,
     private val silenceTimeoutMs: Long = 10 * 60 * 1000L, // 10 min
+    /**
+     * Optional callback fired after a non-discarded ride ends, with the ride's
+     * database id. Used by BikeBridgeService to publish to AppGraph.lastFinishedRideId
+     * so the post-ride summary dialog can show in the UI.
+     *
+     * Called from a coroutine context (inside endRideInternal mutex), so
+     * implementations must be non-blocking.
+     */
+    private val onRideEnded: ((rideId: Long) -> Unit)? = null,
 ) {
     private val mutex = Mutex()
     private var rideId: Long? = null
@@ -144,6 +153,7 @@ class RideLogger(
                     fuelBarsEnd = lastFuel,
                     name = name,
                 )
+                onRideEnded?.invoke(id)
             }
             rideId = null
             if (trackerStarted) {

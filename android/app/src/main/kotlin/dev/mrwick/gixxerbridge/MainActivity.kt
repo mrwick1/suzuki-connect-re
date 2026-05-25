@@ -56,6 +56,7 @@ import dev.mrwick.gixxerbridge.ui.settings.SettingsScreen
 import dev.mrwick.gixxerbridge.ui.settings.SettingsViewModel
 import dev.mrwick.gixxerbridge.ui.stats.StatsScreen
 import dev.mrwick.gixxerbridge.ui.stats.StatsViewModel
+import dev.mrwick.gixxerbridge.ui.trips.PostRideSummaryHost
 import dev.mrwick.gixxerbridge.ui.trips.TripDetailScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsViewModel
@@ -203,6 +204,15 @@ private fun AppShell() {
     val currentRoute = backStack?.destination?.route ?: Tab.Home.route
     val context = androidx.compose.ui.platform.LocalContext.current
     val activity = context as? android.app.Activity
+
+    // Post-ride summary: shows a Spotify-Wrapped-style dialog when a ride ends.
+    val lastFinishedRideId by AppGraph.lastFinishedRideId.collectAsState()
+    lastFinishedRideId?.let { rideId ->
+        PostRideSummaryHost(
+            rideId = rideId,
+            onDismiss = { AppGraph.clearLastFinishedRide() },
+        )
+    }
 
     // Process-wide one-shot event bus -> snackbar host. Lives at the shell so
     // any active screen (Dashboard, Settings, Trips, etc.) surfaces transient

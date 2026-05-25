@@ -39,6 +39,25 @@ object AppGraph {
         _connectionState.value = state
     }
 
+    /**
+     * Set when a ride finishes with enough distance to be kept (i.e. RideLogger
+     * did NOT discard it). The post-ride summary dialog in MainActivity reads
+     * this and shows the Spotify-Wrapped-style summary. Cleared when the user
+     * dismisses the dialog.
+     */
+    private val _lastFinishedRideId = MutableStateFlow<Long?>(null)
+    val lastFinishedRideId: StateFlow<Long?> = _lastFinishedRideId.asStateFlow()
+
+    /** Called by BikeBridgeService after a non-discarded ride ends. */
+    fun publishLastFinishedRideId(rideId: Long) {
+        _lastFinishedRideId.value = rideId
+    }
+
+    /** Called by the post-ride summary dialog on dismiss to clear the signal. */
+    fun clearLastFinishedRide() {
+        _lastFinishedRideId.value = null
+    }
+
     /** Standard BLE Device Information Service snapshot — populated by BleClient on first connect. */
     private val _bikeInfo = MutableStateFlow<BikeInfo?>(null)
     val bikeInfo: StateFlow<BikeInfo?> = _bikeInfo.asStateFlow()
