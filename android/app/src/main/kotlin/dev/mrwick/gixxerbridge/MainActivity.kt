@@ -21,7 +21,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.appcompat.app.AppCompatActivity
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTheme
-import dev.mrwick.gixxerbridge.ui.theme.accentColorFor
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
@@ -99,12 +98,7 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.w("MainActivity", "auto-start BikeBridgeService threw", t)
         }
         setContent {
-            // Re-render with the user's chosen accent. Falls back to cyan until
-            // the first DataStore read completes (initial value below).
-            val appCtx = applicationContext
-            val settingsForTheme = remember { Settings(appCtx) }
-            val accentName by settingsForTheme.themeAccent.collectAsState(initial = Settings.DEFAULT_ACCENT)
-            GixxerTheme(accent = accentColorFor(accentName)) {
+            GixxerTheme {
                 OnboardingGate {
                     val lockVm: AppLockViewModel = viewModel(factory = androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application))
                     AppLockGate(lockVm) {

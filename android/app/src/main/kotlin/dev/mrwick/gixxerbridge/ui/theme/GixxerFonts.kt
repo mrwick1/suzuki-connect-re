@@ -61,7 +61,3 @@ val JetBrainsMonoFamily = FontFamily(
     Font(R.font.jetbrains_mono_variable, FontWeight.W600, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
 )
 
-// --- Temporary back-compat aliases (removed in Task 3 when Theme.kt is rewritten,
-// the only remaining caller). Keep the build green after this task. ---
-val InterFamily: FontFamily = HankenFamily
-val GeistMonoFamily: FontFamily = SairaFamily
