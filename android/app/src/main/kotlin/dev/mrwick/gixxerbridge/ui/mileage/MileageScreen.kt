@@ -84,6 +84,12 @@ fun MileageScreen(vm: MileageViewModel) {
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            Text(
+                "TRUE MILEAGE",
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 2.dp),
+            )
             AverageCard(avg)
             if (fills.isEmpty() && !bootDone) {
                 LazyColumn(
