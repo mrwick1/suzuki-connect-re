@@ -25,11 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
+import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import dev.mrwick.gixxerbridge.ui.trips.components.RideRow
 import dev.mrwick.gixxerbridge.ui.trips.components.WeekSectionHeader
@@ -137,18 +139,22 @@ private fun TripsScreenHeader(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = "TRIPS",
+            text = "TRIPS · THIS MONTH",
             style = MaterialTheme.typography.labelMedium,
-            color = GixxerTokens.textMuted,
+            color = GixxerBrand.accent,
         )
-        Spacer(Modifier.height(4.dp))
+        dev.mrwick.gixxerbridge.ui.components.HeroNumeral(
+            text = "$totalKm",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontSize = 72.sp,
+        )
         Text(
             text = if (rideCount > 0) {
-                "$rideCount ${if (rideCount == 1) "ride" else "rides"} · $totalKm km this month"
+                "KM · $rideCount ${if (rideCount == 1) "ride" else "rides"}"
             } else {
-                "No rides this month"
+                "KM · no rides yet"
             },
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.labelMedium,
             color = GixxerTokens.textMuted,
         )
     }
