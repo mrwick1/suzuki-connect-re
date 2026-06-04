@@ -58,6 +58,9 @@ object GixxerTokens {
     val textPrimary = onSurface
     val textMuted = onSurfaceDim
     val accent = lushGreen
+    // accentHero was a distinct rationed hero color in Wave-1; collapsed to the
+    // same accent transitionally — restore a dedicated token during per-screen
+    // migration (spec §6) if the hero needs to diverge from the everyday accent.
     val accentHero = lushGreen
     val success = zoneCool
     val warning = zoneMid
