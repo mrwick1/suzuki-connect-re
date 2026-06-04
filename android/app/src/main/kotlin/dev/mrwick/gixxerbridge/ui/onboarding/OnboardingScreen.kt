@@ -113,14 +113,16 @@ private fun WelcomeStep(onContinue: () -> Unit) {
         )
         Spacer(Modifier.height(24.dp))
         Text(
-            "GixxerBridge",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
+            "GIXXERBRIDGE",
+            style = MaterialTheme.typography.displayMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Google Maps on your bike's cluster.",
-            style = MaterialTheme.typography.titleMedium,
+            "GOOGLE MAPS ON YOUR BIKE'S CLUSTER",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.secondary,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(8.dp))
