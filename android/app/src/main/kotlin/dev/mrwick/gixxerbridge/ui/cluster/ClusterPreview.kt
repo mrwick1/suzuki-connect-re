@@ -313,53 +313,18 @@ private fun weatherDescriptor(code: Int): Pair<String, androidx.compose.ui.graph
  */
 @Composable
 private fun ManeuverIcon(maneuverId: Int, modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier) {
-        val cx = size.width / 2
-        val cy = size.height / 2
-        val arrowColor = GixxerTokens.accent
-        val stroke = Stroke(width = 6f, cap = StrokeCap.Round)
-        when (maneuverId) {
-            2 -> {
-                // left arrow
-                drawLine(arrowColor, Offset(cx + 20, cy - 20), Offset(cx - 20, cy), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx - 20, cy), Offset(cx + 20, cy + 20), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx - 20, cy), Offset(cx + 30, cy), strokeWidth = 6f)
-            }
-            3 -> {
-                // right arrow
-                drawLine(arrowColor, Offset(cx - 20, cy - 20), Offset(cx + 20, cy), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx + 20, cy), Offset(cx - 20, cy + 20), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx + 20, cy), Offset(cx - 30, cy), strokeWidth = 6f)
-            }
-            23 -> {
-                // U-turn — partial arc with arrowhead
-                drawArc(
-                    color = arrowColor,
-                    startAngle = -90f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = Offset(cx - 20, cy - 25),
-                    size = Size(40f, 50f),
-                    style = stroke,
-                )
-                drawLine(arrowColor, Offset(cx - 20, cy + 20), Offset(cx - 30, cy + 10), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx - 20, cy + 20), Offset(cx - 10, cy + 30), strokeWidth = 6f)
-            }
-            71 -> {
-                // roundabout — circle
-                drawCircle(arrowColor, radius = 25f, center = Offset(cx, cy), style = stroke)
-            }
-            50 -> {
-                // destination flag — pole + flag
-                drawLine(arrowColor, Offset(cx - 20, cy - 25), Offset(cx - 20, cy + 25), strokeWidth = 5f)
-                drawRect(arrowColor, topLeft = Offset(cx - 20, cy - 25), size = Size(35f, 25f))
-            }
-            else -> {
-                // generic forward arrow (covers id=8 plus anything we don't recognise)
-                drawLine(arrowColor, Offset(cx, cy + 25), Offset(cx, cy - 25), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx, cy - 25), Offset(cx - 15, cy - 10), strokeWidth = 6f)
-                drawLine(arrowColor, Offset(cx, cy - 25), Offset(cx + 15, cy - 10), strokeWidth = 6f)
-            }
-        }
+    // Bespoke REDLINE moto glyphs (see GixxerIcons). Mappls maneuver ids:
+    // 2=left, 3=right, 23=u-turn; everything else → straight/forward.
+    val glyph = when (maneuverId) {
+        2 -> dev.mrwick.gixxerbridge.ui.components.GixxerIcons.ManeuverLeft
+        3 -> dev.mrwick.gixxerbridge.ui.components.GixxerIcons.ManeuverRight
+        23 -> dev.mrwick.gixxerbridge.ui.components.GixxerIcons.ManeuverUTurn
+        else -> dev.mrwick.gixxerbridge.ui.components.GixxerIcons.ManeuverStraight
     }
+    Icon(
+        imageVector = glyph,
+        contentDescription = null,
+        tint = dev.mrwick.gixxerbridge.ui.theme.GixxerBrand.accent,
+        modifier = modifier,
+    )
 }

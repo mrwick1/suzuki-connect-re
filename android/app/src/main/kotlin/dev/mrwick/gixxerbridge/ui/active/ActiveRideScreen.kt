@@ -17,6 +17,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.sp
+import dev.mrwick.gixxerbridge.ui.components.OdometerNumber
+import dev.mrwick.gixxerbridge.ui.components.Sweep
+import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
+import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -94,11 +100,23 @@ fun ActiveRideScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                SpeedDisplay(
-                    speedKmh = telemetry?.speedKmh,
-                    state = speedState,
-                    lastUpdateMs = lastUpdateMs,
-                )
+                Sweep(
+                    progress = (telemetry?.speedKmh ?: 0) / 120f,
+                    modifier = Modifier.size(330.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        OdometerNumber(
+                            value = (telemetry?.speedKmh ?: 0).toLong(),
+                            style = GixxerMono.display.copy(fontSize = 120.sp),
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        Text(
+                            if (speedState == SpeedState.Connected) "KM / H" else "KM / H · ${speedState.name.uppercase()}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = GixxerBrand.accent,
+                        )
+                    }
+                }
             }
 
             // Lower third: one rider-chosen contextual metric
