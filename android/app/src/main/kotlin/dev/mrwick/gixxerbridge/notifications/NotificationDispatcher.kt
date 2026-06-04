@@ -6,8 +6,9 @@ import android.util.Log
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.ble.FrameWriter
 import dev.mrwick.gixxerbridge.data.Settings
-import dev.mrwick.gixxerbridge.nav.GoogleMapsParser
-import dev.mrwick.gixxerbridge.nav.MapsNavSource
+// PARKED (2026-06-04): Google Maps navigation is shelved.
+// import dev.mrwick.gixxerbridge.nav.GoogleMapsParser
+// import dev.mrwick.gixxerbridge.nav.MapsNavSource
 import dev.mrwick.gixxerbridge.protocol.CallFrame
 import dev.mrwick.gixxerbridge.protocol.MissedCallFrame
 import dev.mrwick.gixxerbridge.protocol.SmsFrame
@@ -57,7 +58,8 @@ object NotificationDispatcher {
     fun onPosted(context: Context, sbn: StatusBarNotification) {
         try {
             when (sbn.packageName) {
-                GoogleMapsParser.PKG_GOOGLE_MAPS -> handleMaps(context, sbn)
+                // PARKED: Google Maps nav shelved — Maps notifications are ignored.
+                // GoogleMapsParser.PKG_GOOGLE_MAPS -> handleMaps(context, sbn)
                 in PHONE_PACKAGES -> handlePhone(sbn)
                 in SMS_PACKAGES -> handleSms(sbn, isSms = true)
                 else -> {
@@ -70,15 +72,19 @@ object NotificationDispatcher {
     }
 
     fun onRemoved(sbn: StatusBarNotification) {
-        if (sbn.packageName == GoogleMapsParser.PKG_GOOGLE_MAPS) {
-            MapsNavSource.clear()
-        }
+        // PARKED: Google Maps nav shelved — nothing to clear on notification removal.
+        // if (sbn.packageName == GoogleMapsParser.PKG_GOOGLE_MAPS) {
+        //     MapsNavSource.clear()
+        // }
     }
 
-    private fun handleMaps(context: Context, sbn: StatusBarNotification) {
-        val parsed = GoogleMapsParser.parse(context, sbn) ?: return
-        MapsNavSource.update(parsed)
-    }
+    // PARKED (2026-06-04): Google Maps navigation is shelved. Revive together
+    // with the imports + onPosted/onRemoved branches above and the NavMux maps
+    // slot in BikeBridgeService.
+    // private fun handleMaps(context: Context, sbn: StatusBarNotification) {
+    //     val parsed = GoogleMapsParser.parse(context, sbn) ?: return
+    //     MapsNavSource.update(parsed)
+    // }
 
     private fun handlePhone(sbn: StatusBarNotification) {
         val title = sbn.notification?.extras?.getString(android.app.Notification.EXTRA_TITLE) ?: return

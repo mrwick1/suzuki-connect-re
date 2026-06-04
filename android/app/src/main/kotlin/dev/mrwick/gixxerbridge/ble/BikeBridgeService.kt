@@ -25,7 +25,8 @@ import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.location.RideLocationTracker
 import dev.mrwick.gixxerbridge.nav.IdleClockGenerator
-import dev.mrwick.gixxerbridge.nav.MapsNavSource
+// PARKED: Google Maps nav shelved — MapsNavSource no longer wired into NavMux.
+// import dev.mrwick.gixxerbridge.nav.MapsNavSource
 import dev.mrwick.gixxerbridge.nav.NavMux
 import dev.mrwick.gixxerbridge.nav.WelcomeFrame
 import dev.mrwick.gixxerbridge.notifications.NowPlayingProvider
@@ -148,7 +149,9 @@ class BikeBridgeService : LifecycleService() {
             }
         }
 
-        // NavMux pulls Maps nav (from NotificationCaptureService → MapsNavSource) and falls back to idle.
+        // NavMux normally muxes Maps nav over the idle clock, but Maps nav is
+        // PARKED (2026-06-04) — the maps slot is fed constant-null below, so only
+        // the idle producer reaches the cluster.
         //
         // Idle producer alternates every CYCLE_SECONDS=5 ticks (= 5s @ 1Hz):
         //   ticks 0..4  -> clock + weather
@@ -174,7 +177,14 @@ class BikeBridgeService : LifecycleService() {
                 tick++
             }
         }
-        navMux = NavMux(MapsNavSource.frame, idleProducer)
+        // PARKED (2026-06-04): Google Maps navigation is shelved. The
+        // notification-scrape -> guessed-Mappls-ID pipeline produced wrong
+        // cluster arrows, so we feed NavMux a constant-null maps slot and it
+        // always falls through to the idle clock (clock / weather / now-playing
+        // are unaffected). To revive: pass `MapsNavSource.frame` here again and
+        // re-enable the Maps branch in NotificationDispatcher. The planned
+        // replacement drives nav from the Mappls Navigation SDK instead.
+        navMux = NavMux(kotlinx.coroutines.flow.flowOf(null), idleProducer)
 
         AppGraph.bleClient = bleClient
         AppGraph.frameWriter = frameWriter

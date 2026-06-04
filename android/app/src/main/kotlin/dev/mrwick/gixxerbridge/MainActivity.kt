@@ -418,7 +418,8 @@ private fun AppShell() {
                     InspectorScreen(vm)
                 }
                 composable("diagnostics") { DiagnosticsScreen() }
-                composable("maneuver-sweep") { dev.mrwick.gixxerbridge.ui.dev.ManeuverSweepScreen() }
+                // PARKED (2026-06-04): maneuver/cluster-byte sweep is a navigation dev tool — shelved.
+                // composable("maneuver-sweep") { dev.mrwick.gixxerbridge.ui.dev.ManeuverSweepScreen() }
                 composable("weather-sweep") { dev.mrwick.gixxerbridge.ui.dev.WeatherSweepScreen() }
                 composable(Tab.Settings.route) {
                     SettingsScreen(
@@ -460,7 +461,8 @@ private fun AppShell() {
                         vm = viewModel(),
                         onOpenInspector = { nav.navigate("inspector") },
                         onOpenDiagnostics = { nav.navigate("diagnostics") },
-                        onOpenManeuverSweep = { nav.navigate("maneuver-sweep") },
+                        // PARKED: maneuver sweep shelved with Google Maps nav.
+                        // onOpenManeuverSweep = { nav.navigate("maneuver-sweep") },
                         onOpenWeatherSweep = { nav.navigate("weather-sweep") },
                     )
                 }

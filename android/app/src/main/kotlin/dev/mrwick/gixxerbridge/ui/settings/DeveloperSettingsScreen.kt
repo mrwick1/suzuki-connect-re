@@ -41,7 +41,8 @@ fun DeveloperSettingsScreen(
     val autoStart by vm.autoStartOnBoot.collectAsStateWithLifecycle()
     val keepScreenOn by vm.keepScreenOn.collectAsStateWithLifecycle()
     val appLock by vm.appLockEnabled.collectAsStateWithLifecycle()
-    val maneuverSelfTrain by vm.maneuverSelfTrainEnabled.collectAsStateWithLifecycle()
+    // PARKED (2026-06-04): maneuver classifier shelved with Google Maps nav.
+    // val maneuverSelfTrain by vm.maneuverSelfTrainEnabled.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
     LazyColumn(
@@ -55,11 +56,12 @@ fun DeveloperSettingsScreen(
                     demoMode,
                     vm::setDemoMode,
                 )
-                DevSwitchRow(
-                    "Maneuver self-train (bitmap hash from text)",
-                    maneuverSelfTrain,
-                    vm::setManeuverSelfTrainEnabled,
-                )
+                // PARKED (2026-06-04): maneuver self-train shelved with Google Maps nav.
+                // DevSwitchRow(
+                //     "Maneuver self-train (bitmap hash from text)",
+                //     maneuverSelfTrain,
+                //     vm::setManeuverSelfTrainEnabled,
+                // )
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenInspector, modifier = Modifier.fillMaxWidth()) {
                     Text("Open frame inspector")
@@ -68,10 +70,11 @@ fun DeveloperSettingsScreen(
                 Button(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
                     Text("Diagnostics / log viewer")
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onOpenManeuverSweep, modifier = Modifier.fillMaxWidth()) {
-                    Text("Maneuver sweep (verify cluster icons)")
-                }
+                // PARKED (2026-06-04): maneuver sweep is a navigation dev tool — shelved.
+                // Spacer(modifier = Modifier.height(8.dp))
+                // Button(onClick = onOpenManeuverSweep, modifier = Modifier.fillMaxWidth()) {
+                //     Text("Maneuver sweep (verify cluster icons)")
+                // }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenWeatherSweep, modifier = Modifier.fillMaxWidth()) {
                     Text("Weather sweep (verify cluster icons)")
