@@ -73,9 +73,6 @@ import kotlinx.coroutines.launch
  */
 class MainActivity : AppCompatActivity() {
 
-    private val notifPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignore result */ }
-    private val blePermLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* ignore result */ }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         // PERF / correctness: declare edge-to-edge BEFORE super.onCreate so the
         // system handles status + navigation bar layout instead of the app
@@ -84,19 +81,13 @@ class MainActivity : AppCompatActivity() {
         // window inset recomputations on background/foreground transitions.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        requestRuntimePermissions()
-        // Auto-start the bike BLE service on every app launch. Cheap (idempotent
-        // — service uses START_STICKY + the same singleton state when already
-        // running) and removes the "where is the start button?" UX question we
-        // used to handle with a button on Home.
-        try {
-            androidx.core.content.ContextCompat.startForegroundService(
-                this,
-                android.content.Intent(this, dev.mrwick.gixxerbridge.ble.BikeBridgeService::class.java),
-            )
-        } catch (t: Throwable) {
-            android.util.Log.w("MainActivity", "auto-start BikeBridgeService threw", t)
-        }
+        // NB: we deliberately do NOT request permissions or start the BLE
+        // foreground service here. On a fresh install BLUETOOTH_CONNECT isn't
+        // granted yet, and starting a `connectedDevice` foreground service
+        // without it throws SecurityException on Android 14+ → crash-on-launch.
+        // First-run permission requests + the initial service start are owned by
+        // the onboarding wizard (OnboardingScreen); returning users get a
+        // permission-guarded auto-start in OnboardingGate below.
         setContent {
             GixxerTheme {
                 OnboardingGate {
@@ -112,24 +103,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestRuntimePermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        // ACCESS_FINE_LOCATION is needed at runtime on ALL API levels here, not
-        // just for legacy BLE — RideLocationTracker uses FusedLocationProviderClient
-        // to record GPS tracks for ride GPX export. The runtime prompt is the
-        // only signal the user gives; without it RideLocationTracker.start() no-ops.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            blePermLauncher.launch(arrayOf(
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-            ))
-        } else {
-            blePermLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
-        }
-    }
 }
 
 /**
@@ -173,9 +146,37 @@ private fun OnboardingGate(content: @Composable () -> Unit) {
             val vm: OnboardingViewModel = viewModel()
             OnboardingScreen(vm)
         }
-        true -> content()
+        true -> {
+            // Returning user (onboarding already done): auto-start the BLE bridge
+            // so the bike connects without a manual button — but ONLY if the BLE
+            // permission is present, so we never hit the connectedDevice-FGS
+            // SecurityException that crashed first-run launches.
+            val appCtx = ctx.applicationContext
+            LaunchedEffect(Unit) {
+                if (hasBleStartPermission(appCtx)) {
+                    try {
+                        androidx.core.content.ContextCompat.startForegroundService(
+                            appCtx,
+                            android.content.Intent(appCtx, dev.mrwick.gixxerbridge.ble.BikeBridgeService::class.java),
+                        )
+                    } catch (t: Throwable) {
+                        android.util.Log.w("MainActivity", "returning-user BLE auto-start failed", t)
+                    }
+                }
+            }
+            content()
+        }
     }
 }
+
+/** True when the BLE foreground service can legally go `connectedDevice`:
+ *  pre-Android-12 needs no runtime BLE permission; Android 12+ needs
+ *  BLUETOOTH_CONNECT granted (the FGS-type "any of" requirement). */
+private fun hasBleStartPermission(ctx: android.content.Context): Boolean =
+    android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S ||
+        androidx.core.content.ContextCompat.checkSelfPermission(
+            ctx, android.Manifest.permission.BLUETOOTH_CONNECT,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
 private sealed class Tab(val route: String, val label: String, val icon: ImageVector) {
     data object Home : Tab("home", "Home", Icons.Default.Home)

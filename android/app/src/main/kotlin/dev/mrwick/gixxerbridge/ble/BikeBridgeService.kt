@@ -64,6 +64,10 @@ import kotlinx.coroutines.launch
 class BikeBridgeService : LifecycleService() {
 
     private val tag = "BikeBridge"
+    /** False until onCreate has gone foreground and built its collaborators.
+     *  Gates onDestroy so the graceful bail-out path never touches lateinit
+     *  fields that were never constructed. */
+    private var fullyStarted = false
     private lateinit var settings: Settings
     private lateinit var greetings: Greetings
     private lateinit var bleClient: BleClient
@@ -98,7 +102,16 @@ class BikeBridgeService : LifecycleService() {
     //     which is just a launch intent — no live Activity reference is held.
     override fun onCreate() {
         super.onCreate()
-        startInForeground()
+        // Defense-in-depth: if we were started without the BLE runtime
+        // permission (stale START_STICKY restart, an ungated caller, etc.),
+        // going foreground as a connectedDevice service throws SecurityException
+        // on Android 14+. Bail gracefully instead of crashing the process.
+        if (!startInForeground()) {
+            AppLog.w(tag, "BLE permission absent — not going foreground; stopping service")
+            stopSelf()
+            return
+        }
+        fullyStarted = true
 
         settings = Settings(applicationContext)
         greetings = Greetings(applicationContext)
@@ -497,6 +510,12 @@ class BikeBridgeService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        if (!fullyStarted) {
+            // We bailed in onCreate before constructing collaborators; touching
+            // the lateinit fields below would itself crash. Nothing to tear down.
+            super.onDestroy()
+            return
+        }
         demoSource.stop()
         // Best-effort: close out any open ride before lifecycleScope is cancelled.
         if (::rideLogger.isInitialized) {
@@ -523,13 +542,30 @@ class BikeBridgeService : LifecycleService() {
         super.onDestroy()
     }
 
-    private fun startInForeground() {
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(ConnectionState.Idle),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-        )
+    /** Returns true if the foreground state was established. Returns false
+     *  WITHOUT throwing when the BLE permission is missing or the OS rejects the
+     *  start — the caller must then stop the service (we never crash). */
+    private fun startInForeground(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.BLUETOOTH_CONNECT,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            AppLog.w(tag, "BLUETOOTH_CONNECT not granted; skipping connectedDevice foreground")
+            return false
+        }
+        return try {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(ConnectionState.Idle),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+            )
+            true
+        } catch (t: Throwable) {
+            AppLog.e(tag, "startForeground(connectedDevice) failed", t)
+            false
+        }
     }
 
     /**
