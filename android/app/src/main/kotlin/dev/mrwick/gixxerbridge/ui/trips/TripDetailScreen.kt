@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
@@ -115,6 +116,17 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    "RIDE DISTANCE · KM",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = dev.mrwick.gixxerbridge.ui.theme.GixxerBrand.accent,
+                )
+                dev.mrwick.gixxerbridge.ui.components.HeroNumeral(
+                    text = "$distance",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 72.sp,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 // Tap title to rename; always show the date below as unambiguous context.
                 Text(
                     nameOrFallback,
