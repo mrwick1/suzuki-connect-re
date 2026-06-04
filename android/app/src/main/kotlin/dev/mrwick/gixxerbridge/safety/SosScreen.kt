@@ -95,10 +95,10 @@ class SosScreen : ComponentActivity() {
                     contentAlignment = Alignment.Center,
                 ) {
                     // ---- Background layer: radial ring + countdown readout (Task A) ----
-                    // SpringStandard drives the ring — NOT infiniteRepeatable, NOT tween.
+                    // SpringSnap drives the ring — NOT infiniteRepeatable, NOT tween.
                     val ringFraction by animateFloatAsState(
                         targetValue = secondsLeft.toFloat() / COUNTDOWN_SECONDS.toFloat(),
-                        animationSpec = Motion.SpringStandard,
+                        animationSpec = Motion.SpringSnap,
                         label = "sosRingFraction",
                     )
 
@@ -127,7 +127,7 @@ class SosScreen : ComponentActivity() {
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.size(160.dp),
                         ) {
-                            // Outer ring shrinks across countdown via SpringStandard.
+                            // Outer ring shrinks across countdown via SpringSnap.
                             Box(
                                 modifier = Modifier
                                     .size(160.dp)

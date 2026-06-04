@@ -67,7 +67,7 @@ import kotlin.math.max
  *
  * Full-screen [Dialog] (usePlatformDefaultWidth=false, transparent scrim) showing
  * a 4-card [HorizontalPager]:
- *   1. Distance + duration — big animated counter with [Motion.SpringSoft]
+ *   1. Distance + duration — big animated counter with [Motion.SpringSweep]
  *   2. Speed — avg + max + per-sample sparkline
  *   3. Fuel & range — bars used + fuel economy
  *   4. Map + share — GPS polyline canvas + PNG share via FileProvider
@@ -193,7 +193,7 @@ private fun PostRideSummaryContent(
     }
 }
 
-/** Card 1: distance counter animated from 0 with SpringSoft, plus duration caption. */
+/** Card 1: distance counter animated from 0 with SpringSweep, plus duration caption. */
 @Composable
 private fun DistanceDurationCard(ride: RideEntity?) {
     val distanceKm = remember(ride) {
@@ -209,7 +209,7 @@ private fun DistanceDurationCard(ride: RideEntity?) {
     val animatedDistance = remember { Animatable(0f) }
     LaunchedEffect(distanceKm) {
         if (distanceKm > 0) {
-            animatedDistance.animateTo(distanceKm.toFloat(), animationSpec = Motion.SpringSoft)
+            animatedDistance.animateTo(distanceKm.toFloat(), animationSpec = Motion.SpringSweep)
         }
     }
 
@@ -248,8 +248,8 @@ private fun SpeedCard(ride: RideEntity?, samples: List<RideSampleEntity>) {
     val animatedAvg = remember { Animatable(0f) }
     val animatedMax = remember { Animatable(0f) }
     LaunchedEffect(avgSpeed, maxSpeed) {
-        animatedAvg.animateTo(avgSpeed.toFloat(), animationSpec = Motion.SpringSoft)
-        animatedMax.animateTo(maxSpeed.toFloat(), animationSpec = Motion.SpringSoft)
+        animatedAvg.animateTo(avgSpeed.toFloat(), animationSpec = Motion.SpringSweep)
+        animatedMax.animateTo(maxSpeed.toFloat(), animationSpec = Motion.SpringSweep)
     }
 
     Column(

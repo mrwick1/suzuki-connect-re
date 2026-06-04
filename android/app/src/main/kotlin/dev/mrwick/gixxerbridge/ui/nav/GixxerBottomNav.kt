@@ -115,7 +115,7 @@ private fun NavTabItem(
     val interactionSource = remember { MutableInteractionSource() }
     val fgColor by animateColorAsState(
         targetValue = if (isSelected) GixxerTokens.textPrimary else GixxerTokens.textMuted,
-        animationSpec = Motion.SpringStandard.colorSpec(),
+        animationSpec = Motion.SpringSnap.colorSpec(),
         label = "navTabFg",
     )
 

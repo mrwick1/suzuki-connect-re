@@ -41,12 +41,12 @@ import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 @Composable
 fun ConnectionDot(state: ConnectionState, modifier: Modifier = Modifier) {
     val color = colorFor(state)
-    // Motion.SpringStandard is typed AnimationSpec<Float>, but animateDpAsState
+    // Motion.SpringSnap is typed AnimationSpec<Float>, but animateDpAsState
     // requires AnimationSpec<Dp>. Use spring<Dp> with the same physics parameters
     // so the corner-radius morph matches the design-system spring exactly.
     val cornerRadius by animateDpAsState(
         targetValue = if (state is ConnectionState.Discovering) 3.dp else 6.dp,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 700f),
         label = "dotCornerRadius",
     )
     val filled = state !is ConnectionState.Idle && state !is ConnectionState.Disconnected

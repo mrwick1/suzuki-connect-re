@@ -46,7 +46,7 @@ import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
  *  - Locked: show the unlock screen with biometric prompt.
  *  - Unlocked / lock disabled: cross-fade content in via a 200 ms fade.
  *
- * The 200 ms fade uses tween() instead of SpringSoft because AnimatedVisibility's
+ * The 200 ms fade uses tween() instead of SpringSweep because AnimatedVisibility's
  * enter/exit specs require FiniteAnimationSpec<Float>, and spring() is infinite by nature
  * when used as an enter/exit spec — the compiler rejects it. Noted per spec allowance.
  */

@@ -69,7 +69,7 @@ fun SpeedDisplay(
     val targetFraction = tickerFraction(nowMs, lastUpdateMs, intervalMs)
     val fraction by animateFloatAsState(
         targetValue = targetFraction,
-        animationSpec = Motion.SpringStandard,
+        animationSpec = Motion.SpringSnap,
         label = "speedTicker",
     )
 

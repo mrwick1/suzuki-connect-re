@@ -7,16 +7,23 @@ import org.junit.Test
 class MotionTest {
 
     @Test
-    fun springStandard_uses_spec_stiffness_and_damping() {
-        val s = Motion.SpringStandard as SpringSpec<Float>
-        assertEquals(400f, s.stiffness, 0.001f)
-        assertEquals(0.85f, s.dampingRatio, 0.001f)
+    fun springSnap_values() {
+        val s = Motion.SpringSnap as SpringSpec<Float>
+        assertEquals(700f, s.stiffness, 0.001f)
+        assertEquals(0.6f, s.dampingRatio, 0.001f)
     }
 
     @Test
-    fun springSoft_uses_spec_stiffness_and_damping() {
-        val s = Motion.SpringSoft as SpringSpec<Float>
-        assertEquals(200f, s.stiffness, 0.001f)
-        assertEquals(0.75f, s.dampingRatio, 0.001f)
+    fun springSweep_values() {
+        val s = Motion.SpringSweep as SpringSpec<Float>
+        assertEquals(120f, s.stiffness, 0.001f)
+        assertEquals(0.55f, s.dampingRatio, 0.001f)
+    }
+
+    @Test
+    fun springBouncy_values() {
+        val s = Motion.SpringBouncy as SpringSpec<Float>
+        assertEquals(500f, s.stiffness, 0.001f)
+        assertEquals(0.45f, s.dampingRatio, 0.001f)
     }
 }
