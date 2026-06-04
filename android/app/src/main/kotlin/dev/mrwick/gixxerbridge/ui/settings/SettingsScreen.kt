@@ -49,6 +49,14 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
+            Text(
+                "SETTINGS",
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+        item {
             SettingsNavRow(
                 icon = Icons.Outlined.TwoWheeler,
                 label = "Bike",
