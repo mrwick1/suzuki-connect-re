@@ -3,11 +3,14 @@ package dev.mrwick.gixxerbridge.ui.home
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.mrwick.gixxerbridge.analytics.RangeEstimator
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.RideStreak
 import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.ble.ConnectionState
+import dev.mrwick.gixxerbridge.location.LastParked
+import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,6 +48,29 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Live BLE connection state; always present via AppGraph (Idle when service not started). */
     val connectionState: Flow<ConnectionState> = AppGraph.connectionState
+
+    /** Most-recent a537 telemetry (speed/odo/trip/fuel). Null when never received this session. */
+    val latestTelemetry: StateFlow<TelemetryFrame?> =
+        TelemetryRepository.latest
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Estimated remaining km from current fuel bars × historical km/bar (median over
+     * rides; [RangeEstimator.FALLBACK_KM_PER_BAR] until enough history). Null when no
+     * fuel reading. Honest estimate — UI labels it as such.
+     */
+    val rangeKm: StateFlow<Double?> =
+        combine(TelemetryRepository.latest, rideStore.observeRides()) { latest, rides ->
+            val bars = latest?.fuelBars ?: return@combine null
+            val perBar = RangeEstimator.kmPerBar(rides) ?: RangeEstimator.FALLBACK_KM_PER_BAR
+            RangeEstimator.estimateRemainingKm(bars, perBar)
+        }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Last-parked snapshot (captured on bike disconnect). Null until first park cycle. */
+    val lastParked: StateFlow<LastParked?> =
+        AppGraph.lastParkedTracker(app).lastParked
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Rider display name; falls back to "Rider" on first launch. */
     val riderName: StateFlow<String> =
