@@ -21,6 +21,9 @@ venv/
 .idea/
 *.swp
 
+# Brainstorm visual-companion scratch
+.superpowers/
+
 # OS
 .DS_Store
 frida-scripts/ride_capture.compiled.js
