@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -66,7 +67,7 @@ fun SafetySection(vm: SafetyViewModel) {
             Button(
                 onClick = vm::sendTestSos,
                 enabled = !phone.isBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020)),
+                colors = ButtonDefaults.buttonColors(containerColor = GixxerTokens.dangerWarm),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("SEND TEST SOS")

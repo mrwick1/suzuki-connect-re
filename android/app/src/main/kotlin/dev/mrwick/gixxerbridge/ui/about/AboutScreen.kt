@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -288,7 +289,7 @@ private fun ReadingBikeInfoCard() {
             Text(
                 "Reading bike info…",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.onSurfaceDim,
             )
             Spacer(modifier = Modifier.height(12.dp))
             SkeletonLine(widthFraction = 0.6f, height = 12.dp)

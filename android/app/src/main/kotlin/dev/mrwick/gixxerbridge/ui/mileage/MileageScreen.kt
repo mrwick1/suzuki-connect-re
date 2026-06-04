@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -103,7 +104,7 @@ fun MileageScreen(vm: MileageViewModel) {
                     Text(
                         "No fills logged yet — tap \"Add fill\" after your next pump visit.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF94A3B8),
+                        color = GixxerTokens.onSurfaceDim,
                         modifier = Modifier.padding(24.dp),
                     )
                 }
@@ -150,7 +151,7 @@ private fun AverageCard(avg: Double?) {
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF10B981).copy(alpha = 0.18f),
+                            GixxerTokens.lushGreen.copy(alpha = 0.18f),
                             Color.Transparent,
                         ),
                     ),
@@ -161,20 +162,20 @@ private fun AverageCard(avg: Double?) {
                 Text(
                     "True mileage",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.onSurfaceDim,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     avg?.let { "%.1f km/L".format(it) } ?: "—",
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE2E8F0),
+                    color = GixxerTokens.onSurface,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     "Trailing average over last ${MileageViewModel.TRAILING_COUNT} tanks",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.onSurfaceDim,
                 )
             }
         }
@@ -215,14 +216,14 @@ private fun FillRow(
                     kmPerL?.let { "this tank: %.1f km/L".format(it) }
                         ?: "this tank: — (no prior fill)",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.onSurfaceDim,
                 )
                 fill.note?.takeIf { it.isNotBlank() }?.let {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8),
+                        color = GixxerTokens.onSurfaceDim,
                     )
                 }
             }

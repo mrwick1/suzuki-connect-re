@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -166,7 +167,7 @@ private fun ServiceRow(entry: ServiceLogEntity, onDelete: () -> Unit) {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8),
+                        color = GixxerTokens.onSurfaceDim,
                     )
                 }
             }
@@ -216,7 +217,7 @@ private fun AddServiceDialog(
                 Text(
                     "Type",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.onSurfaceDim,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ServiceHistoryViewModel.CANONICAL_TYPES.forEach { t ->
