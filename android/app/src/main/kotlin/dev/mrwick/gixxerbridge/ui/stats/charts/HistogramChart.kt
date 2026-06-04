@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,7 +45,7 @@ fun HistogramChart(
             Text(
                 if (total == 0) "no samples yet" else "$total samples · ${buckets.size} buckets",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.onSurfaceDim,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
@@ -52,13 +53,13 @@ fun HistogramChart(
                 val maxCount = (buckets.maxOf { it.sampleCount }).coerceAtLeast(1)
                 val slotW = size.width / buckets.size
                 val barW = slotW * 0.85f
-                val gridColor = Color(0xFF1E293B)
+                val gridColor = GixxerTokens.cockpitSurface2
                 for (q in 1..3) {
                     val y = size.height * q / 4f
                     drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
                 }
                 drawLine(
-                    color = Color(0xFF334155),
+                    color = GixxerTokens.liverySilver,
                     start = Offset(0f, size.height),
                     end = Offset(size.width, size.height),
                     strokeWidth = 1.5f,
@@ -69,7 +70,7 @@ fun HistogramChart(
                     if (h <= 0f) {
                         // Render a 2px dim sliver so empty buckets are still visible.
                         drawRoundRect(
-                            color = Color(0xFF1F2937),
+                            color = GixxerTokens.cockpitSurface2,
                             topLeft = Offset(cx - barW / 2f, size.height - 2f),
                             size = Size(barW, 2f),
                             cornerRadius = CornerRadius(1f, 1f),
@@ -77,7 +78,7 @@ fun HistogramChart(
                     } else {
                         drawRoundRect(
                             brush = Brush.verticalGradient(
-                                colors = listOf(Color(0xFFEF4444), Color(0xFFF59E0B), Color(0xFF22D3EE)),
+                                colors = listOf(GixxerTokens.zoneHot, GixxerTokens.zoneMid, GixxerTokens.zoneCool),
                                 startY = 0f,
                                 endY = size.height,
                             ),
@@ -95,7 +96,7 @@ fun HistogramChart(
                         Text(
                             text = if (i % 3 == 0) b.lowKmh.toString() else "",
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            color = Color(0xFF94A3B8),
+                            color = GixxerTokens.onSurfaceDim,
                             modifier = Modifier.weight(1f),
                         )
                     }

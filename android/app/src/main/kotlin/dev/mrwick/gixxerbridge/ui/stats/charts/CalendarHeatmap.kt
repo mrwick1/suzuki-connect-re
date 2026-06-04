@@ -23,6 +23,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.mrwick.gixxerbridge.analytics.CalendarDay
@@ -52,7 +53,7 @@ fun CalendarHeatmap(
             Text(
                 "$activeDays days ridden · $totalKm km total",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.onSurfaceDim,
             )
             Spacer(modifier = Modifier.height(8.dp))
             // Compute leading blanks so the first column starts on Monday.
@@ -76,7 +77,7 @@ fun CalendarHeatmap(
                     val km = if (i < leading) -1 else days[i - leading].km
                     val color = when {
                         km < 0 -> Color.Transparent
-                        km == 0 -> Color(0xFF1F2937)
+                        km == 0 -> GixxerTokens.cockpitSurface2
                         else -> heatColor(km.toFloat() / maxKm)
                     }
                     if (color != Color.Transparent) {
@@ -95,11 +96,11 @@ fun CalendarHeatmap(
                 Text(
                     "less",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.onSurfaceDim,
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { f ->
-                    val c = if (f == 0f) Color(0xFF1F2937) else heatColor(f)
+                    val c = if (f == 0f) GixxerTokens.cockpitSurface2 else heatColor(f)
                     Box(
                         modifier = Modifier
                             .size(12.dp)
@@ -112,7 +113,7 @@ fun CalendarHeatmap(
                 Text(
                     "more",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF94A3B8),
+                    color = GixxerTokens.onSurfaceDim,
                 )
             }
         }
@@ -125,8 +126,8 @@ fun CalendarHeatmap(
  */
 private fun heatColor(intensity: Float): Color {
     val t = intensity.coerceIn(0f, 1f)
-    val low = Color(0xFF1F2937)
-    val high = Color(0xFF22D3EE)
+    val low = GixxerTokens.cockpitSurface2
+    val high = GixxerTokens.zoneCool
     fun mix(a: Float, b: Float) = a + (b - a) * t
     return Color(
         red = mix(low.red, high.red),

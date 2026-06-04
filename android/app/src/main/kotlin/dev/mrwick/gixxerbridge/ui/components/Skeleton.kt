@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -42,7 +43,7 @@ fun ShimmerBox(modifier: Modifier = Modifier, cornerRadius: Dp = 6.dp) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
-            .background(Color(0xFF1E293B).copy(alpha = alpha)),
+            .background(GixxerTokens.cockpitSurface2.copy(alpha = alpha)),
     )
 }
 

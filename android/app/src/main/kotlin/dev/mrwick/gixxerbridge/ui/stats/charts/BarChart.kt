@@ -23,6 +23,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,8 +44,8 @@ fun BarChart(
     labels: List<String> = emptyList(),
     title: String,
     modifier: Modifier = Modifier,
-    colorA: Color = Color(0xFF334155),
-    colorB: Color = Color(0xFFF59E0B),
+    colorA: Color = GixxerTokens.liverySilver,
+    colorB: Color = GixxerTokens.zoneMid,
     legendA: String = "max",
     legendB: String = "avg",
 ) {
@@ -76,13 +77,13 @@ fun BarChart(
                 val n = seriesA.size
                 val slotW = size.width / n
                 val barW = slotW * 0.55f
-                val gridColor = Color(0xFF1E293B)
+                val gridColor = GixxerTokens.cockpitSurface2
                 for (q in 1..3) {
                     val y = size.height * q / 4f
                     drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
                 }
                 drawLine(
-                    color = Color(0xFF334155),
+                    color = GixxerTokens.liverySilver,
                     start = Offset(0f, size.height),
                     end = Offset(size.width, size.height),
                     strokeWidth = 1.5f,
@@ -117,7 +118,7 @@ fun BarChart(
                         Text(
                             lbl,
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            color = Color(0xFF94A3B8),
+                            color = GixxerTokens.onSurfaceDim,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -140,7 +141,7 @@ private fun LegendDot(color: Color, label: String) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF94A3B8),
+            color = GixxerTokens.onSurfaceDim,
         )
     }
 }

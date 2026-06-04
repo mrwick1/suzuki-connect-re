@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -213,7 +214,7 @@ private fun FrameRow(event: FrameEvent) {
             "(len=${event.bytes.size})"
         }
     }
-    val dirColor = if (event.direction == FrameEvent.Direction.TX) Color(0xFF22D3EE) else Color(0xFFFCD34D)
+    val dirColor = if (event.direction == FrameEvent.Direction.TX) GixxerTokens.zoneCool else GixxerTokens.zoneMid
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -249,15 +250,15 @@ private fun colorizedHexLine(bytes: ByteArray): AnnotatedString = buildAnnotated
     for ((i, b) in bytes.withIndex()) {
         val color = when (i) {
             1 -> when (b.toInt() and 0xFF) {
-                0x31 -> Color(0xFF22D3EE)            // a531 NAV: cyan
-                0x32, 0x34 -> Color(0xFFFBBF24)      // a532 CALL / a534 MISSED: amber
-                0x33 -> Color(0xFF64748B)            // a533 HEARTBEAT: subtle gray
-                0x35 -> Color(0xFF10B981)            // a535 SMS: green
-                0x36 -> Color(0xFFA78BFA)            // a536 IDENTITY: magenta-ish
-                0x37 -> Color(0xFF22D3EE)            // a537 TELEMETRY: bright cyan
-                else -> Color(0xFF94A3B8)
+                0x31 -> GixxerTokens.zoneCool            // a531 NAV: cyan
+                0x32, 0x34 -> GixxerTokens.zoneMid      // a532 CALL / a534 MISSED: amber
+                0x33 -> GixxerTokens.onSurfaceDim            // a533 HEARTBEAT: subtle gray
+                0x35 -> GixxerTokens.lushGreen            // a535 SMS: green
+                0x36 -> GixxerTokens.zoneHot            // a536 IDENTITY: magenta-ish
+                0x37 -> GixxerTokens.zoneCool            // a537 TELEMETRY: bright cyan
+                else -> GixxerTokens.onSurfaceDim
             }
-            0, 29 -> Color(0xFF94A3B8)               // header + terminator dimmed
+            0, 29 -> GixxerTokens.onSurfaceDim               // header + terminator dimmed
             else -> Color.Unspecified
         }
         withStyle(SpanStyle(color = color)) {

@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
@@ -34,7 +35,7 @@ fun LineChart(
     values: List<Float>,
     label: String,
     modifier: Modifier = Modifier,
-    lineColor: Color = Color(0xFF22D3EE),
+    lineColor: Color = GixxerTokens.zoneCool,
     yLabelFormatter: (Float) -> String = { "%.1f".format(it) },
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -45,14 +46,14 @@ fun LineChart(
             Text(
                 if (values.isEmpty()) "no data" else "peak ${yLabelFormatter(peak)}",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF94A3B8),
+                color = GixxerTokens.onSurfaceDim,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Box(modifier = Modifier.fillMaxWidth().height(140.dp)) {
                 Canvas(modifier = Modifier.fillMaxWidth().height(140.dp)) {
                     if (values.isEmpty()) {
                         drawLine(
-                            color = Color(0xFF334155),
+                            color = GixxerTokens.liverySilver,
                             start = Offset(0f, size.height),
                             end = Offset(size.width, size.height),
                             strokeWidth = 1f,
@@ -61,14 +62,14 @@ fun LineChart(
                     }
                     val maxV = (values.maxOrNull() ?: 0f).coerceAtLeast(1f) * 1.1f
                     // Gridlines at 25/50/75% of height.
-                    val gridColor = Color(0xFF1E293B)
+                    val gridColor = GixxerTokens.cockpitSurface2
                     for (q in 1..3) {
                         val y = size.height * q / 4f
                         drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
                     }
                     // Baseline.
                     drawLine(
-                        color = Color(0xFF334155),
+                        color = GixxerTokens.liverySilver,
                         start = Offset(0f, size.height),
                         end = Offset(size.width, size.height),
                         strokeWidth = 1.5f,
@@ -110,7 +111,7 @@ fun LineChart(
                         )
                     }
                     pts.forEach { p ->
-                        drawCircle(Color(0xFF0F172A), radius = 5f, center = p)
+                        drawCircle(GixxerTokens.inkBlack, radius = 5f, center = p)
                         drawCircle(lineColor, radius = 3.5f, center = p)
                     }
                 }
