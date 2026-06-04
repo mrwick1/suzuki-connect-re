@@ -1,19 +1,11 @@
 package dev.mrwick.gixxerbridge.ui.dashboard
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,289 +13,172 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.LocalGasStation
-import androidx.compose.material.icons.outlined.Route
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Straighten
-import androidx.compose.material3.Card
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.analytics.RangeEstimator
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
-import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
-import dev.mrwick.gixxerbridge.ui.home.components.SpeedDisplay
-import dev.mrwick.gixxerbridge.ui.home.components.SpeedState
+import dev.mrwick.gixxerbridge.ui.components.BentoTile
+import dev.mrwick.gixxerbridge.ui.components.OdometerNumber
+import dev.mrwick.gixxerbridge.ui.components.Sweep
+import dev.mrwick.gixxerbridge.ui.components.TraceChart
 import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
-import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
+private const val MAX_SPEED = 120f
+
+/**
+ * REDLINE PRESS Dashboard — the live telemetry cockpit (research:
+ * docs/superpowers/research/2026-06-04-screen-research.md). The Sweep is the speed
+ * hero; bento tiles carry fuel/odo/trip/economy; a TraceChart shows recent speed.
+ * Read parked/stopped, so it's a rich cockpit, not a glance HUD.
+ */
 @Composable
 fun DashboardScreen(
     vm: DashboardViewModel,
     onOpenPairing: () -> Unit = {},
 ) {
     val t by vm.telemetry.collectAsStateWithLifecycle()
+    val history by vm.history.collectAsStateWithLifecycle()
     val kmPerBar by vm.kmPerBar.collectAsStateWithLifecycle()
-
-    // Derive SpeedState from AppGraph.connectionState (the live BLE state)
     val connState by AppGraph.connectionState.collectAsStateWithLifecycle()
-    val speedState = remember(connState) {
-        when (connState) {
-            is ConnectionState.Ready -> SpeedState.Connected
-            is ConnectionState.Connecting, is ConnectionState.Discovering -> SpeedState.Connecting
-            else -> SpeedState.Disconnected
-        }
-    }
-
-    // Track timestamp of latest non-null telemetry frame using produceState
-    // so we capture System.currentTimeMillis() on each new non-null value.
-    val lastUpdateMs by produceState(initialValue = 0L, key1 = t) {
-        if (t != null) value = System.currentTimeMillis()
-    }
+    val live = connState is ConnectionState.Ready
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(GixxerTokens.bg)
+            .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 16.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // SpeedDisplay hero — always shown at the top
-        SpeedDisplay(
-            speedKmh = t?.speedKmh,
-            state = speedState,
-            lastUpdateMs = lastUpdateMs,
-        )
+        SpeedHero(speed = t?.speedKmh, live = live, connLabel = stateLabel(connState))
 
-        // When there's no telemetry at all (disconnected), collapse to EmptyState
         if (t == null) {
-            EmptyState(
-                icon = Icons.Outlined.Speed,
-                body = "No telemetry yet. Connect to your bike to see speed, fuel, and trip data.",
-                ctaLabel = "Open pair",
-                onCta = onOpenPairing,
-            )
+            BentoTile(Modifier.fillMaxWidth(), animateEntry = false, onClick = onOpenPairing) {
+                Text("NO TELEMETRY YET", style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Connect to your bike to see live speed, fuel, odometer and trip data. Tap to pair.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         } else {
-            // Fuel + Odo row — IntrinsicSize.Min so both cards match heights
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
-            ) {
-                FuelCard(t, kmPerBar, modifier = Modifier.weight(1f).fillMaxHeight())
-                OdoCard(t, modifier = Modifier.weight(1f).fillMaxHeight())
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FuelTile(t, kmPerBar, Modifier.weight(1f))
+                StatTile("ODOMETER · KM", (t?.odometerKm ?: 0).toLong(), Modifier.weight(1f))
             }
-
-            // Trip A + Trip B row — IntrinsicSize.Min so both cards match heights
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
-            ) {
-                TripCard(
-                    label = "Trip A",
-                    value = t?.tripAKm,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-                TripCard(
-                    label = "Trip B",
-                    value = t?.tripBKm,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TripTile("TRIP A", t?.tripAKm, Modifier.weight(1f))
+                TripTile("TRIP B", t?.tripBKm, Modifier.weight(1f))
             }
-
-            FuelEconomyCard(t)
+            FuelEconomyTile(t)
+            if (history.size >= 2) SpeedHistoryTile(history)
         }
     }
 }
 
 @Composable
-private fun FuelCard(t: TelemetryFrame?, kmPerBar: Double?, modifier: Modifier = Modifier) {
+private fun SpeedHero(speed: Int?, live: Boolean, connLabel: String) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Sweep(
+            progress = (speed ?: 0) / MAX_SPEED,
+            modifier = Modifier.size(280.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                OdometerNumber(
+                    value = (speed ?: 0).toLong(),
+                    style = GixxerMono.display.copy(fontSize = 96.sp),
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text("KM / H", style = MaterialTheme.typography.labelLarge, color = GixxerBrand.accent)
+                Text(
+                    if (live) "LIVE" else connLabel.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FuelTile(t: TelemetryFrame?, kmPerBar: Double?, modifier: Modifier) {
     val bars = t?.fuelBars ?: 0
-    val rangeKm = RangeEstimator.estimateRemainingKm(t?.fuelBars, kmPerBar)
-    Card(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            CardLabel(Icons.Outlined.LocalGasStation, "FUEL")
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                repeat(6) { i ->
-                    val on = i < bars
-                    val color = when {
-                        !on -> MaterialTheme.colorScheme.surfaceContainerLow
-                        bars <= 1 -> GixxerTokens.danger
-                        bars <= 2 -> GixxerTokens.warning
-                        else -> GixxerTokens.success
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(28.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(color),
-                    )
+    val range = RangeEstimator.estimateRemainingKm(t?.fuelBars, kmPerBar ?: RangeEstimator.FALLBACK_KM_PER_BAR)
+    BentoTile(modifier.height(168.dp), container = MaterialTheme.colorScheme.surfaceVariant) {
+        Text("FUEL · RANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Sweep(progress = bars / 6f, modifier = Modifier.size(108.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$bars/6", style = GixxerMono.body.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.onBackground)
+                    Text(range?.let { "${it.toInt()} km" } ?: "—", style = MaterialTheme.typography.labelSmall, color = GixxerBrand.zoneCool)
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            if (t?.fuelBars == null) {
-                Text(
-                    "Fuel data will appear once the bike reports telemetry.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                )
-            } else if (rangeKm != null) {
-                Text(
-                    "~${rangeKm.toInt()} km range",
-                    style = GixxerMono.body,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            } else {
-                Text(
-                    "Range building…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                )
-            }
-            if (bars in 1..1) {
-                Spacer(Modifier.height(8.dp))
-                LowFuelPill()
-            }
         }
     }
 }
 
 @Composable
-private fun LowFuelPill() {
-    Surface(
-        color = GixxerTokens.danger.copy(alpha = 0.18f),
-        contentColor = GixxerTokens.danger,
-        shape = MaterialTheme.shapes.small,
-    ) {
-        Text(
-            "LOW FUEL",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        )
+private fun StatTile(label: String, value: Long, modifier: Modifier) {
+    BentoTile(modifier.height(168.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(12.dp))
+        OdometerNumber(value = value, style = GixxerMono.display.copy(fontSize = 40.sp), color = MaterialTheme.colorScheme.onBackground)
     }
 }
 
 @Composable
-private fun OdoCard(t: TelemetryFrame?, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            CardLabel(Icons.Outlined.Straighten, "ODOMETER")
-            Spacer(Modifier.height(8.dp))
-            if (t?.odometerKm != null) {
-                Text(
-                    text = "${t.odometerKm}",
-                    style = GixxerMono.headline,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text("km", style = MaterialTheme.typography.bodySmall, color = GixxerTokens.textMuted)
-            } else {
-                Text(
-                    "Odometer data not yet received.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                )
-            }
-        }
+private fun TripTile(label: String, value: Double?, modifier: Modifier) {
+    BentoTile(modifier.height(96.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Text("%.1f km".format(value ?: 0.0), style = GixxerMono.headline, color = MaterialTheme.colorScheme.onBackground)
     }
 }
 
 @Composable
-private fun TripCard(label: String, value: Double?, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            CardLabel(Icons.Outlined.Route, label.uppercase())
-            Spacer(Modifier.height(8.dp))
-            if (value != null) {
-                Text(
-                    text = "%.1f".format(value),
-                    style = GixxerMono.headline,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text("km", style = MaterialTheme.typography.bodySmall, color = GixxerTokens.textMuted)
-            } else {
-                Text(
-                    "No trip data yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FuelEconomyCard(t: TelemetryFrame?) {
+private fun FuelEconomyTile(t: TelemetryFrame?) {
     val econ = t?.fuelEconKmlV2
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            CardLabel(Icons.Outlined.LocalGasStation, "FUEL ECONOMY (TRIP AVG)")
-            Spacer(Modifier.height(8.dp))
-            if (econ != null) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(
-                        text = "%.1f".format(econ),
-                        style = GixxerMono.headline,
-                        color = GixxerTokens.accent,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "km/L",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = GixxerTokens.textMuted,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    )
-                }
-            } else {
-                Text(
-                    "Bike reports this once the engine has run for a bit.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                )
-            }
+    BentoTile(Modifier.fillMaxWidth().height(110.dp)) {
+        Text("FUEL ECONOMY · TRIP AVG", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            OdometerNumber(value = (econ ?: 0.0).toLong(), style = GixxerMono.display.copy(fontSize = 44.sp), color = GixxerBrand.accent)
+            Spacer(Modifier.width(6.dp))
+            Text("km/L", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
         }
     }
 }
 
 @Composable
-private fun CardLabel(icon: ImageVector, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = GixxerTokens.textMuted,
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(text, style = MaterialTheme.typography.labelMedium, color = GixxerTokens.textMuted)
+private fun SpeedHistoryTile(history: List<TelemetryFrame>) {
+    val points = history.map { (it.speedKmh.coerceIn(0, MAX_SPEED.toInt())) / MAX_SPEED }
+    BentoTile(Modifier.fillMaxWidth().height(150.dp)) {
+        Text("SPEED · LAST FEW MINUTES", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(10.dp))
+        TraceChart(points = points, animateDraw = true, strokeWidth = 3.dp, modifier = Modifier.fillMaxWidth().height(90.dp))
     }
+}
+
+private fun stateLabel(s: ConnectionState): String = when (s) {
+    is ConnectionState.Ready -> "Connected"
+    is ConnectionState.Connecting -> "Connecting…"
+    is ConnectionState.Discovering -> "Discovering…"
+    is ConnectionState.Disconnected -> "Waiting"
+    is ConnectionState.Failed -> "Failed"
+    is ConnectionState.Idle -> "Idle"
 }
