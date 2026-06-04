@@ -75,6 +75,12 @@ fun ServiceHistoryScreen(vm: ServiceHistoryViewModel) {
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Text(
+                "SERVICE HISTORY",
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 2.dp),
+            )
             if (entries.isEmpty() && !bootDone) {
                 LazyColumn(
                     contentPadding = PaddingValues(12.dp),
@@ -92,13 +98,13 @@ fun ServiceHistoryScreen(vm: ServiceHistoryViewModel) {
                         Icon(
                             imageVector = Icons.Default.Build,
                             contentDescription = null,
-                            tint = Color(0xFF334155),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.height(96.dp),
                         )
                         Text(
                             "No service entries yet — tap \"Add service\" after your next visit.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF94A3B8),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
