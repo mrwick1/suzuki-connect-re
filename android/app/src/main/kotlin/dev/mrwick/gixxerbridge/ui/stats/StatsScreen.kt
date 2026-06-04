@@ -31,7 +31,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.ui.components.HeroNumeral
+import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.analytics.PersonalBests
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.WeeklyTotal
@@ -139,6 +142,11 @@ fun StatsScreen(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+            Text("STATS · THIS YEAR", style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+            HeroNumeral(text = "${yearly.km}", color = MaterialTheme.colorScheme.onBackground, fontSize = 64.sp)
+            Text("KM RIDDEN", style = MaterialTheme.typography.labelMedium, color = GixxerTokens.textMuted)
+        }
         TotalsRow(weekly, monthly, yearly)
         CalendarHeatmap(days = calendar)
 
