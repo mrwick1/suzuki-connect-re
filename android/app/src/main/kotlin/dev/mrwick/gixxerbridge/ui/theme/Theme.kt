@@ -70,6 +70,7 @@ val GixxerLightColors = lightColorScheme(
     secondary = GixxerTokens.lushGreenLight,
     onSecondary = Color.White,
     tertiary = GixxerTokens.zoneCool,
+    onTertiary = GixxerTokens.onPaper,
     error = GixxerTokens.dangerWarm,
     onError = Color.White,
     background = GixxerTokens.paperBg,
@@ -84,6 +85,7 @@ val GixxerLightColors = lightColorScheme(
     surfaceContainerHigh = GixxerTokens.paperSurfaceTint,
     surfaceContainerHighest = GixxerTokens.paperSurfaceTint,
     outline = Color(0x1F000308),
+    outlineVariant = Color(0x1F000308),
 )
 
 /**

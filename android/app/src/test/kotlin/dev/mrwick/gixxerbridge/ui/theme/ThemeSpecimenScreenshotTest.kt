@@ -63,7 +63,7 @@ class ThemeSpecimenScreenshotTest {
                     Spacer(Modifier.size(40.dp).background(c, RoundedCornerShape(10.dp)))
                 }
             }
-            Text("147", style = GixxerMono.headline, color = GixxerBrand.accent)
+            Text("147", style = GixxerMono.headline, color = MaterialTheme.colorScheme.secondary)
             Text("REDLINE PRESS", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onBackground)
             Text("Every ride, printed like it mattered.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("ODO · TRIP · RANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

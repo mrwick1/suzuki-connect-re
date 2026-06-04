@@ -70,6 +70,7 @@ fun ClusterSettingsScreen(vm: SettingsViewModel) {
                 )
             }
         }
+        // TODO: retire — accent picker is inert since MainActivity stopped reading themeAccent (component-kit plan)
         item {
             SettingsSection("Theme accent") {
                 Text(

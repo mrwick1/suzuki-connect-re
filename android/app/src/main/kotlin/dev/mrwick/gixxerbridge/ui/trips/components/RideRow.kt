@@ -86,7 +86,7 @@ fun RideRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.large,            // 16dp per GixxerShapes
+        shape = MaterialTheme.shapes.large,            // 18dp per GixxerShapes.large
         colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
