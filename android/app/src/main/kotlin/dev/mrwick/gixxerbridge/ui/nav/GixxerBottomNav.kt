@@ -149,7 +149,7 @@ private fun NavTabItem(
  */
 private fun androidx.compose.animation.core.AnimationSpec<Float>.colorSpec(): androidx.compose.animation.core.AnimationSpec<Color> {
     val source = this as? androidx.compose.animation.core.SpringSpec<Float>
-        ?: return androidx.compose.animation.core.spring(stiffness = 400f, dampingRatio = 0.85f)
+        ?: return androidx.compose.animation.core.spring(stiffness = 700f, dampingRatio = 0.6f)
     return androidx.compose.animation.core.spring(
         dampingRatio = source.dampingRatio,
         stiffness = source.stiffness,
