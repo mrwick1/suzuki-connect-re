@@ -33,8 +33,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.RideStreak
+import dev.mrwick.gixxerbridge.analytics.StreakInfo
+import dev.mrwick.gixxerbridge.ui.components.BentoTile
 import dev.mrwick.gixxerbridge.ui.components.HeroNumeral
 import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
+import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
 import dev.mrwick.gixxerbridge.analytics.PersonalBests
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.WeeklyTotal
@@ -92,6 +96,13 @@ fun StatsScreen(
             RideAnalytics.summarize(r, byRide[r.id].orEmpty())
         }
     }
+    val lifetime = remember(rides) { RideAnalytics.totalsFor(rides, days = 36_500) }
+    val streak = remember(rides) { RideStreak.compute(rides) }
+    val monthRides = monthly.rides
+    val avgPerRideKm = if (lifetime.rides > 0) lifetime.km / lifetime.rides else 0
+    val lifetimeAvgSpeed = remember(rides) {
+        if (rides.isEmpty()) 0.0 else rides.map { it.avgSpeedKmh }.average()
+    }
 
     // Distinguish initial-load from genuinely-empty: show skeletons during a
     // short grace window after composition. Real data within the window
@@ -147,6 +158,7 @@ fun StatsScreen(
             HeroNumeral(text = "${yearly.km}", color = MaterialTheme.colorScheme.onBackground, fontSize = 64.sp)
             Text("KM RIDDEN", style = MaterialTheme.typography.labelMedium, color = GixxerTokens.textMuted)
         }
+        StatsOverview(lifetime, streak, bests, avgPerRideKm, lifetimeAvgSpeed, monthRides)
         TotalsRow(weekly, monthly, yearly)
         CalendarHeatmap(days = calendar)
 
@@ -180,6 +192,76 @@ fun StatsScreen(
             onClick = onOpenMileage,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Add fuel fill / view true mileage") }
+    }
+}
+
+/** Data-rich vital-stats overview: lifetime, streaks, averages, personal bests. */
+@Composable
+fun StatsOverview(
+    lifetime: WeeklyTotal,
+    streak: StreakInfo,
+    bests: PersonalBests,
+    avgPerRideKm: Int,
+    lifetimeAvgSpeed: Double,
+    ridesThisMonth: Int,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        BentoTile(Modifier.fillMaxWidth(), animateEntry = false) {
+            Text("LIFETIME", style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+            Row(verticalAlignment = Alignment.Bottom) {
+                HeroNumeral("${lifetime.km}", color = MaterialTheme.colorScheme.onBackground, fontSize = 64.sp)
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    "KM",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+            }
+            Text(
+                "${lifetime.rides} rides · ${"%.0f".format(lifetime.hours)} h in the saddle",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCell("CURRENT STREAK", "${streak.current}", "days", GixxerBrand.accent, Modifier.weight(1f))
+            StatCell("BEST STREAK", "${streak.longest}", "days", MaterialTheme.colorScheme.onBackground, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCell("AVG / RIDE", "$avgPerRideKm", "km", MaterialTheme.colorScheme.onBackground, Modifier.weight(1f))
+            StatCell("AVG SPEED", "%.0f".format(lifetimeAvgSpeed), "km/h", MaterialTheme.colorScheme.onBackground, Modifier.weight(1f))
+            StatCell("THIS MONTH", "$ridesThisMonth", "rides", MaterialTheme.colorScheme.onBackground, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCell("LONGEST", bests.longestRideKm?.toString() ?: "—", "km", GixxerBrand.accent, Modifier.weight(1f))
+            StatCell("TOP SPEED", bests.topSpeedKmh?.toString() ?: "—", "km/h", GixxerBrand.zoneHot, Modifier.weight(1f))
+            StatCell("BEST KM/L", bests.bestFuelEconKml?.let { "%.0f".format(it) } ?: "—", "km/L", GixxerBrand.zoneCool, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun StatCell(
+    label: String,
+    value: String,
+    unit: String,
+    valueColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    BentoTile(modifier.height(92.dp), animateEntry = false) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(value, style = GixxerMono.headline, color = valueColor)
+            Spacer(Modifier.size(3.dp))
+            Text(
+                unit,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
     }
 }
 
