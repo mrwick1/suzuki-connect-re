@@ -81,7 +81,7 @@ fun MileageScreen(vm: MileageViewModel) {
             ExtendedFloatingActionButton(
                 onClick = { showAdd = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add fill") },
+                text = { Text("Fill up") },
                 containerColor = GixxerTokens.accent,
                 contentColor = GixxerTokens.inkBlack,
             )
@@ -110,7 +110,7 @@ fun MileageScreen(vm: MileageViewModel) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
                         icon = Icons.Outlined.LocalGasStation,
-                        body = "No fills logged yet — tap \"Add fill\" after your next pump visit.",
+                        body = "No fills logged yet — tap \"Fill up\" after your next pump visit.",
                         ctaLabel = null,
                         onCta = null,
                     )
@@ -133,7 +133,11 @@ fun MileageScreen(vm: MileageViewModel) {
     }
 
     if (showAdd) {
+        // Fetch the best odometer (live telemetry, else last ride) once when the
+        // dialog opens; null until it resolves, then the field populates.
+        val initialOdo by produceState<Int?>(initialValue = null) { value = vm.currentOdometer() }
         AddFillDialog(
+            initialOdo = initialOdo,
             onDismiss = { showAdd = false },
             onConfirm = { odo, litres, rupees, note ->
                 vm.addFill(odo, litres, rupees, note)
@@ -225,38 +229,34 @@ private fun FillRow(
 }
 
 /**
- * Modal dialog with three inputs: odometer (int km), litres (decimal),
- * rupees (decimal, optional), note (text, optional). Submit is disabled until
- * odometer and litres parse to positive numbers.
+ * Modal dialog for logging a fuel fill. Odometer is pre-filled from
+ * [initialOdo] (live telemetry or last ride) and stays editable. Litres, total
+ * price, and odometer are required; note is optional. Submit enables once
+ * odometer >= 0, litres > 0, and total price > 0.
  */
 @Composable
 private fun AddFillDialog(
+    initialOdo: Int?,
     onDismiss: () -> Unit,
     onConfirm: (odometerKm: Int, litres: Double, rupees: Double?, note: String?) -> Unit,
 ) {
-    var odoText by remember { mutableStateOf("") }
+    // Re-key on initialOdo so the field populates when the async lookup resolves.
+    var odoText by remember(initialOdo) { mutableStateOf(initialOdo?.toString() ?: "") }
     var litresText by remember { mutableStateOf("") }
-    var rupeesText by remember { mutableStateOf("") }
+    var priceText by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
 
     val odo = odoText.toIntOrNull()
     val litres = litresText.toDoubleOrNull()
-    val rupees = rupeesText.toDoubleOrNull() // null when blank or unparseable; both treated as "no value"
-    val canSubmit = odo != null && odo >= 0 && litres != null && litres > 0.0
+    val price = priceText.toDoubleOrNull()
+    val canSubmit = odo != null && odo >= 0 && litres != null && litres > 0.0 &&
+        price != null && price > 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Log fuel fill") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = odoText,
-                    onValueChange = { raw -> odoText = raw.filter { it.isDigit() }.take(7) },
-                    label = { Text("Odometer (km)") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 OutlinedTextField(
                     value = litresText,
                     onValueChange = { raw -> litresText = sanitizeDecimal(raw) },
@@ -266,11 +266,19 @@ private fun AddFillDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value = rupeesText,
-                    onValueChange = { raw -> rupeesText = sanitizeDecimal(raw) },
-                    label = { Text("Rupees (optional)") },
+                    value = priceText,
+                    onValueChange = { raw -> priceText = sanitizeDecimal(raw) },
+                    label = { Text("Total price (₹)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = odoText,
+                    onValueChange = { raw -> odoText = raw.filter { it.isDigit() }.take(7) },
+                    label = { Text("Odometer (km)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
@@ -285,7 +293,7 @@ private fun AddFillDialog(
         confirmButton = {
             TextButton(
                 enabled = canSubmit,
-                onClick = { onConfirm(odo!!, litres!!, rupees, note.ifBlank { null }) },
+                onClick = { onConfirm(odo!!, litres!!, price, note.ifBlank { null }) },
             ) { Text("Save") }
         },
         dismissButton = {
