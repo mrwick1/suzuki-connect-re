@@ -234,4 +234,42 @@ class RideAnalyticsTest {
         assertEquals(0, s.km)
         assertNull(s.fuelEconKml)
     }
+
+    // ---------- avgBikeEcon ----------
+
+    @Test fun avgBikeEconIgnoresNullAndNonPositive() {
+        val samples = listOf(
+            sample(1, 40, fuelEcon = 30.0),
+            sample(1, 50, fuelEcon = null),
+            sample(1, 0, fuelEcon = 0.0),
+            sample(1, 30, fuelEcon = -5.0),
+            sample(1, 60, fuelEcon = 50.0),
+        )
+        assertEquals(40.0, RideAnalytics.avgBikeEcon(samples)!!, 1e-9)
+    }
+
+    @Test fun avgBikeEconNullWhenNoUsableReadings() {
+        assertNull(RideAnalytics.avgBikeEcon(listOf(sample(1, 40, fuelEcon = null))))
+        assertNull(RideAnalytics.avgBikeEcon(emptyList()))
+    }
+
+    // ---------- fuelBurnt ----------
+
+    @Test fun fuelBurntPrefersFillsOverBike() {
+        val burn = RideAnalytics.fuelBurnt(distanceKm = 100, fillKmPerL = 50.0, bikeKmPerL = 40.0)!!
+        assertEquals(2.0, burn.litres, 1e-9)
+        assertEquals(FuelBurnSource.FILLS, burn.source)
+    }
+
+    @Test fun fuelBurntFallsBackToBikeWhenNoFills() {
+        val burn = RideAnalytics.fuelBurnt(distanceKm = 80, fillKmPerL = null, bikeKmPerL = 40.0)!!
+        assertEquals(2.0, burn.litres, 1e-9)
+        assertEquals(FuelBurnSource.BIKE, burn.source)
+    }
+
+    @Test fun fuelBurntNullWhenNoSourceOrNoDistance() {
+        assertNull(RideAnalytics.fuelBurnt(100, null, null))
+        assertNull(RideAnalytics.fuelBurnt(0, 50.0, 40.0))
+        assertNull(RideAnalytics.fuelBurnt(100, 0.0, 0.0))
+    }
 }

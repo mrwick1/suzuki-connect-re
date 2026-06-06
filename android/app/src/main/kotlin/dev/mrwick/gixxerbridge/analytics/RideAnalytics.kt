@@ -215,7 +215,38 @@ object RideAnalytics {
         }
         return buckets.entries.map { MonthKm(it.key, it.value) }
     }
+
+    /**
+     * Average of the bike's own per-sample economy readings (km/L) over a ride.
+     * Ignores null / non-positive readings. Null when no usable reading exists.
+     */
+    fun avgBikeEcon(samples: List<RideSampleEntity>): Double? {
+        val vals = samples.mapNotNull { it.fuelEconKml }.filter { it > 0.0 }
+        return if (vals.isEmpty()) null else vals.average()
+    }
+
+    /**
+     * Estimate litres burnt over [distanceKm] given a km/L figure. Prefers the
+     * rider's fill-measured mileage [fillKmPerL]; falls back to the bike's own
+     * economy [bikeKmPerL]. Returns null when neither source is usable or the
+     * ride covered no distance. [FuelBurn.source] records which figure was used
+     * so the UI can label the estimate.
+     */
+    fun fuelBurnt(distanceKm: Int, fillKmPerL: Double?, bikeKmPerL: Double?): FuelBurn? {
+        if (distanceKm <= 0) return null
+        val fill = fillKmPerL?.takeIf { it > 0.0 }
+        val bike = bikeKmPerL?.takeIf { it > 0.0 }
+        val kmPerL = fill ?: bike ?: return null
+        val source = if (fill != null) FuelBurnSource.FILLS else FuelBurnSource.BIKE
+        return FuelBurn(litres = distanceKm / kmPerL, source = source)
+    }
 }
 
 /** Distance ridden in one calendar month ("yyyy-MM"). */
 data class MonthKm(val month: String, val km: Int)
+
+/** Which km/L figure produced a [FuelBurn] estimate. */
+enum class FuelBurnSource { FILLS, BIKE }
+
+/** Estimated litres burnt over a ride + the source of the km/L used. */
+data class FuelBurn(val litres: Double, val source: FuelBurnSource)
