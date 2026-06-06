@@ -1,6 +1,7 @@
 package dev.mrwick.gixxerbridge.telemetry
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
@@ -76,5 +77,26 @@ class RideLoggerNamingTest {
         // 30 km is at the boundary -> not commute (the rule is distance < 20).
         val name = RideLogger.autoName(millisFor(2026, 5, 25, 6), distance = 30)
         assertEquals("Morning ride (Mon)", name)
+    }
+
+    // ---------- shouldDiscard ----------
+
+    @Test fun discardsRideThatNeverMoved() {
+        // Never moved → always noise, regardless of distance/duration.
+        assertTrue(RideLogger.shouldDiscard(everMoved = false, distanceKm = 0, durationMs = 600_000L))
+        assertTrue(RideLogger.shouldDiscard(everMoved = false, distanceKm = 5, durationMs = 600_000L))
+    }
+
+    @Test fun keepsRealRideThatMovedAndCoveredDistance() {
+        assertFalse(RideLogger.shouldDiscard(everMoved = true, distanceKm = 5, durationMs = 600_000L))
+    }
+
+    @Test fun discardsShortBlipEvenIfItMoved() {
+        assertTrue(RideLogger.shouldDiscard(everMoved = true, distanceKm = 0, durationMs = 10_000L))
+    }
+
+    @Test fun keepsMoved1KmRideEvenIfShort() {
+        // distanceKm == 1 is NOT a blip; the threshold is `< 1`, not `<= 1`.
+        assertFalse(RideLogger.shouldDiscard(everMoved = true, distanceKm = 1, durationMs = 10_000L))
     }
 }

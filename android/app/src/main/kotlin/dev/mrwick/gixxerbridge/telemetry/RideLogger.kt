@@ -50,6 +50,12 @@ class RideLogger(
     private var startOdo: Int = 0
     private var lastFuel: Int? = null
     private var trackerStarted: Boolean = false
+    // Odometer seen at connect (key-on). A ride only starts once the bike has
+    // actually moved past this, so a stationary connection doesn't log a trip.
+    private var connectOdo: Int? = null
+    // Set true once any sample reports speed > 0. A ride that never moved is
+    // discarded on end (parked key-on capture), regardless of duration.
+    private var everMoved: Boolean = false
 
     /** Begin observing telemetry; runs until [scope] is cancelled. */
     fun attach(scope: CoroutineScope) {
@@ -93,24 +99,30 @@ class RideLogger(
         if (frame.odometerKm <= 0) return
         mutex.withLock {
             val now = System.currentTimeMillis()
-            val id = rideId ?: run {
-                startOdo = frame.odometerKm
+            if (rideId == null) {
+                // Don't start a ride just because we connected: the bike streams
+                // a537 with a non-zero odometer while parked + key-on (speed reads
+                // 0). Wait until it actually moves — speed > 0, or the odometer
+                // advances past the value seen at connect — so a stationary
+                // connection doesn't log a phantom trip (verified on-bike 2026-06-06).
+                if (connectOdo == null) connectOdo = frame.odometerKm
+                val moving = frame.speedKmh > 0 || frame.odometerKm > connectOdo!!
+                if (!moving) return@withLock
+                startOdo = connectOdo!!
                 startedAtMillis = now
-                val new = store.startRide(
+                rideId = store.startRide(
                     startedAtMillis = now,
                     startOdoKm = startOdo,
                     fuelBars = frame.fuelBars,
                 )
-                rideId = new
                 // First-sample-of-ride hook: spin up GPS tracking.
                 // No-op if FINE_LOCATION not granted (tracker self-guards).
                 if (!trackerStarted) {
                     trackerStarted = locationTracker?.start() ?: false
                 }
-                new
             }
             store.appendSample(
-                rideId = id,
+                rideId = rideId!!,
                 tMillis = now,
                 speedKmh = frame.speedKmh,
                 odometerKm = frame.odometerKm,
@@ -119,6 +131,7 @@ class RideLogger(
                 fuelBars = frame.fuelBars,
                 fuelEconKml = frame.fuelEconKmlV2 ?: frame.fuelEconKml,
             )
+            if (frame.speedKmh > 0) everMoved = true
             lastSampleMillis = now
             lastFuel = frame.fuelBars
         }
@@ -136,13 +149,10 @@ class RideLogger(
             val now = System.currentTimeMillis()
             val durationMs = now - lastSampleMillis  // proxy for ride duration
 
-            // Discard noise: if the bike was on for <30 s AND moved <1 km, this is
-            // probably a key-on-and-off blip (or Demo mode flapping) — drop the
-            // record entirely rather than polluting the trip log with empty rows.
-            // ASSUMED: 1 km + 30 s is the right threshold; bump if real ride starts
-            // get discarded.
-            val shouldDiscard = distance < 1 && durationMs < MIN_RIDE_DURATION_MS
-            if (shouldDiscard) {
+            // Discard noise: never-moved (parked key-on capture) or a key-on/off
+            // blip (moved but < 1 km in < 30 s). See shouldDiscard for full logic.
+            val discard = shouldDiscard(everMoved, distance, durationMs)
+            if (discard) {
                 store.deleteRide(id)
             } else {
                 val name = autoName(startedAtMillis, distance)
@@ -156,6 +166,8 @@ class RideLogger(
                 onRideEnded?.invoke(id)
             }
             rideId = null
+            connectOdo = null
+            everMoved = false
             if (trackerStarted) {
                 locationTracker?.stop()
                 trackerStarted = false
@@ -169,6 +181,18 @@ class RideLogger(
         // Minimum elapsed time + distance below which a "ride" is treated as
         // noise and silently dropped on end (instead of polluting the log).
         internal const val MIN_RIDE_DURATION_MS = 30_000L
+
+        /**
+         * Whether a finishing ride is noise that should be dropped instead of
+         * persisted. Discarded when it never moved (no sample ever reported
+         * speed > 0) — this is what let the 2026-06-06 phantom (max speed 0)
+         * leak in — or when it covered < 1 km in under [MIN_RIDE_DURATION_MS]
+         * (a key-on/off blip).
+         */
+        fun shouldDiscard(everMoved: Boolean, distanceKm: Int, durationMs: Long): Boolean {
+            if (!everMoved) return true
+            return distanceKm < 1 && durationMs < MIN_RIDE_DURATION_MS
+        }
 
         /**
          * Heuristic auto-name for a finished ride. Combines time-of-day,
