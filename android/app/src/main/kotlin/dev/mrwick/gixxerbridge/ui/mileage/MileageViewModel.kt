@@ -7,6 +7,8 @@ import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
 import dev.mrwick.gixxerbridge.data.FuelFillEntity
 import dev.mrwick.gixxerbridge.data.FuelStore
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
+import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -22,6 +24,7 @@ import kotlinx.coroutines.launch
 class MileageViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store: FuelStore = FuelStore(GixxerDatabase.get(app).fuelFillDao())
+    private val rideStore: RideStore = RideStore(GixxerDatabase.get(app).rideDao())
 
     /** All fills, newest-first. */
     val fills: StateFlow<List<FuelFillEntity>> = store.observe()
@@ -58,6 +61,14 @@ class MileageViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
     }
+
+    /**
+     * Best odometer to pre-fill the fill form with at the moment "Fill up" is
+     * tapped: the live telemetry value if the bike is connected, else the
+     * last-known odometer from ride history, else null (rider types it in).
+     */
+    suspend fun currentOdometer(): Int? =
+        TelemetryRepository.latest.value?.odometerKm ?: rideStore.lastKnownOdometer()
 
     /** Delete one fill by id. */
     fun delete(id: Long) {
