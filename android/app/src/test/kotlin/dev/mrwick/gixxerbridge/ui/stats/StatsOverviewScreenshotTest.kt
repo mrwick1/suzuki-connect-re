@@ -60,7 +60,7 @@ class StatsOverviewScreenshotTest {
                         lifetime = WeeklyTotal(km = 12480, hours = 318.0, rides = 214),
                         streak = StreakInfo(current = 6, longest = 23),
                         bests = PersonalBests(longestRideKm = 142, topSpeedKmh = 118, bestFuelEconKml = 54.0, mostRidesInDay = 5),
-                        avgPerRideKm = 58,
+                        avgPerRideKm = 58.0,
                         lifetimeAvgSpeed = 42.0,
                         ridesThisMonth = 18,
                     )

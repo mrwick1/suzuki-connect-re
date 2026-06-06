@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 
 /**
- * GixxerBridge theme — REDLINE PRESS (2026-06-04). Dark default (OLED + showpiece);
+ * REDLINE theme — REDLINE PRESS (2026-06-04). Dark default (OLED + showpiece);
  * TARMAC light is a sunlight-legibility safety mode. Colors flow from GixxerTokens.
  * See docs/superpowers/specs/2026-06-04-redline-press-design-system-design.md.
  */
@@ -130,13 +130,13 @@ val GixxerTypography = Typography(
 
 /**
  * Live-numeric styles — speed, odo, trip km, range, hex frames. Saira numerals
- * with tnum + slashed-zero so digits never shift as values roll.
+ * with tnum (tabular figures) so digits never shift as values roll.
  */
 object GixxerMono {
-    val display = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W900, fontSize = 144.sp, lineHeight = 144.sp, fontFeatureSettings = "tnum, zero")
-    val headline = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W700, fontSize = 32.sp, lineHeight = 36.sp, fontFeatureSettings = "tnum, zero")
-    val body = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W500, fontSize = 14.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum, zero")
-    val label = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W600, fontSize = 11.sp, lineHeight = 14.sp, fontFeatureSettings = "tnum, zero")
+    val display = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W900, fontSize = 144.sp, lineHeight = 144.sp, fontFeatureSettings = "tnum")
+    val headline = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W700, fontSize = 32.sp, lineHeight = 36.sp, fontFeatureSettings = "tnum")
+    val body = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W500, fontSize = 14.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum")
+    val label = TextStyle(fontFamily = SairaFamily, fontWeight = FontWeight.W600, fontSize = 11.sp, lineHeight = 14.sp, fontFeatureSettings = "tnum")
 }
 
 // --- Shapes: chips 8 / small 12 / tiles 18 / sheets 28 ---------------------

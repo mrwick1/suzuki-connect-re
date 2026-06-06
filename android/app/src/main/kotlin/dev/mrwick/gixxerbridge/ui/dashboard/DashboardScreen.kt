@@ -20,6 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,7 +93,15 @@ fun DashboardScreen(
 
 @Composable
 private fun SpeedHero(speed: Int?, live: Boolean, connLabel: String) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Speed ${speed ?: 0} kilometres per hour" +
+                    if (live) ", live" else ", $connLabel"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
         Sweep(
             progress = (speed ?: 0) / MAX_SPEED,
             modifier = Modifier.size(280.dp),
@@ -121,7 +131,15 @@ private fun FuelTile(t: TelemetryFrame?, kmPerBar: Double?, modifier: Modifier) 
     BentoTile(modifier.height(168.dp), container = MaterialTheme.colorScheme.surfaceVariant) {
         Text("FUEL · RANGE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Fuel $bars of 6 bars" +
+                        (range?.let { ", range ${it.toInt()} kilometres" } ?: "")
+                },
+            contentAlignment = Alignment.Center,
+        ) {
             Sweep(progress = bars / 6f, modifier = Modifier.size(108.dp)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("$bars/6", style = GixxerMono.body.copy(fontSize = 18.sp), color = MaterialTheme.colorScheme.onBackground)

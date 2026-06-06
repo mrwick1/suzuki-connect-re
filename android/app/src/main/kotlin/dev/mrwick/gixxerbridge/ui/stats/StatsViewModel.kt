@@ -52,6 +52,16 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Lifetime best fuel-economy reading across *all* samples, not just the
+     * 30-day [recentSamples] window — so an all-time best from months ago still
+     * shows in Personal Bests. A single SQL MAX() aggregate, recomputed when the
+     * ride list changes.
+     */
+    val bestFuelEcon: StateFlow<Double?> = rides
+        .map { store.maxFuelEcon() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     companion object {
         const val LAST_N: Int = 10
     }

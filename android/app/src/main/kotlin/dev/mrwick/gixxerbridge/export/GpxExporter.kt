@@ -26,7 +26,7 @@ object GpxExporter {
         }
         appendLine("""<?xml version="1.0" encoding="UTF-8"?>""")
         appendLine(
-            """<gpx version="1.1" creator="GixxerBridge" """ +
+            """<gpx version="1.1" creator="REDLINE" """ +
                 """xmlns="http://www.topografix.com/GPX/1/1">""",
         )
         appendLine("  <metadata>")

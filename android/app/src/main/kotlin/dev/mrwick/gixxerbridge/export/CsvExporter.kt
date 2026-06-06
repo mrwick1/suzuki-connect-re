@@ -17,7 +17,7 @@ object CsvExporter {
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
-        appendLine("# GixxerBridge ride #${ride.id} samples")
+        appendLine("# REDLINE ride #${ride.id} samples")
         appendLine("# Start: ${iso.format(Date(ride.startedAtMillis))}")
         appendLine("timestamp_iso,t_millis,speed_kmh,odometer_km,trip_a_km,trip_b_km,fuel_bars,fuel_econ_kml")
         for (s in samples) {

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ripple
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,7 +51,7 @@ data class GixxerNavTab(
 )
 
 /**
- * GixxerBridge bottom nav — Wave 1 redesign (floating pill).
+ * REDLINE bottom nav — Wave 1 redesign (floating pill).
  *
  * Single rounded container hugging the 5 icons, floating above the bottom
  * of the screen with padding from the edges. Looks "lifted" rather than
@@ -124,9 +125,13 @@ private fun NavTabItem(
     Box(
         modifier = modifier
             .clip(MaterialTheme.shapes.small)
+            // a11y: 48dp minimum touch target (was ~36dp = 24dp icon + 6dp pad).
+            .heightIn(min = 48.dp)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null,
+                // Subtle bounded-less ripple for press feedback — colour contrast
+                // still carries selection, but a tap now confirms it registered.
+                indication = ripple(bounded = false, radius = 28.dp),
                 role = Role.Tab,
                 onClick = onClick,
             )

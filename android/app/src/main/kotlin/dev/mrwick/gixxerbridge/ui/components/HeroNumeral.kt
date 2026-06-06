@@ -15,7 +15,7 @@ import dev.mrwick.gixxerbridge.ui.theme.SairaCondensedFamily
 
 /**
  * The oversized condensed "masthead" numeral (spec §8.1) — Saira Condensed Black,
- * tabular + slashed-zero, on a single line that is meant to BLEED off the edge.
+ * tabular figures, on a single line that is meant to BLEED off the edge.
  * The bleed itself is a layout decision the caller makes (place it with a negative
  * offset / let it overflow its parent); this component just supplies the giant,
  * non-wrapping figure.
@@ -46,7 +46,7 @@ fun HeroNumeral(
             fontSize = fontSize,
             lineHeight = fontSize.value.times(0.86f).sp,
             letterSpacing = (-0.03).em,
-            fontFeatureSettings = "tnum, zero",
+            fontFeatureSettings = "tnum",
         ),
     )
 }

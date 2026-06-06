@@ -117,6 +117,16 @@ class Settings(context: Context) {
     val crashDetectionEnabled: Flow<Boolean> =
         ds.data.map { it[Keys.CRASH_DETECTION_ENABLED] ?: false }
 
+    /**
+     * True while a crash-SOS countdown is armed. Persisted so the SOS still fires
+     * if the process is killed during the countdown (a crash is exactly when the
+     * phone may be damaged). Read by the AlarmManager-driven
+     * [dev.mrwick.gixxerbridge.safety.SosAlarmReceiver]; cleared when the rider
+     * cancels or after the SOS sends.
+     */
+    val sosArmed: Flow<Boolean> =
+        ds.data.map { it[Keys.SOS_ARMED] ?: false }
+
     /** When true, the first-run onboarding wizard has been completed. Default false. */
     val onboardingComplete: Flow<Boolean> =
         ds.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }
@@ -249,6 +259,11 @@ class Settings(context: Context) {
         ds.edit { it[Keys.CRASH_DETECTION_ENABLED] = v }
     }
 
+    /** Arm/disarm the persisted crash-SOS countdown (see [sosArmed]). */
+    suspend fun setSosArmed(v: Boolean) {
+        ds.edit { it[Keys.SOS_ARMED] = v }
+    }
+
     /** Mark the first-run onboarding wizard as complete (true) or reset (false). */
     suspend fun setOnboardingComplete(v: Boolean) {
         ds.edit { it[Keys.ONBOARDING_COMPLETE] = v }
@@ -290,6 +305,7 @@ class Settings(context: Context) {
         val MANEUVER_SELF_TRAIN = booleanPreferencesKey("maneuver_self_train")
         val EMERGENCY_CONTACT_PHONE = stringPreferencesKey("emergency_contact_phone")
         val CRASH_DETECTION_ENABLED = booleanPreferencesKey("crash_detection_enabled")
+        val SOS_ARMED = booleanPreferencesKey("sos_armed")
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_while_connected")
         val THEME_ACCENT = stringPreferencesKey("theme_accent")

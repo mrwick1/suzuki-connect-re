@@ -75,8 +75,8 @@ fun RideRow(
     val dayStr = dayFmt.format(date).uppercase(Locale.US)
     val monthStr = monthFmt.format(date).uppercase(Locale.US)
 
-    val endMillis = ride.endedAtMillis ?: System.currentTimeMillis()
-    val durationMin = ((endMillis - ride.startedAtMillis) / 60_000).coerceAtLeast(0)
+    val inProgress = ride.endedAtMillis == null
+    val durationMin = (((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000).coerceAtLeast(0)
     val distanceKm = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
     val avgSpeed = ride.avgSpeedKmh
 
@@ -122,9 +122,9 @@ fun RideRow(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${durationMin} min · ${"%.0f".format(avgSpeed)} km/h avg",
+                    text = if (inProgress) "In progress…" else "${durationMin} min · ${"%.0f".format(avgSpeed)} km/h avg",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = GixxerTokens.textMuted,
+                    color = if (inProgress) GixxerTokens.accent else GixxerTokens.textMuted,
                 )
             }
 

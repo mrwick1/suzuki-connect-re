@@ -238,8 +238,10 @@ private fun OdoTile(telemetry: TelemetryFrame?, modifier: Modifier, index: Int) 
 
 @Composable
 private fun HealthTile(nextService: NextServiceSummary?, onOpenMaintenance: () -> Unit, index: Int) {
+    // No service baseline recorded yet → "Caution" (needs setup), not a green
+    // "All good" that falsely reassures when we simply have no data.
     val state = when {
-        nextService == null -> HealthState.Good
+        nextService == null -> HealthState.Caution
         nextService.overdue -> HealthState.Fault
         else -> HealthState.Good
     }
@@ -250,17 +252,19 @@ private fun HealthTile(nextService: NextServiceSummary?, onOpenMaintenance: () -
             Column {
                 Text("BIKE HEALTH", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    if (nextService == null) "All good" else nextService.label,
+                    if (nextService == null) "No service data yet" else nextService.label,
                     style = MaterialTheme.typography.titleMedium,
                     color = if (state == HealthState.Fault) GixxerBrand.danger else MaterialTheme.colorScheme.onBackground,
                 )
-                if (nextService != null) {
-                    Text(
-                        if (nextService.overdue) nextService.dueInText else "Next in ${nextService.dueInText}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    when {
+                        nextService == null -> "Tap to log your last service"
+                        nextService.overdue -> nextService.dueInText
+                        else -> "Next in ${nextService.dueInText}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

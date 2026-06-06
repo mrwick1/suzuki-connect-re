@@ -38,8 +38,11 @@ import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTheme
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import dev.mrwick.gixxerbridge.ui.theme.Motion
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -59,6 +62,26 @@ import kotlinx.coroutines.runBlocking
  * Behavior: unchanged — no changes to countdown duration, SMS sending, or okPressed signaling.
  */
 class SosScreen : ComponentActivity() {
+
+    /** Cancel the persisted countdown so the AlarmManager-driven SOS no-ops. */
+    private fun disarmSos() {
+        runBlocking { Settings(this@SosScreen).setSosArmed(false) }
+    }
+
+    /**
+     * Fire the SOS immediately (the "SEND NOW" path) using a process-scoped
+     * coroutine so it survives this activity finishing. Disarms the pending
+     * alarm first so it can't double-send.
+     */
+    private fun fireNow() {
+        val appCtx = applicationContext
+        CoroutineScope(Dispatchers.Default).launch {
+            val s = Settings(appCtx)
+            s.setSosArmed(false)
+            val sos = SosController(appCtx)
+            sos.fire(s.emergencyContactPhone.first(), sos.freshLocation())
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -153,6 +176,7 @@ class SosScreen : ComponentActivity() {
                             FilledTonalButton(
                                 onClick = {
                                     okPressed = true
+                                    disarmSos()
                                     finish()
                                 },
                                 modifier = Modifier
@@ -198,11 +222,12 @@ class SosScreen : ComponentActivity() {
                         secondsLeft = secondsLeft,
                         onImFine = {
                             okPressed = true
+                            disarmSos()
                             finish()
                         },
                         onSendNow = {
-                            // okPressed stays false — service will fire SOS on its countdown expiry.
-                            // Finishing the activity does NOT cancel the service's coroutine.
+                            // Fire immediately rather than waiting out the countdown.
+                            fireNow()
                             finish()
                         },
                     )

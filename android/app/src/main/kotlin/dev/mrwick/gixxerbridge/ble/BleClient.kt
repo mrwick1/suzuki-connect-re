@@ -63,6 +63,12 @@ class BleClient(private val context: Context) {
     private val pendingDescriptor = AtomicReference<CompletableDeferred<Boolean>?>(null)
     private val pendingMtu = AtomicReference<CompletableDeferred<Int>?>(null)
 
+    /** Last MAC passed to [connect]; used for bounded handshake-failure reconnects. */
+    @Volatile private var lastMac: String? = null
+    /** Consecutive handshake failures for the current MAC; reset on Ready / MAC change. */
+    private var handshakeFailCount = 0
+    private val maxHandshakeReconnects = 3
+
     private val adapter: BluetoothAdapter? =
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
@@ -71,6 +77,11 @@ class BleClient(private val context: Context) {
      * Safe to call repeatedly — second call disconnects the previous attempt first.
      */
     fun connect(mac: String) {
+        // Reset the handshake-failure budget only when the *target* changes, so
+        // an internal reconnect (same MAC) keeps counting toward the cap instead
+        // of looping forever.
+        if (mac != lastMac) handshakeFailCount = 0
+        lastMac = mac
         AppLog.i(tag, "connect() mac=$mac")
         scope.launch {
             disconnectInternal()
@@ -134,6 +145,33 @@ class BleClient(private val context: Context) {
             Log.w(tag, "disconnect threw", t)
         }
         _state.value = ConnectionState.Idle
+    }
+
+    /**
+     * A handshake step failed. The link layer is up but the GATT handshake
+     * didn't complete, and `autoConnect` only retries the *link* on a
+     * Disconnected — so without this a transient handshake hiccup (e.g. a
+     * CCC-ack timeout) would leave the app permanently stuck until the user
+     * re-toggles the bike MAC. Tear down and reconnect with linear backoff,
+     * bounded by [maxHandshakeReconnects] so a genuinely-wrong device doesn't
+     * spin forever; falls through to [ConnectionState.Failed] once exhausted.
+     * The counter resets on a successful Ready or a MAC change.
+     */
+    private fun failHandshake(reason: String) {
+        val mac = lastMac
+        if (mac != null && handshakeFailCount < maxHandshakeReconnects) {
+            handshakeFailCount++
+            val backoff = 1_500L * handshakeFailCount
+            AppLog.w(tag, "handshake failed ($reason) — reconnect ${handshakeFailCount}/$maxHandshakeReconnects in ${backoff}ms")
+            scope.launch {
+                disconnectInternal()
+                delay(backoff)
+                connect(mac)
+            }
+        } else {
+            AppLog.e(tag, "handshake failed ($reason) — giving up after $handshakeFailCount retries")
+            _state.value = ConnectionState.Failed(reason)
+        }
     }
 
     /**
@@ -237,10 +275,10 @@ class BleClient(private val context: Context) {
      *   6. Kick off the optional Device Info (0x180A) reads in the background.
      */
     private suspend fun runHandshake(gatt: BluetoothGatt) {
-        // (1) MTU. Use 65 to match the bike's confirmed cap from the M0 pcap
-        // (Exchange MTU Response: Server Rx MTU=65). Some phones already negotiate
-        // higher MTUs automatically, but request explicitly so behavior is stable
-        // across devices/Android versions.
+        // (1) MTU. Request 65 to match the Server Rx MTU seen in the M0 pcap.
+        // ASSUMED (single capture): the bike caps at 65 — treat as a per-bike
+        // observation, not a universal fact. Bumping past the default 23 avoids
+        // write fragmentation on 30-byte frames.
         val mtuDeferred = CompletableDeferred<Int>()
         pendingMtu.set(mtuDeferred)
         val mtuReq = try { gatt.requestMtu(65) } catch (t: Throwable) {
@@ -251,7 +289,12 @@ class BleClient(private val context: Context) {
             pendingMtu.set(null)
         } else {
             val mtu = withTimeoutOrNull(2_000) { mtuDeferred.await() } ?: -1
-            if (mtu <= 0) AppLog.w(tag, "MTU negotiation failed/timeout; proceeding with default")
+            when {
+                mtu <= 0 -> AppLog.w(tag, "MTU negotiation failed/timeout; proceeding with default")
+                // 30-byte frame + 3-byte ATT header = 33. Below this, writes would
+                // fragment, which the bike's single-PDU frame format doesn't expect.
+                mtu < 33 -> AppLog.w(tag, "negotiated MTU=$mtu < 33 — 30-byte frames may fragment")
+            }
         }
 
         // (2) Quiet gap. Matches Suzuki app's postDelayed(500) before subscribing.
@@ -262,56 +305,65 @@ class BleClient(private val context: Context) {
             ?.getCharacteristic(SuzukiGatt.NOTIFY_CHAR_UUID)
         if (notifyChar == null) {
             AppLog.e(tag, "notify characteristic 0xFFF2 missing")
-            _state.value = ConnectionState.Failed("notify characteristic 0xFFF2 missing")
+            failHandshake("notify characteristic 0xFFF2 missing")
             return
         }
         val enabled = gatt.setCharacteristicNotification(notifyChar, true)
         AppLog.i(tag, "setCharacteristicNotification(0xFFF2)=$enabled")
         if (!enabled) {
-            _state.value = ConnectionState.Failed("setCharacteristicNotification failed")
+            failHandshake("setCharacteristicNotification failed")
             return
         }
         val ccc = notifyChar.getDescriptor(SuzukiGatt.CCC_DESCRIPTOR_UUID)
         if (ccc == null) {
             AppLog.e(tag, "CCC descriptor missing on 0xFFF2; cannot enable notify")
-            _state.value = ConnectionState.Failed("CCC descriptor missing")
-            return
-        }
-        val descDeferred = CompletableDeferred<Boolean>()
-        pendingDescriptor.set(descDeferred)
-        val cccStarted = try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                @Suppress("DEPRECATION")
-                gatt.writeDescriptor(ccc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
-                    android.bluetooth.BluetoothStatusCodes.SUCCESS
-            } else {
-                @Suppress("DEPRECATION")
-                ccc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                @Suppress("DEPRECATION")
-                gatt.writeDescriptor(ccc)
-            }
-        } catch (t: Throwable) {
-            AppLog.e(tag, "writeDescriptor(CCC) threw", t); false
-        }
-        if (!cccStarted) {
-            AppLog.e(tag, "writeDescriptor(CCC) returned false")
-            pendingDescriptor.set(null)
-            _state.value = ConnectionState.Failed("CCC descriptor write rejected")
+            failHandshake("CCC descriptor missing")
             return
         }
 
-        // (4) Wait for ack — this is the fix.
-        val cccOk = withTimeoutOrNull(2_000) { descDeferred.await() } ?: false
-        if (!cccOk) {
-            AppLog.e(tag, "CCC descriptor write did not ack within 2s")
+        // (4) Write CCC = ENABLE_NOTIFICATION and wait for the ack — the gate
+        // before Ready. Retry a few times: the ack occasionally times out on a
+        // congested stack right after discovery, and a single miss used to wedge
+        // the connection permanently (now a bounded reconnect catches the rest).
+        var cccOk = false
+        for (cccAttempt in 1..3) {
+            val descDeferred = CompletableDeferred<Boolean>()
+            pendingDescriptor.set(descDeferred)
+            val cccStarted = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    @Suppress("DEPRECATION")
+                    gatt.writeDescriptor(ccc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
+                        android.bluetooth.BluetoothStatusCodes.SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    ccc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    @Suppress("DEPRECATION")
+                    gatt.writeDescriptor(ccc)
+                }
+            } catch (t: Throwable) {
+                AppLog.e(tag, "writeDescriptor(CCC) threw", t); false
+            }
+            if (!cccStarted) {
+                pendingDescriptor.set(null)
+                AppLog.w(tag, "writeDescriptor(CCC) rejected (attempt $cccAttempt/3)")
+                delay(250)
+                continue
+            }
+            cccOk = withTimeoutOrNull(2_000) { descDeferred.await() } ?: false
+            if (cccOk) break
             pendingDescriptor.set(null)
-            _state.value = ConnectionState.Failed("CCC descriptor write ack timeout")
+            AppLog.w(tag, "CCC descriptor write ack timeout (attempt $cccAttempt/3)")
+            delay(300)
+        }
+        if (!cccOk) {
+            failHandshake("CCC descriptor write did not ack")
             return
         }
         AppLog.i(tag, "CCC notify-enable ack received — handshake clear to send")
 
         // (5) Mark Ready. BikeBridgeService's state collector reacts immediately by
         // enqueueing the a536 identity frame to URGENT, which the drain writes next.
+        handshakeFailCount = 0
         _state.value = ConnectionState.Ready
         AppLog.i(tag, "Ready — bike connected and notify subscription armed")
 
@@ -410,7 +462,7 @@ class BleClient(private val context: Context) {
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 AppLog.e(tag, "service discovery failed status=$status (${gattStatusName(status)})")
-                _state.value = ConnectionState.Failed("service discovery failed status=$status")
+                failHandshake("service discovery failed status=$status")
                 return
             }
             val services = gatt.services.joinToString(", ") { it.uuid.toString().substring(0, 8) }

@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import dev.mrwick.gixxerbridge.ui.components.BentoTile
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,8 +41,8 @@ fun SafetySection(vm: SafetyViewModel) {
     val contact by vm.emergencyContactPhone.collectAsStateWithLifecycle()
     val crashEnabled by vm.crashDetectionEnabled.collectAsStateWithLifecycle()
 
-    Card {
-        Column(modifier = Modifier.padding(16.dp)) {
+    BentoTile(Modifier.fillMaxWidth(), animateEntry = false) {
+        Column {
             Text("Safety", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
 

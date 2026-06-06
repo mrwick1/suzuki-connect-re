@@ -1,14 +1,30 @@
 package dev.mrwick.gixxerbridge.ble
 
+import android.content.Context
 import androidx.compose.runtime.Immutable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Hot stream of every TX + RX byte array that crosses BLE.
- * Consumers: InspectorScreen (live view), RingLog (bug report).
+ * Consumers: InspectorScreen (live view), and a rolling on-disk frame log so the
+ * raw wire traffic of a whole bike session survives off-tether and can be
+ * reviewed / shared later (parallels [dev.mrwick.gixxerbridge.util.AppLog]).
+ *
+ * Disk layout (debuggable APK):
+ *   filesDir/diag/frames.log    (active)
+ *   filesDir/diag/frames.1.log  (previous rotation)
+ * Pull via: adb shell run-as <pkg> cat files/diag/frames.log
  */
 class FrameStream {
     // PERF: explicit DROP_OLDEST overflow policy. Inspector is the only
@@ -23,9 +39,56 @@ class FrameStream {
     )
     val events: SharedFlow<FrameEvent> = _events.asSharedFlow()
 
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val tsFormat = ThreadLocal.withInitial { SimpleDateFormat(TS_FMT, Locale.US) }
+    @Volatile private var activeFile: File? = null
+    @Volatile private var rotatedFile: File? = null
+
+    /** Wire the on-disk mirror. Call once from Application.onCreate. */
+    fun init(context: Context) {
+        val dir = File(context.filesDir, "diag").apply { mkdirs() }
+        activeFile = File(dir, "frames.log")
+        rotatedFile = File(dir, "frames.1.log")
+    }
+
     fun emit(event: FrameEvent) {
         val ok = _events.tryEmit(event)
         android.util.Log.d("FrameStream", "emit dir=${event.direction} size=${event.bytes.size} ok=$ok subs=${_events.subscriptionCount.value}")
+        appendToFile(event)
+    }
+
+    /** Returns the active frame-log file for share intents, or null if uninitialised. */
+    fun activeLogFile(): File? = activeFile
+
+    private fun appendToFile(event: FrameEvent) {
+        // Skip the idle "nav-preview" frames the cluster preview emits while
+        // disconnected — the on-disk log is meant to capture real wire traffic
+        // from connected sessions, not the 1 Hz preview churn.
+        if (event.note == "nav-preview") return
+        val file = activeFile ?: return
+        ioScope.launch {
+            try {
+                if (file.length() >= MAX_FILE_BYTES) {
+                    rotatedFile?.let { if (it.exists()) it.delete() }
+                    rotatedFile?.let { file.renameTo(it) }
+                }
+                file.appendText(formatLine(event))
+            } catch (t: Throwable) {
+                android.util.Log.w("FrameStream", "frame-log append failed: $t")
+            }
+        }
+    }
+
+    private fun formatLine(e: FrameEvent): String {
+        val ts = tsFormat.get()!!.format(Date(e.tMillis))
+        val hex = e.bytes.joinToString(" ") { "%02x".format(it.toInt() and 0xff) }
+        val note = e.note?.let { " ($it)" } ?: ""
+        return "$ts ${e.direction}$note  $hex\n"
+    }
+
+    private companion object {
+        const val MAX_FILE_BYTES = 2L * 1024L * 1024L // 2 MB before rotation
+        const val TS_FMT = "MM-dd HH:mm:ss.SSS"
     }
 }
 

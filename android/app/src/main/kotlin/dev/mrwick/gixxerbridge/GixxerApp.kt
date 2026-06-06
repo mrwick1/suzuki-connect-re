@@ -19,6 +19,7 @@ class GixxerApp : Application() {
         // of onCreate (channel registration, future init) still lands on disk.
         CrashHandler.install(this)
         AppLog.init(this)
+        dev.mrwick.gixxerbridge.app.AppGraph.frameStream.init(this)
         AppLog.i("App", "onCreate pid=${android.os.Process.myPid()} pkg=$packageName")
         registerNotificationChannels()
     }
@@ -35,9 +36,22 @@ class GixxerApp : Application() {
                 setShowBadge(false)
             }
         )
+        // HIGH importance — required for the crash prompt's full-screen intent to
+        // promote to a full-screen activity (a LOW channel silently downgrades it).
+        nm.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_CRASH_ALERT,
+                "Crash alerts",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Full-screen prompt shown when a crash is suspected."
+                enableVibration(true)
+            }
+        )
     }
 
     companion object {
         const val CHANNEL_BIKE_SERVICE = "bike_service"
+        const val CHANNEL_CRASH_ALERT = "crash_alert"
     }
 }

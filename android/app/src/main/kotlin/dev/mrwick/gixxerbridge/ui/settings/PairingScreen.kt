@@ -143,7 +143,7 @@ private fun PairOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f)),
+            .background(GixxerTokens.scrim),
         contentAlignment = Alignment.Center,
     ) {
         Card(

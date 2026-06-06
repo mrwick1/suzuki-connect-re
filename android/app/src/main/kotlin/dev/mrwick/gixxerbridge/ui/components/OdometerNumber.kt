@@ -23,8 +23,8 @@ import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
 /**
  * Odometer-style number: each digit rolls vertically when it changes, with the
  * whole number's direction (up vs down) choosing the slide direction — Robinhood's
- * "the transition carries the meaning" move (spec §6.1). Tabular + slashed-zero
- * figures (via [GixxerMono]) keep the width stable so digits never jitter.
+ * "the transition carries the meaning" move (spec §6.1). Tabular figures
+ * (via [GixxerMono]) keep the width stable so digits never jitter.
  *
  * Only changed digits recompose, so this is cheap to drive at the eye's refresh
  * (throttle the source to ~10–15 Hz for live telemetry). The roll is best seen on

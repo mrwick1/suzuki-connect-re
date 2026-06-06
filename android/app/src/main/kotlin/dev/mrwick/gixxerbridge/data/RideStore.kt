@@ -128,23 +128,9 @@ interface RideDao {
     @Query("SELECT * FROM ride_samples WHERE rideId = :rideId ORDER BY tMillis ASC")
     suspend fun getSamples(rideId: Long): List<RideSampleEntity>
 
-    /**
-     * Fetch up to [limit] evenly-distributed speed samples for a ride,
-     * suitable for the inline sparkline in the Trips list. Uses SQLite's
-     * modulo trick to pick every Nth row so the sample set spans the full
-     * ride duration regardless of ride length.
-     *
-     * Note: the count sub-query re-scans the table for each row; acceptable
-     * cost given that ride sample counts stay under ~3600 (1 Hz × 1 hr).
-     */
-    @Query("""
-        SELECT * FROM ride_samples
-        WHERE rideId = :rideId
-          AND (id % MAX(1, (SELECT COUNT(*) FROM ride_samples WHERE rideId = :rideId) / :limit)) = 0
-        ORDER BY tMillis ASC
-        LIMIT :limit
-    """)
-    suspend fun getSamplesLimited(rideId: Long, limit: Int): List<RideSampleEntity>
+    /** Lifetime best (max) fuel-economy reading across every sample, or null. */
+    @Query("SELECT MAX(fuelEconKml) FROM ride_samples")
+    suspend fun maxFuelEcon(): Double?
 
     /** Fetch the most-recent ride that has no end timestamp, or null. */
     @Query("SELECT * FROM rides WHERE endedAtMillis IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
@@ -235,11 +221,20 @@ class RideStore(private val dao: RideDao) {
         name: String? = null,
     ) {
         val ride = dao.getRide(rideId) ?: return
+        // Recompute average speed over *moving* samples (speed > 0) in one clean
+        // pass at ride end. The per-sample running average in [appendSample]
+        // includes stationary samples (traffic lights) and accumulates float
+        // drift; this final value is what the stats screens read, so it should
+        // reflect moving-average speed. Falls back to the running value when the
+        // ride had no moving samples (e.g. telemetry never reported speed).
+        val movingSpeeds = dao.getSamples(rideId).map { it.speedKmh }.filter { it > 0 }
+        val finalAvg = if (movingSpeeds.isEmpty()) ride.avgSpeedKmh else movingSpeeds.average()
         dao.updateRide(
             ride.copy(
                 endedAtMillis = endedAtMillis,
                 endOdoKm = endOdoKm,
                 fuelBarsEnd = fuelBarsEnd,
+                avgSpeedKmh = finalAvg,
                 // Only overwrite the existing name if the caller passed one.
                 // Lets manual renames survive a later re-end (defensive — the
                 // RideLogger never re-ends a closed ride today).
@@ -273,12 +268,23 @@ class RideStore(private val dao: RideDao) {
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)
 
     /**
-     * Fetch up to [limit] evenly-distributed samples for the sparkline
-     * shown in the Trips list row. Keeps memory low — a 60-point polyline
-     * is enough resolution to see the ride shape.
+     * Fetch up to [limit] evenly-distributed samples for the sparkline shown in
+     * the Trips list row. Downsampled in Kotlin by position (not by row id): the
+     * previous SQL `id % stride` trick was broken because `id` is a *global*
+     * autoincrement, so a ride whose ids didn't line up with the stride returned
+     * few or zero rows. Sample counts stay under ~3600 (1 Hz × 1 hr) so loading
+     * the full set and striding is cheap.
      */
-    suspend fun getSamplesLimited(rideId: Long, limit: Int = 60): List<RideSampleEntity> =
-        dao.getSamplesLimited(rideId, limit)
+    suspend fun getSamplesLimited(rideId: Long, limit: Int = 60): List<RideSampleEntity> {
+        require(limit > 0) { "limit must be positive" }
+        val all = dao.getSamples(rideId)
+        if (all.size <= limit) return all
+        val stride = all.size.toDouble() / limit
+        return (0 until limit).map { all[(it * stride).toInt().coerceAtMost(all.lastIndex)] }
+    }
+
+    /** Lifetime best (max) fuel-economy reading across every sample, or null. */
+    suspend fun maxFuelEcon(): Double? = dao.maxFuelEcon()
 
     /**
      * Append one GPS location to a ride. Independent of [appendSample]; no

@@ -48,7 +48,7 @@ object ShareCardRenderer {
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 isAntiAlias = true
             }
-            drawText("GixxerBridge", 80f, 200f, titlePaint)
+            drawText("REDLINE", 80f, 200f, titlePaint)
 
             // Subtitle: ride start date/time
             val datePaint = Paint().apply {
@@ -168,7 +168,7 @@ object ShareCardRenderer {
                 textSize = 36f
                 isAntiAlias = true
             }
-            drawText("• GixxerBridge", 80f, 1850f, footerP)
+            drawText("• REDLINE", 80f, 1850f, footerP)
         }
         val file = File(context.cacheDir, "ride-${ride.id}-card.png")
         FileOutputStream(file).use { out ->

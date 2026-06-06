@@ -16,6 +16,13 @@ import android.widget.TextView
 /**
  * Parses Google Maps turn-by-turn notifications into [ParsedNavData].
  *
+ * PARKED (2026-06-04): the whole Google Maps nav pipeline is shelved — the
+ * notification-scrape → guessed-Mappls-ID path produced wrong cluster arrows.
+ * [dev.mrwick.gixxerbridge.notifications.NotificationDispatcher] no longer routes
+ * Maps notifications here, so nothing in this file runs at present. The planned
+ * replacement drives nav from the Mappls Navigation SDK. Treat the notes below
+ * as historical until the pipeline is revived.
+ *
  * 2026-05-25 empirical finding (see captures/maps-notification-dump-*.md): current Maps
  * versions on Android 16 use the standard `Notification.extras` ProgressStyle template,
  * NOT a custom RemoteViews layout as the 2020 reference implementation assumed.

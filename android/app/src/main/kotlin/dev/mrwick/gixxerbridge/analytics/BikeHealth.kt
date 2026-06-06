@@ -3,10 +3,23 @@ package dev.mrwick.gixxerbridge.analytics
 import androidx.compose.runtime.Immutable
 import dev.mrwick.gixxerbridge.data.RideEntity
 
-/** Composite 0-100 bike-health score plus its three sub-scores and a textual grade. */
+/**
+ * Composite 0-100 bike-health score plus its three sub-scores and a textual grade.
+ *
+ * [insufficientData] is true when 2+ of the three inputs were unknown (so the
+ * score leans on neutral-50 fallbacks). Callers should show "Not enough data"
+ * rather than a flattering grade in that case.
+ */
 @Immutable
-data class BikeHealthScore(val total: Int, val service: Int, val fuel: Int, val connection: Int) {
+data class BikeHealthScore(
+    val total: Int,
+    val service: Int,
+    val fuel: Int,
+    val connection: Int,
+    val insufficientData: Boolean = false,
+) {
     val grade: String = when {
+        insufficientData -> "Not enough data"
         total >= 85 -> "Excellent"
         total >= 65 -> "Good"
         total >= 40 -> "Fair"
@@ -50,6 +63,17 @@ object BikeHealth {
         }
         val total = ((service * 0.34) + (fuel * 0.33) + (connection * 0.33))
             .toInt().coerceIn(0, 100)
-        return BikeHealthScore(total = total, service = service, fuel = fuel, connection = connection)
+        // Count genuinely-unknown inputs: a null odo means service is a guess, a
+        // null fuel means fuel is a guess, and no rides means connection is a guess.
+        val unknowns = (if (currentOdo == null) 1 else 0) +
+            (if (fuelBars == null) 1 else 0) +
+            (if (rides.isEmpty()) 1 else 0)
+        return BikeHealthScore(
+            total = total,
+            service = service,
+            fuel = fuel,
+            connection = connection,
+            insufficientData = unknowns >= 2,
+        )
     }
 }

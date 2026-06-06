@@ -58,7 +58,7 @@ fun AboutScreen() {
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("GixxerBridge", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        Text("REDLINE", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text(
             "An open replacement for Suzuki Connect — Google Maps nav on the cluster, " +
                 "live telemetry on the phone, no cloud, no account.",
@@ -241,7 +241,7 @@ private fun shareCrashLog(context: Context, file: File) {
 
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "GixxerBridge crash: ${file.name}")
+        putExtra(Intent.EXTRA_SUBJECT, "REDLINE crash: ${file.name}")
         putExtra(Intent.EXTRA_TEXT, text)
         if (uri != null) {
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -424,7 +424,7 @@ private fun copyDiagnostics(
     } ?: "Bike info: (not read — never connected)"
 
     val text = buildString {
-        appendLine("GixxerBridge v${BuildConfig.VERSION_NAME}")
+        appendLine("REDLINE v${BuildConfig.VERSION_NAME}")
         appendLine("Build: ${BuildConfig.BUILD_TYPE} · ${BuildConfig.APPLICATION_ID}")
         appendLine(
             "Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · " +
@@ -440,7 +440,7 @@ private fun copyDiagnostics(
         Toast.makeText(context, "Clipboard unavailable", Toast.LENGTH_SHORT).show()
         return
     }
-    cm.setPrimaryClip(ClipData.newPlainText("GixxerBridge diagnostics", text))
+    cm.setPrimaryClip(ClipData.newPlainText("REDLINE diagnostics", text))
     Toast.makeText(context, "Copied diagnostics", Toast.LENGTH_SHORT).show()
 }
 

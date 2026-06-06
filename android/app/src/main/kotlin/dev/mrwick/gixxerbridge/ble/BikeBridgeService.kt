@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.ble
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -7,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -34,6 +36,7 @@ import dev.mrwick.gixxerbridge.protocol.IdentityFrame
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
 import dev.mrwick.gixxerbridge.protocol.decodeFrame
 import dev.mrwick.gixxerbridge.safety.CrashDetector
+import dev.mrwick.gixxerbridge.safety.SosAlarmReceiver
 import dev.mrwick.gixxerbridge.safety.SosController
 import dev.mrwick.gixxerbridge.safety.SosScreen
 import dev.mrwick.gixxerbridge.system.DndController
@@ -155,8 +158,12 @@ class BikeBridgeService : LifecycleService() {
         // track clears within one cycle.
         // ASSUMED: 5s sampling is responsive enough; revisit if rider notices lag
         // between hitting "play" and the cluster swap.
+        // PERF (battery): only poll the active media session while the bike link is
+        // Ready — that's the only consumer that matters (the cluster's now-playing
+        // tile). Suspends with no MediaSession queries while disconnected.
         lifecycleScope.launch {
             while (isActive) {
+                bleClient.state.first { it is ConnectionState.Ready }
                 nowPlayingProvider.refresh()
                 delay(5_000)
             }
@@ -206,10 +213,11 @@ class BikeBridgeService : LifecycleService() {
         // Ride persistence: TelemetryRepository.latest -> Room via RideLogger.
         // GPS track recording starts/stops with the ride; tracker no-ops without
         // ACCESS_FINE_LOCATION so it's safe to always wire here.
+        val rideLocationTracker = RideLocationTracker(applicationContext)
         rideLogger = RideLogger(
             store = RideStore(GixxerDatabase.get(applicationContext).rideDao()),
             telemetry = TelemetryRepository.latest,
-            locationTracker = RideLocationTracker(applicationContext),
+            locationTracker = rideLocationTracker,
             onRideEnded = { rideId -> AppGraph.publishLastFinishedRideId(rideId) },
         )
         rideLogger.attach(lifecycleScope)
@@ -228,7 +236,13 @@ class BikeBridgeService : LifecycleService() {
         // settings.crashDetectionEnabled is true.
         sos = SosController(applicationContext)
         crashDetector = CrashDetector(
-            history = TelemetryRepository.history,
+            context = applicationContext,
+            // Prefer GPS ground speed (independent of BLE telemetry); fall back to
+            // the bike's reported speed when no GPS fix is active.
+            latestSpeedKmh = {
+                rideLocationTracker.samples.value?.speedMps?.let { (it * 3.6f).toInt() }
+                    ?: TelemetryRepository.latest.value?.speedKmh
+            },
             onCrashSuspected = ::onCrashSuspected,
         )
         lifecycleScope.launch {
@@ -276,7 +290,12 @@ class BikeBridgeService : LifecycleService() {
                 try {
                     val frame = decodeFrame(bytes)
                     if (frame is TelemetryFrame) TelemetryRepository.update(frame)
-                } catch (_: Throwable) { /* ignore malformed */ }
+                } catch (t: Throwable) {
+                    // Don't swallow silently: an undecoded notify may be a new/unknown
+                    // bike frame type worth investigating (project rule — absence of
+                    // evidence is not evidence of absence). Log type + size + reason.
+                    AppLog.w(tag, "RX decode failed type=$typeHex size=${bytes.size}: ${t.message}")
+                }
             }
         }
 
@@ -372,17 +391,18 @@ class BikeBridgeService : LifecycleService() {
             }
         }
 
-        // Heartbeat producer -> writer queue
-        // PERF: gate on Ready — when the bike is disconnected, writes always fail
-        // and the encode+enqueue+drain churn wastes wakeups on the foreground
-        // service. The HeartbeatLoop still ticks at 1 Hz internally, but we drop
-        // its frames on the floor until the link is live again.
+        // Heartbeat producer -> writer queue.
+        // PERF (battery): fully idle-gate. The old code ran HeartbeatLoop at 1 Hz
+        // unconditionally and only dropped frames at enqueue, so it kept building a
+        // frame (phone-battery + weather reads) every second 24/7 even with no bike
+        // paired. Now we suspend on the state flow until Ready — zero wakeups /
+        // zero reads while disconnected — then beat at 1 Hz; the next Ready re-arms.
         lifecycleScope.launch {
-            heartbeatLoop.run { hb ->
-                if (bleClient.state.value is ConnectionState.Ready) {
-                    val bytes = hb.encode()
-                    frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.HEARTBEAT, bytes, "hb"))
-                }
+            while (isActive) {
+                bleClient.state.first { it is ConnectionState.Ready }
+                val bytes = heartbeatLoop.buildFrame().encode()
+                frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.HEARTBEAT, bytes, "hb"))
+                delay(HeartbeatLoop.HEARTBEAT_INTERVAL_MS)
             }
         }
 
@@ -419,14 +439,20 @@ class BikeBridgeService : LifecycleService() {
             while (true) {
                 val entry = frameWriter.take()
                 if (bleClient.state.value !is ConnectionState.Ready) {
-                    // BUGFIX: previously we did `continue` here, which silently dropped
-                    // the dequeued entry. URGENT entries (identity / call / sms) racing
-                    // a fresh connect could be lost mid-handshake. Now we re-enqueue
-                    // and back off so the entry is held until the link is Ready.
-                    AppLog.d(tag, "writer: holding ${entry.note} until Ready (state=${bleClient.state.value})")
-                    frameWriter.enqueue(entry)
-                    delay(100)
-                    continue
+                    // Hold the dequeued entry *locally* until Ready rather than
+                    // re-enqueueing it: re-enqueue would re-run NAV dedup and could
+                    // reorder this URGENT frame behind newer ones. Wait out brief
+                    // non-Ready windows, but give up after a bound so a permanently
+                    // down link doesn't wedge the drain — a stale frame is worthless
+                    // once the link returns (identity is re-sent fresh on each Ready).
+                    var waitedMs = 0
+                    while (bleClient.state.value !is ConnectionState.Ready && waitedMs < 3_000) {
+                        delay(100); waitedMs += 100
+                    }
+                    if (bleClient.state.value !is ConnectionState.Ready) {
+                        AppLog.d(tag, "writer: dropping stale ${entry.note} (link not Ready after ${waitedMs}ms)")
+                        continue
+                    }
                 }
                 val ok = bleClient.write(entry.frame)
                 AppGraph.frameStream.emit(FrameEvent(FrameEvent.Direction.TX, entry.frame, note = entry.note))
@@ -610,50 +636,76 @@ class BikeBridgeService : LifecycleService() {
     }
 
     /**
-     * Called by [CrashDetector] when a sudden-deceleration pattern is observed.
+     * Called by [CrashDetector] when an impact + stillness pattern is observed.
      *
-     * Posts a high-priority "Crash detected — tap if OK" notification, launches the
-     * full-screen [SosScreen] prompt (gives the rider a 10-second window to cancel),
-     * then 10s later checks [SosScreen.okPressed]. If the rider didn't dismiss it,
-     * fires the SOS SMS.
-     *
-     * ASSUMED: SosScreen launches reliably from the service context. On modern
-     * Android, full-screen intents from services without USE_FULL_SCREEN_INTENT or
-     * a foreground activity may be downgraded to a heads-up notification — we still
-     * post the notification as a fallback path so the rider can tap it.
+     * Robustness changes:
+     *  - Arms a *persisted* SOS countdown ([Settings.sosArmed]) and schedules an
+     *    AlarmManager exact alarm at the deadline, so the SOS fires even if this
+     *    process is killed during the countdown (the old in-process `delay` died
+     *    with the process — the worst case in a real crash).
+     *  - Shows the cancel UI via a HIGH-importance full-screen-intent notification
+     *    (promotes from the background, where a bare `startActivity` is dropped).
+     *  - The rider's "I'm OK" disarms [Settings.sosArmed]; the alarm then no-ops.
      */
     private fun onCrashSuspected() {
-        // Reset the "I'm OK" flag before arming a new prompt.
         SosScreen.okPressed = false
+        lifecycleScope.launch { settings.setSosArmed(true) }
 
-        val n = NotificationCompat.Builder(applicationContext, GixxerApp.CHANNEL_BIKE_SERVICE)
+        // Schedule the firing alarm (survives process death).
+        val firePending = PendingIntent.getBroadcast(
+            applicationContext,
+            SosAlarmReceiver.REQUEST_CODE,
+            Intent(applicationContext, SosAlarmReceiver::class.java)
+                .setAction(SosAlarmReceiver.ACTION_FIRE_SOS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val deadline = SystemClock.elapsedRealtime() + SosScreen.COUNTDOWN_SECONDS * 1_000L
+        val am = getSystemService(AlarmManager::class.java)
+        var alarmScheduled = false
+        try {
+            am?.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, deadline, firePending)
+            alarmScheduled = am != null
+        } catch (t: SecurityException) {
+            AppLog.w(tag, "exact alarm denied — falling back to in-process timer: ${t.message}")
+        }
+        // Fallback in-process timer if exact alarms aren't permitted on this device.
+        if (!alarmScheduled) {
+            lifecycleScope.launch {
+                delay(SosScreen.COUNTDOWN_SECONDS * 1_000L)
+                if (settings.sosArmed.first()) {
+                    sos.fire(settings.emergencyContactPhone.first(), sos.freshLocation())
+                    settings.setSosArmed(false)
+                }
+            }
+        }
+
+        // Full-screen-intent prompt on the HIGH crash channel.
+        val screenIntent = Intent(applicationContext, SosScreen::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val screenPending = PendingIntent.getActivity(
+            applicationContext,
+            1,
+            screenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val n = NotificationCompat.Builder(applicationContext, GixxerApp.CHANNEL_CRASH_ALERT)
             .setContentTitle("Crash detected — tap if you're OK")
             .setContentText("SOS will fire in ${SosScreen.COUNTDOWN_SECONDS} seconds otherwise.")
             .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setFullScreenIntent(screenPending, true)
             .setAutoCancel(true)
+            .setTimeoutAfter((SosScreen.COUNTDOWN_SECONDS + 2) * 1_000L)
             .build()
         (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .notify(SosController.NOTIF_ID_CRASH_PROMPT, n)
 
-        // Launch the full-screen prompt activity.
-        val intent = Intent(applicationContext, SosScreen::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        // Direct launch too (covers the foregrounded-app case immediately).
         try {
-            startActivity(intent)
+            startActivity(screenIntent)
         } catch (t: Throwable) {
-            Log.w(tag, "failed to launch SosScreen: ${t.message}")
-        }
-
-        lifecycleScope.launch {
-            delay(SosScreen.COUNTDOWN_SECONDS * 1_000L)
-            // Cancel the in-tray prompt either way.
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .cancel(SosController.NOTIF_ID_CRASH_PROMPT)
-            if (!SosScreen.okPressed) {
-                val contact = settings.emergencyContactPhone.first()
-                sos.fire(contact, sos.lastKnownLocation())
-            }
+            Log.w(tag, "direct SosScreen launch failed (full-screen intent covers it): ${t.message}")
         }
     }
 

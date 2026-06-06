@@ -159,4 +159,63 @@ object RideAnalytics {
             fuelEconKml = fuelEcon,
         )
     }
+
+    /** Total km per weekday (index 0 = Monday … 6 = Sunday) across all rides. */
+    fun weekdayKm(
+        rides: List<RideEntity>,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): List<Int> {
+        val out = IntArray(7)
+        for (r in rides) {
+            val dow = Instant.ofEpochMilli(r.startedAtMillis).atZone(zone).toLocalDate().dayOfWeek.value
+            out[dow - 1] += max(0, (r.endOdoKm ?: r.startOdoKm) - r.startOdoKm)
+        }
+        return out.toList()
+    }
+
+    /** Total km per time-of-day bucket: [morning 5–11, afternoon 12–16, evening 17–20, night else]. */
+    fun timeOfDayKm(
+        rides: List<RideEntity>,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): List<Int> {
+        val out = IntArray(4)
+        for (r in rides) {
+            val hour = Instant.ofEpochMilli(r.startedAtMillis).atZone(zone).hour
+            val idx = when (hour) {
+                in 5..11 -> 0
+                in 12..16 -> 1
+                in 17..20 -> 2
+                else -> 3
+            }
+            out[idx] += max(0, (r.endOdoKm ?: r.startOdoKm) - r.startOdoKm)
+        }
+        return out.toList()
+    }
+
+    /** Distance per calendar month for the last [months] months, oldest-first. */
+    fun monthlyKm(
+        rides: List<RideEntity>,
+        months: Int = 6,
+        now: Long = System.currentTimeMillis(),
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): List<MonthKm> {
+        val firstMonth = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+            .withDayOfMonth(1).minusMonths((months - 1).toLong())
+        val buckets = LinkedHashMap<String, Int>()
+        for (i in 0 until months) {
+            val m = firstMonth.plusMonths(i.toLong())
+            buckets["%04d-%02d".format(m.year, m.monthValue)] = 0
+        }
+        for (r in rides) {
+            val d = Instant.ofEpochMilli(r.startedAtMillis).atZone(zone).toLocalDate()
+            val key = "%04d-%02d".format(d.year, d.monthValue)
+            if (buckets.containsKey(key)) {
+                buckets[key] = (buckets[key] ?: 0) + max(0, (r.endOdoKm ?: r.startOdoKm) - r.startOdoKm)
+            }
+        }
+        return buckets.entries.map { MonthKm(it.key, it.value) }
+    }
 }
+
+/** Distance ridden in one calendar month ("yyyy-MM"). */
+data class MonthKm(val month: String, val km: Int)

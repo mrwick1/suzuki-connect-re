@@ -4,29 +4,39 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <!--
-        Round-icon variant. Same cluster mark as the rectangular adaptive icon,
-        kept tighter (gauge ring r=26 instead of 30) so the gauge bezel does not
-        get clipped by the round mask on launchers that render circular shortcuts
-        at the very edge of the 108-dp viewport.
+        Round-icon variant of the REDLINE tachometer. Same mark, tighter radius
+        (r=26 vs 30) so the dial is not clipped by the circular mask.
     -->
 
-    <!-- Gauge ring -->
+    <!-- Dial arc (lush green): 135deg over the top to 315deg -->
     <path
-        android:strokeColor="#22D3EE"
-        android:strokeWidth="4"
-        android:fillColor="#00000000"
-        android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0z" />
-
-    <!-- Cardinal ticks -->
-    <path
-        android:strokeColor="#22D3EE"
-        android:strokeWidth="3"
+        android:strokeColor="#8FE03A"
+        android:strokeWidth="8"
         android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="M54,24 L54,29 M84,54 L79,54 M54,84 L54,79 M24,54 L29,54" />
+        android:pathData="M35.62,72.38 A26,26 0 0 1 72.38,35.62" />
 
-    <!-- Nav chevron, slightly scaled to fit the smaller ring -->
+    <!-- Redline tail (magenta): 315deg down the right side to 45deg -->
     <path
-        android:fillColor="#22D3EE"
-        android:pathData="M54,40 L68,64 L60,64 L60,70 L48,70 L48,64 L40,64 Z" />
+        android:strokeColor="#FF2D78"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M72.38,35.62 A26,26 0 0 1 72.38,72.38" />
+
+    <!-- Needle into the redline -->
+    <path
+        android:strokeColor="#F2F7F0"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M47.11,55.22 L73.70,50.53" />
+
+    <!-- Hub -->
+    <path
+        android:fillColor="#8FE03A"
+        android:pathData="M54,54m-5.5,0a5.5,5.5 0 1 0,11 0a5.5,5.5 0 1 0,-11 0z" />
+    <path
+        android:fillColor="#0A1424"
+        android:pathData="M54,54m-2.4,0a2.4,2.4 0 1 0,4.8 0a2.4,2.4 0 1 0,-4.8 0z" />
 </vector>

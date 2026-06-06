@@ -105,8 +105,8 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         }
         val nameOrFallback = ride.name?.takeIf { it.isNotBlank() } ?: dateString
         val distance = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
-        val endMillis = ride.endedAtMillis ?: System.currentTimeMillis()
-        val durationMin = (endMillis - ride.startedAtMillis) / 60_000
+        val inProgress = ride.endedAtMillis == null
+        val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 
         // --- Hero card: large distance + duration, Inter weight 600 ---
         Card(
@@ -153,13 +153,38 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(32.dp),
                 ) {
                     HeroStat(label = "Distance", value = "$distance km")
-                    HeroStat(label = "Duration", value = "$durationMin min")
+                    HeroStat(label = "Duration", value = if (inProgress) "—" else "$durationMin min")
                     HeroStat(label = "Avg speed", value = "${"%.1f".format(ride.avgSpeedKmh)} km/h")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                     HeroStat(label = "Max speed", value = "${ride.maxSpeedKmh} km/h")
                     HeroStat(label = "Samples", value = "${ride.sampleCount}")
+                }
+            }
+        }
+
+        if (samples.size >= 2) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        "SPEED · THIS RIDE (KM/H)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = dev.mrwick.gixxerbridge.ui.theme.GixxerBrand.accent,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    dev.mrwick.gixxerbridge.ui.components.TraceChart(
+                        points = samples.map { (it.speedKmh.coerceIn(0, 120)) / 120f },
+                        animateDraw = true,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                    )
                 }
             }
         }

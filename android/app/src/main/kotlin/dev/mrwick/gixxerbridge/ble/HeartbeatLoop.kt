@@ -35,6 +35,10 @@ class HeartbeatLoop(
             else -> "0"
         }
         val now = clock()
+        // ASSUMED / to-verify: the a533 time field is 12-hour and the cluster
+        // disambiguates AM/PM on its own — we send no AM/PM marker, so 14:30 and
+        // 02:30 transmit identically ("023000"). Not yet confirmed against a
+        // capture; if the field is actually 24-hour, use now.hour directly.
         val hour12 = ((now.hour + 11) % 12) + 1
         val time = "%02d%02d%02d".format(hour12, now.minute, now.second)
         val (weatherCode, tempByte) = weatherProvider()

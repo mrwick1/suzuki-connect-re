@@ -44,7 +44,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.ServiceLogEntity
+import dev.mrwick.gixxerbridge.ui.components.BentoTile
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
+import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -72,6 +74,8 @@ fun ServiceHistoryScreen(vm: ServiceHistoryViewModel) {
                 onClick = { showAdd = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("Add service") },
+                containerColor = GixxerTokens.accent,
+                contentColor = GixxerTokens.inkBlack,
             )
         },
     ) { padding ->
@@ -91,23 +95,12 @@ fun ServiceHistoryScreen(vm: ServiceHistoryViewModel) {
                 }
             } else if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(24.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Build,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.height(96.dp),
-                        )
-                        Text(
-                            "No service entries yet — tap \"Add service\" after your next visit.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    EmptyState(
+                        icon = Icons.Default.Build,
+                        body = "No service entries yet — tap \"Add service\" after your next visit.",
+                        ctaLabel = null,
+                        onCta = null,
+                    )
                 }
             } else {
                 LazyColumn(
@@ -144,9 +137,8 @@ fun ServiceHistoryScreen(vm: ServiceHistoryViewModel) {
 @Composable
 private fun ServiceRow(entry: ServiceLogEntity, onDelete: () -> Unit) {
     val dateFmt = remember { SimpleDateFormat("EEE, MMM d yyyy", Locale.US) }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    BentoTile(Modifier.fillMaxWidth(), animateEntry = false) {
         Row(
-            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {

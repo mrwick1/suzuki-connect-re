@@ -109,7 +109,7 @@ private fun AppLockScreen(onUnlock: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(72.dp))
             Spacer(modifier = Modifier.height(12.dp))
-            Text("GixxerBridge is locked", style = MaterialTheme.typography.titleLarge)
+            Text("REDLINE is locked", style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(24.dp))
             Button(onClick = onUnlock) { Text("Unlock") }
         }
@@ -125,7 +125,7 @@ private fun promptBiometric(context: Context, onSuccess: () -> Unit) {
         }
     })
     val info = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("Unlock GixxerBridge")
+        .setTitle("Unlock REDLINE")
         .setSubtitle("Authenticate to continue")
         .setNegativeButtonText("Cancel")
         .build()

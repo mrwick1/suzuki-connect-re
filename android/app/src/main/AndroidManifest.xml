@@ -48,6 +48,10 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
+    <!-- Lets the crash-SOS prompt promote to a full-screen activity from the
+         background (heads-up otherwise), so the rider can cancel in time. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <!-- BLE hardware required -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
@@ -107,6 +111,13 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Fires the crash SOS at the countdown deadline, even if the app
+             process was killed during the countdown. Not exported — only our own
+             AlarmManager PendingIntent triggers it. -->
+        <receiver
+            android:name=".safety.SosAlarmReceiver"
+            android:exported="false" />
 
         <!-- FileProvider for sharing exported GPX files via ACTION_SEND. -->
         <provider

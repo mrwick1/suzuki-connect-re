@@ -113,7 +113,7 @@ private fun WelcomeStep(onContinue: () -> Unit) {
         )
         Spacer(Modifier.height(24.dp))
         Text(
-            "GIXXERBRIDGE",
+            "REDLINE",
             style = MaterialTheme.typography.displayMedium,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
@@ -231,7 +231,7 @@ private fun PermissionsStep(onContinue: () -> Unit, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "GixxerBridge needs these to work. Tap each, or grant all at once.",
+            "REDLINE needs these to work. Tap each, or grant all at once.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -444,7 +444,7 @@ private fun StartStep(vm: OnboardingViewModel, onBack: () -> Unit) {
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Start GixxerBridge")
+                    Text("Start REDLINE")
                 }
             }
         },
@@ -464,7 +464,7 @@ private fun StartStep(vm: OnboardingViewModel, onBack: () -> Unit) {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Tap Start to begin. GixxerBridge will keep a tiny notification in your tray while it's running — that's the foreground service holding the BLE link.",
+            "Tap Start to begin. REDLINE will keep a tiny notification in your tray while it's running — that's the foreground service holding the BLE link.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

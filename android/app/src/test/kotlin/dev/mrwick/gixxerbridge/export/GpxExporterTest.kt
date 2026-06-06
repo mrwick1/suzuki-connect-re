@@ -54,7 +54,7 @@ class GpxExporterTest {
         assertEquals("gpx", root.tagName)
         assertEquals("1.1", root.getAttribute("version"))
         assertEquals("http://www.topografix.com/GPX/1/1", root.getAttribute("xmlns"))
-        assertEquals("GixxerBridge", root.getAttribute("creator"))
+        assertEquals("REDLINE", root.getAttribute("creator"))
 
         // Exactly one trkpt per input location, in order.
         val trkpts = doc.getElementsByTagName("trkpt")

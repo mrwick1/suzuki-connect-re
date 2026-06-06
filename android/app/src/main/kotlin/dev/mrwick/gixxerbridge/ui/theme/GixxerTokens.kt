@@ -3,7 +3,7 @@ package dev.mrwick.gixxerbridge.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * GixxerBridge design tokens — REDLINE PRESS (2026-06-04 redesign).
+ * REDLINE design tokens — REDLINE PRESS (2026-06-04 redesign).
  * Single source of truth for color. Hardcoded Color(0x…) outside ui/theme/ is
  * forbidden by Konsist (HardcodedHexLintTest).
  *
@@ -65,4 +65,6 @@ object GixxerTokens {
     val success = zoneCool
     val warning = zoneMid
     val danger = dangerWarm
+    /** Modal/overlay scrim — OLED-true ink at 60%, replaces hardcoded Color.Black. */
+    val scrim = inkBlack.copy(alpha = 0.6f)
 }

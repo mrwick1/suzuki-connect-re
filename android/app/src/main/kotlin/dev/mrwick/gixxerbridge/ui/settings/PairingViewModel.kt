@@ -110,7 +110,7 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
             AppLog.i(tag, "bike MAC saved to DataStore; waiting for BleClient to reach Ready")
 
             // If the BikeBridgeService isn't running yet (e.g. user paired before tapping
-            // "Start GixxerBridge" on Home), start it now and wait for it to publish a
+            // "Start REDLINE" on Home), start it now and wait for it to publish a
             // BleClient via AppGraph.bleClient. Previously we'd just claim Connected and
             // dismiss, which lied to the user and dropped them back to settings with no
             // bike actually attached.
@@ -132,7 +132,7 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 if (started == null) {
                     AppLog.e(tag, "BikeBridgeService never published bleClient within 5s")
-                    _pairState.value = PairUiState.Failed(bike, "Bike service did not start. Try again from Home → Start GixxerBridge.")
+                    _pairState.value = PairUiState.Failed(bike, "Bike service did not start. Try again from Home → Start REDLINE.")
                     onDone()
                     return@launch
                 }

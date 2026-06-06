@@ -33,6 +33,8 @@ data class LocationSample(
     val lng: Double,
     val altitudeM: Double?,
     val accuracyM: Float?,
+    /** Ground speed in m/s if the fix carried one (used by crash detection), else null. */
+    val speedMps: Float? = null,
 )
 
 /**
@@ -69,6 +71,7 @@ class RideLocationTracker(private val context: Context) {
                 lng = loc.longitude,
                 altitudeM = if (loc.hasAltitude()) loc.altitude else null,
                 accuracyM = if (loc.hasAccuracy()) loc.accuracy else null,
+                speedMps = if (loc.hasSpeed()) loc.speed else null,
             )
         }
     }

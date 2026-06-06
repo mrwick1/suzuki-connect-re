@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +35,7 @@ import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
+import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
@@ -76,7 +80,13 @@ fun BikeHealthCard() {
     }
     val serviceScore = perItemServiceScore ?: baseScore.service
     val total = blendTotal(serviceScore, baseScore.fuel, baseScore.connection)
-    val grade = gradeFor(total)
+    // "Not enough data" when 2+ of the three inputs are genuinely unknown, so the
+    // gauge isn't leaning on neutral-50 fallbacks yet a flattering "Fair" shows.
+    val serviceKnown = perItemServiceScore != null || currentOdo != null
+    val fuelKnown = telemetry?.fuelBars != null
+    val connectionKnown = rides.isNotEmpty()
+    val insufficient = listOf(serviceKnown, fuelKnown, connectionKnown).count { it } <= 1
+    val grade = if (insufficient) "Not enough data" else gradeFor(total)
     val caption = captionFor(scheduleHealth.worst)
 
     val streak = remember(rides) { RideStreak.compute(rides) }
@@ -91,7 +101,7 @@ fun BikeHealthCard() {
                     Text(
                         grade,
                         style = MaterialTheme.typography.titleLarge,
-                        color = colorForScore(total),
+                        color = if (insufficient) MaterialTheme.colorScheme.onSurfaceVariant else colorForScore(total),
                     )
                     Text(
                         "Service $serviceScore • Fuel ${baseScore.fuel} • Connection ${baseScore.connection}",
@@ -108,10 +118,19 @@ fun BikeHealthCard() {
             }
             if (streak.current > 0) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "🔥 ${streak.current}-day ride streak (best ${streak.longest})",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.LocalFireDepartment,
+                        contentDescription = null,
+                        tint = GixxerBrand.zoneHot,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "${streak.current}-day ride streak (best ${streak.longest})",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
     }

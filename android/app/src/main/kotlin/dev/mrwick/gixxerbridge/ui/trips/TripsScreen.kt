@@ -220,9 +220,13 @@ private fun computeWeekGroups(rides: List<RideEntity>): List<Pair<String, List<R
     val thisWeekYear = now.get(weekBasedYear)
     val thisWeek = now.get(weekOfYear)
 
-    // "Last week" crosses a year boundary if thisWeek == 1.
-    val lastWeekNum = if (thisWeek == 1) 52 else thisWeek - 1
-    val lastWeekYear = if (thisWeek == 1) thisWeekYear - 1 else thisWeekYear
+    // Derive "last week" by subtracting 7 days rather than `thisWeek - 1`, which
+    // mishandles year boundaries: ISO years can have 53 weeks, so in week 1 the
+    // previous week may be 52 OR 53. minusWeeks(1) gets both the number and the
+    // week-based year right.
+    val lastWeekDate = now.minusWeeks(1)
+    val lastWeekNum = lastWeekDate.get(weekOfYear)
+    val lastWeekYear = lastWeekDate.get(weekBasedYear)
 
     val fmt = DateTimeFormatter.ofPattern("d MMM", Locale.US)
 

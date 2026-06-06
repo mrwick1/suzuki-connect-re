@@ -10,7 +10,7 @@ import androidx.compose.runtime.Immutable
  *
  * The bike has no oil-life sensor — service detection is purely app-side
  * arithmetic against hardcoded calendar-day + odometer-km thresholds. This
- * enum mirrors that table so GixxerBridge keeps feature parity with the
+ * enum mirrors that table so REDLINE keeps feature parity with the
  * official app's reminder model.
  *
  * `id` is the stable string used as a DataStore key prefix; never rename

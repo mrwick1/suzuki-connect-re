@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.LocalGasStation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -43,9 +44,13 @@ import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.FuelFillEntity
+import dev.mrwick.gixxerbridge.ui.components.BentoTile
+import dev.mrwick.gixxerbridge.ui.components.HeroNumeral
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
+import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -77,6 +82,8 @@ fun MileageScreen(vm: MileageViewModel) {
                 onClick = { showAdd = true },
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("Add fill") },
+                containerColor = GixxerTokens.accent,
+                contentColor = GixxerTokens.inkBlack,
             )
         },
     ) { padding ->
@@ -101,11 +108,11 @@ fun MileageScreen(vm: MileageViewModel) {
                 }
             } else if (fills.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No fills logged yet — tap \"Add fill\" after your next pump visit.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = GixxerTokens.onSurfaceDim,
-                        modifier = Modifier.padding(24.dp),
+                    EmptyState(
+                        icon = Icons.Outlined.LocalGasStation,
+                        body = "No fills logged yet — tap \"Add fill\" after your next pump visit.",
+                        ctaLabel = null,
+                        onCta = null,
                     )
                 }
             } else {
@@ -136,49 +143,33 @@ fun MileageScreen(vm: MileageViewModel) {
     }
 }
 
-/** Big km/L hero card. Renders an em-dash when the trailing average is null. */
+/** Big km/L hero tile. Renders an em-dash when the trailing average is null. */
 @Composable
 private fun AverageCard(avg: Double?) {
-    Card(
+    BentoTile(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(12.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        animateEntry = false,
+        contentPadding = PaddingValues(20.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            GixxerTokens.lushGreen.copy(alpha = 0.18f),
-                            Color.Transparent,
-                        ),
-                    ),
-                )
-                .padding(20.dp),
-        ) {
-            Column {
-                Text(
-                    "True mileage",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = GixxerTokens.onSurfaceDim,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    avg?.let { "%.1f km/L".format(it) } ?: "—",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = GixxerTokens.onSurface,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Trailing average over last ${MileageViewModel.TRAILING_COUNT} tanks",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = GixxerTokens.onSurfaceDim,
-                )
-            }
-        }
+        Text(
+            "LAST ${MileageViewModel.TRAILING_COUNT} TANKS · KM/L",
+            style = MaterialTheme.typography.labelMedium,
+            color = GixxerTokens.accent,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        HeroNumeral(
+            text = avg?.let { "%.1f".format(it) } ?: "—",
+            color = GixxerTokens.onSurface,
+            fontSize = 56.sp,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "Your rider-recorded true mileage",
+            style = MaterialTheme.typography.labelSmall,
+            color = GixxerTokens.onSurfaceDim,
+        )
     }
 }
 
@@ -195,9 +186,8 @@ private fun FillRow(
     onDelete: () -> Unit,
 ) {
     val dateFmt = remember { SimpleDateFormat("EEE, MMM d · HH:mm", Locale.US) }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    BentoTile(Modifier.fillMaxWidth(), animateEntry = false) {
         Row(
-            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {

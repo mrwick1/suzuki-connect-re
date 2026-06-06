@@ -13,7 +13,7 @@ fun AboutCardLink(onClick: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
         Row(modifier = Modifier.padding(16.dp)) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("About GixxerBridge", style = MaterialTheme.typography.titleMedium)
+                Text("About REDLINE", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     "Version, build, BLE protocol summary, credits.",

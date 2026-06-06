@@ -104,7 +104,7 @@ fun DeveloperSettingsScreen(
         item {
             SettingsSection("App behavior") {
                 DevSwitchRow(
-                    "Auto-start GixxerBridge after boot",
+                    "Auto-start REDLINE after boot",
                     autoStart,
                     vm::setAutoStartOnBoot,
                 )

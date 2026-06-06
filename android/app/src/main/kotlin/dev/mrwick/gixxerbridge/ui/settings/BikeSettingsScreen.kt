@@ -79,7 +79,7 @@ fun BikeSettingsScreen(
                             title = { Text("Forget paired bike?") },
                             text = {
                                 Text(
-                                    "GixxerBridge will stop trying to auto-connect to " +
+                                    "REDLINE will stop trying to auto-connect to " +
                                         "${bikeMac}. You can pair again from this screen.",
                                 )
                             },

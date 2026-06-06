@@ -35,7 +35,7 @@ class CsvExporterTest {
         val csv = CsvExporter.rideSamplesToCsv(ride, emptyList())
         val lines = csv.lineSequence().filter { it.isNotEmpty() }.toList()
         assertEquals(3, lines.size)
-        assertTrue(lines[0].startsWith("# GixxerBridge ride #42"))
+        assertTrue(lines[0].startsWith("# REDLINE ride #42"))
         assertTrue(lines[1].startsWith("# Start: 2023-11-14T22:13:20Z"))
         assertEquals(
             "timestamp_iso,t_millis,speed_kmh,odometer_km,trip_a_km,trip_b_km,fuel_bars,fuel_econ_kml",
