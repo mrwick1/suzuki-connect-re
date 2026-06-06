@@ -50,7 +50,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
+import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.app.AppGraph
+import dev.mrwick.gixxerbridge.data.FuelStore
+import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
@@ -108,6 +112,12 @@ fun PostRideSummaryHost(
         }
     }
 
+    val fillKmPerL by produceState<Double?>(initialValue = null) {
+        value = MileageAnalytics.averageKmPerL(
+            FuelStore(GixxerDatabase.get(context).fuelFillDao()).all()
+        )
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -122,6 +132,7 @@ fun PostRideSummaryHost(
             samples = samples,
             locations = locations,
             onDismiss = onDismiss,
+            fillKmPerL = fillKmPerL,
         )
     }
 }
@@ -133,8 +144,15 @@ private fun PostRideSummaryContent(
     samples: List<RideSampleEntity>,
     locations: List<RideLocationEntity>,
     onDismiss: () -> Unit,
+    fillKmPerL: Double?,
 ) {
     val pagerState = rememberPagerState(pageCount = { 4 })
+    val distanceForBurn = ride?.let { max(0, (it.endOdoKm ?: it.startOdoKm) - it.startOdoKm) } ?: 0
+    val fuelBurntL = RideAnalytics.fuelBurnt(
+        distanceKm = distanceForBurn,
+        fillKmPerL = fillKmPerL,
+        bikeKmPerL = RideAnalytics.avgBikeEcon(samples),
+    )?.litres
 
     Box(
         modifier = Modifier
@@ -152,7 +170,7 @@ private fun PostRideSummaryContent(
                 contentAlignment = Alignment.Center,
             ) {
                 when (page) {
-                    0 -> DistanceDurationCard(ride)
+                    0 -> DistanceDurationCard(ride, fuelBurntL)
                     1 -> SpeedCard(ride, samples)
                     2 -> FuelCard(ride)
                     3 -> MapShareCard(rideId, locations, onDismiss)
@@ -195,7 +213,7 @@ private fun PostRideSummaryContent(
 
 /** Card 1: distance counter animated from 0 with SpringSweep, plus duration caption. */
 @Composable
-private fun DistanceDurationCard(ride: RideEntity?) {
+private fun DistanceDurationCard(ride: RideEntity?, fuelBurntL: Double?) {
     val distanceKm = remember(ride) {
         ride?.let { max(0, (it.endOdoKm ?: it.startOdoKm) - it.startOdoKm) } ?: 0
     }
@@ -229,7 +247,8 @@ private fun DistanceDurationCard(ride: RideEntity?) {
             textAlign = TextAlign.Center,
         )
         Text(
-            "km · $durationMin min",
+            "km · $durationMin min" +
+                (fuelBurntL?.let { " · ~${"%.2f".format(it)} L" } ?: ""),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.W600,
             color = GixxerTokens.textMuted,
