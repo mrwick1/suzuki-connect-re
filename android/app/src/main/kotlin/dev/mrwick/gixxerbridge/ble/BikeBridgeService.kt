@@ -364,6 +364,25 @@ class BikeBridgeService : LifecycleService() {
             }
         }
 
+        // Persist a last-telemetry snapshot (odo / bars / km-L) so the Home fuel
+        // estimate works while the bike is disconnected. Throttled to odometer
+        // changes - the odo advances ~once/km, so this writes a few times/min at
+        // most, not at the 1 Hz telemetry cadence.
+        lifecycleScope.launch {
+            var lastPersistedOdo = -1
+            TelemetryRepository.latest.collect { frame ->
+                if (frame == null) return@collect
+                if (frame.odometerKm != lastPersistedOdo) {
+                    lastPersistedOdo = frame.odometerKm
+                    settings.setLastTelemetry(
+                        odometerKm = frame.odometerKm,
+                        fuelBars = frame.fuelBars,
+                        kmPerL = frame.fuelEconKmlV2,
+                    )
+                }
+            }
+        }
+
         // PERF: extended-disconnect weather pause. If the bike hasn't been Ready
         // for 24h, the user almost certainly isn't riding and the cluster isn't
         // looking at the cached forecast — stop the 30-min open-meteo poll
