@@ -136,6 +136,10 @@ interface RideDao {
     @Query("SELECT * FROM rides WHERE endedAtMillis IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
     suspend fun getRideInProgress(): RideEntity?
 
+    /** The most recently-ended ride (has an end odometer), or null. */
+    @Query("SELECT * FROM rides WHERE endOdoKm IS NOT NULL ORDER BY startedAtMillis DESC LIMIT 1")
+    suspend fun getLastEndedRide(): RideEntity?
+
     /** Insert one GPS location for a ride; returns the new auto-generated id. */
     @Insert suspend fun insertLocation(loc: RideLocationEntity): Long
 
@@ -260,6 +264,13 @@ class RideStore(private val dao: RideDao) {
 
     /** Return the most-recent in-progress ride, or null. */
     suspend fun rideInProgress(): RideEntity? = dao.getRideInProgress()
+
+    /**
+     * Best guess at the bike's current odometer from history: the end-odo of the
+     * most recently-ended ride, or null if no ride has ended yet. Used to
+     * pre-fill the fuel-fill odometer when live telemetry isn't available.
+     */
+    suspend fun lastKnownOdometer(): Int? = dao.getLastEndedRide()?.endOdoKm
 
     /** Observe all rides, newest-first. */
     fun observeRides(): Flow<List<RideEntity>> = dao.observeRides()
