@@ -22,8 +22,12 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -199,15 +203,32 @@ private fun PostRideSummaryContent(
             }
         }
 
-        // Swipe hint at the top.
+        // Swipe hint at the top. (No "tap outside" — the content fills the whole
+        // screen so there is no outside region; dismissal is via the close button
+        // below or a back-press.)
         Text(
-            text = "Swipe to explore · tap outside to close",
+            text = "Swipe to explore",
             style = MaterialTheme.typography.labelSmall,
             color = GixxerTokens.textMuted,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 16.dp),
         )
+
+        // Always-visible close affordance, top-end. The full-screen Box leaves no
+        // tap-outside target, so this (and back-press) is how the user dismisses.
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 8.dp, end = 8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Close",
+                tint = GixxerTokens.textMuted,
+            )
+        }
     }
 }
 

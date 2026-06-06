@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.appcompat.app.AppCompatActivity
@@ -203,11 +204,26 @@ private fun AppShell() {
     val activity = context as? android.app.Activity
 
     // Post-ride summary: shows a Spotify-Wrapped-style dialog when a ride ends.
-    val lastFinishedRideId by AppGraph.lastFinishedRideId.collectAsState()
-    lastFinishedRideId?.let { rideId ->
+    // Consume-once pattern: the AppGraph signal is a process-level latch set by
+    // the background BLE service on disconnect. If we rendered directly off it,
+    // every Activity launch / recomposition-from-scratch would re-show the dialog
+    // (it stays latched until an explicit UI dismiss). Instead we copy the
+    // published id into local saveable UI state and clear the AppGraph signal
+    // immediately, so it can't re-latch on background/reopen/recreation. The
+    // dialog then stays up purely from `shownRideId` until the user dismisses it,
+    // and `rememberSaveable` keeps it across config-change recreation (rotation).
+    val pendingRideId by AppGraph.lastFinishedRideId.collectAsState()
+    var shownRideId by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(pendingRideId) {
+        pendingRideId?.let { id ->
+            shownRideId = id
+            AppGraph.clearLastFinishedRide() // consume immediately — can't re-latch
+        }
+    }
+    shownRideId?.let { rideId ->
         PostRideSummaryHost(
             rideId = rideId,
-            onDismiss = { AppGraph.clearLastFinishedRide() },
+            onDismiss = { shownRideId = null },
         )
     }
 
