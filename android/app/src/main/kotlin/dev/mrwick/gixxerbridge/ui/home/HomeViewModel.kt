@@ -3,11 +3,15 @@ package dev.mrwick.gixxerbridge.ui.home
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import dev.mrwick.gixxerbridge.analytics.RangeEstimator
+import dev.mrwick.gixxerbridge.analytics.FuelEstimate
+import dev.mrwick.gixxerbridge.analytics.FuelTankEstimator
+import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.RideStreak
 import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
+import dev.mrwick.gixxerbridge.data.FuelStore
+import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.location.LastParked
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
@@ -45,6 +49,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val settings = AppGraph.settings(app)
     private val rideStore = AppGraph.rideStore(app)
+    private val fuelStore = FuelStore(GixxerDatabase.get(app).fuelFillDao())
 
     /** Live BLE connection state; always present via AppGraph (Idle when service not started). */
     val connectionState: Flow<ConnectionState> = AppGraph.connectionState
@@ -55,17 +60,28 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
-     * Estimated remaining km from current fuel bars × historical km/bar (median over
-     * rides; [RangeEstimator.FALLBACK_KM_PER_BAR] until enough history). Null when no
-     * fuel reading. Honest estimate — UI labels it as such.
+     * Estimated tank state (litres left, %, range) from the fuel-fill ledger +
+     * current odometer. Uses the measured fill-to-fill avg km/L, falling back to
+     * the bike's live economy then a fixed default. Works offline via the
+     * persisted last-telemetry snapshot. Null when no estimate is possible
+     * (no fills and no fuel-bar reading).
      */
-    val rangeKm: StateFlow<Double?> =
-        combine(TelemetryRepository.latest, rideStore.observeRides()) { latest, rides ->
-            val bars = latest?.fuelBars ?: return@combine null
-            val perBar = RangeEstimator.kmPerBar(rides) ?: RangeEstimator.FALLBACK_KM_PER_BAR
-            RangeEstimator.estimateRemainingKm(bars, perBar)
-        }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val fuelEstimate: StateFlow<FuelEstimate?> =
+        combine(
+            fuelStore.observe(),
+            TelemetryRepository.latest,
+            settings.lastTelemetry,
+            settings.fuelCapacityL,
+        ) { fills, latest, lastTelem, capacity ->
+            FuelTankEstimator.estimate(
+                fills = fills,
+                currentOdometerKm = latest?.odometerKm ?: lastTelem?.odometerKm,
+                avgKmPerL = MileageAnalytics.averageKmPerL(fills),
+                bikeLiveKmPerL = latest?.fuelEconKmlV2 ?: lastTelem?.kmPerL,
+                bikeFuelBars = latest?.fuelBars ?: lastTelem?.fuelBars,
+                capacityL = capacity,
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Last-parked snapshot (captured on bike disconnect). Null until first park cycle. */
     val lastParked: StateFlow<LastParked?> =

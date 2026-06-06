@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.mrwick.gixxerbridge.analytics.FuelEstimate
 import dev.mrwick.gixxerbridge.ble.ConnectionState
 import dev.mrwick.gixxerbridge.location.LastParked
 import dev.mrwick.gixxerbridge.protocol.TelemetryFrame
@@ -67,7 +68,7 @@ fun HomeScreen(
     val streak by vm.rideStreakDays.collectAsStateWithLifecycle()
     val nextService by vm.nextServiceDue.collectAsStateWithLifecycle()
     val telemetry by vm.latestTelemetry.collectAsStateWithLifecycle()
-    val rangeKm by vm.rangeKm.collectAsStateWithLifecycle()
+    val fuelEstimate by vm.fuelEstimate.collectAsStateWithLifecycle()
     val lastParked by vm.lastParked.collectAsStateWithLifecycle()
 
     HomeContent(
@@ -77,7 +78,7 @@ fun HomeScreen(
         streak = streak,
         nextService = nextService,
         telemetry = telemetry,
-        rangeKm = rangeKm,
+        fuelEstimate = fuelEstimate,
         lastParked = lastParked,
         onOpenNav = onOpenNav,
         onStartRide = onStartRide,
@@ -95,7 +96,7 @@ fun HomeContent(
     streak: Int?,
     nextService: NextServiceSummary?,
     telemetry: TelemetryFrame?,
-    rangeKm: Double?,
+    fuelEstimate: FuelEstimate?,
     lastParked: LastParked?,
     onOpenNav: () -> Unit = {},
     onStartRide: () -> Unit = {},
@@ -114,13 +115,13 @@ fun HomeContent(
         TopStatusZone(connectionState, riderName)
 
         if (live) {
-            RangeHero(rangeKm = rangeKm, fuelBars = telemetry?.fuelBars, index = 0)
+            RangeHero(rangeKm = fuelEstimate?.rangeKm, fuelBars = telemetry?.fuelBars, index = 0)
         } else {
             ParkedHero(lastParked = lastParked, todayKm = todayKm, index = 0)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FuelTile(telemetry, live, Modifier.weight(1f), index = 1)
+            FuelTile(fuelEstimate, Modifier.weight(1f), index = 1)
             OdoTile(telemetry, Modifier.weight(1f), index = 2)
         }
 
@@ -201,22 +202,51 @@ private fun ParkedHero(lastParked: LastParked?, todayKm: Double?, index: Int) {
 }
 
 @Composable
-private fun FuelTile(telemetry: TelemetryFrame?, live: Boolean, modifier: Modifier, index: Int) {
+private fun FuelTile(estimate: FuelEstimate?, modifier: Modifier, index: Int) {
     BentoTile(modifier.height(178.dp), index = index, container = MaterialTheme.colorScheme.surfaceVariant) {
-        Text(if (live) "FUEL ECONOMY" else "FUEL · LAST SEEN", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("FUEL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
-        val kml = telemetry?.fuelEconKmlV2
-        Row(verticalAlignment = Alignment.Bottom) {
-            OdometerNumber(
-                value = (kml ?: 0.0).toLong(),
+        if (estimate == null) {
+            Text(
+                "—",
                 style = GixxerMono.display.copy(fontSize = 40.sp),
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            Spacer(Modifier.width(4.dp))
-            Text("km/L", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Log a fill to estimate",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    "%.1f".format(estimate.litresLeft),
+                    style = GixxerMono.display.copy(fontSize = 40.sp),
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "L",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "${(estimate.percent * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = GixxerBrand.zoneCool,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Range ≈ ${estimate.rangeKm.toInt()} km",
+                style = MaterialTheme.typography.bodySmall,
+                color = GixxerBrand.zoneCool,
+            )
         }
-        Spacer(Modifier.height(8.dp))
-        Text("${telemetry?.fuelBars ?: 0} of 6 bars", style = MaterialTheme.typography.bodySmall, color = GixxerBrand.zoneCool)
     }
 }
 

@@ -148,6 +148,22 @@ class Settings(context: Context) {
     val activeRideMetric: Flow<String> =
         ds.data.map { it[Keys.ACTIVE_RIDE_METRIC] ?: DEFAULT_ACTIVE_RIDE_METRIC }
 
+    /** User-set fuel-tank capacity in litres; defaults to [DEFAULT_FUEL_CAPACITY_L]. */
+    val fuelCapacityL: Flow<Double> =
+        ds.data.map { it[Keys.FUEL_CAPACITY_L] ?: DEFAULT_FUEL_CAPACITY_L }
+
+    /** Last persisted telemetry snapshot (odo/bars/km-L); null until first frame. */
+    val lastTelemetry: Flow<LastTelemetry?> =
+        ds.data.map { p ->
+            val odo = p[Keys.LAST_TELEM_ODO] ?: return@map null
+            LastTelemetry(
+                odometerKm = odo,
+                fuelBars = decodeNullableInt(p[Keys.LAST_TELEM_BARS]),
+                kmPerL = decodeNullableDouble(p[Keys.LAST_TELEM_KMPL]),
+                tMillis = p[Keys.LAST_TELEM_TMS] ?: 0L,
+            )
+        }
+
     /** Set the paired bike MAC; pass null to clear. */
     suspend fun setBikeMac(mac: String?) {
         ds.edit { it[Keys.BIKE_MAC] = encodeNullableString(mac) }
@@ -287,6 +303,26 @@ class Settings(context: Context) {
         ds.edit { it[Keys.ACTIVE_RIDE_METRIC] = name }
     }
 
+    /** Set the fuel-tank capacity in litres. */
+    suspend fun setFuelCapacityL(litres: Double) {
+        ds.edit { it[Keys.FUEL_CAPACITY_L] = litres }
+    }
+
+    /** Persist the latest telemetry snapshot for the offline fuel estimate. */
+    suspend fun setLastTelemetry(
+        odometerKm: Int,
+        fuelBars: Int?,
+        kmPerL: Double?,
+        atMillis: Long = System.currentTimeMillis(),
+    ) {
+        ds.edit {
+            it[Keys.LAST_TELEM_ODO] = odometerKm
+            it[Keys.LAST_TELEM_BARS] = encodeNullableInt(fuelBars)
+            it[Keys.LAST_TELEM_KMPL] = encodeNullableDouble(kmPerL)
+            it[Keys.LAST_TELEM_TMS] = atMillis
+        }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -310,6 +346,11 @@ class Settings(context: Context) {
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_while_connected")
         val THEME_ACCENT = stringPreferencesKey("theme_accent")
         val ACTIVE_RIDE_METRIC = stringPreferencesKey("active_ride_metric")
+        val FUEL_CAPACITY_L = doublePreferencesKey("fuel_capacity_l")
+        val LAST_TELEM_ODO = intPreferencesKey("last_telem_odo_km")
+        val LAST_TELEM_BARS = intPreferencesKey("last_telem_fuel_bars")
+        val LAST_TELEM_KMPL = doublePreferencesKey("last_telem_kmpl")
+        val LAST_TELEM_TMS = longPreferencesKey("last_telem_tmillis")
 
         // Per-item service schedule (4 keys × 5 items). Key prefix uses the
         // ServiceItem.id string so rename-the-enum doesn't silently drop data
@@ -348,6 +389,9 @@ class Settings(context: Context) {
         /** Default active-ride bottom-metric; shows Trip A distance. */
         const val DEFAULT_ACTIVE_RIDE_METRIC: String = "trip-a"
 
+        /** Default fuel-tank capacity (litres) - Gixxer SF 150, user-editable. */
+        const val DEFAULT_FUEL_CAPACITY_L: Double = 12.0
+
         /**
          * Default package allowlist for notification mirroring.
          *
@@ -367,6 +411,17 @@ class Settings(context: Context) {
         )
     }
 }
+
+/**
+ * Last telemetry frame persisted so the Home fuel estimate works while the bike
+ * is disconnected. Written (throttled to odometer changes) by BikeBridgeService.
+ */
+data class LastTelemetry(
+    val odometerKm: Int,
+    val fuelBars: Int?,
+    val kmPerL: Double?,
+    val tMillis: Long,
+)
 
 // ---------- Conversion helpers (extracted so they can be unit tested) ----------
 //
