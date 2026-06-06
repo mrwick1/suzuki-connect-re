@@ -49,6 +49,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
+import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.export.GpxExporter
 import dev.mrwick.gixxerbridge.export.ShareCardRenderer
@@ -71,6 +72,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
     LaunchedEffect(rideId) { vm.loadSamples(rideId) }
     val samples by vm.selectedSamples.collectAsStateWithLifecycle()
     val rides by vm.rides.collectAsStateWithLifecycle()
+    val fillKmPerL by vm.fillKmPerL.collectAsStateWithLifecycle()
     val ride: RideEntity? = remember(rides, rideId) { rides.firstOrNull { it.id == rideId } }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -105,6 +107,12 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         }
         val nameOrFallback = ride.name?.takeIf { it.isNotBlank() } ?: dateString
         val distance = max(0, (ride.endOdoKm ?: ride.startOdoKm) - ride.startOdoKm)
+        val fuelBurn = RideAnalytics.fuelBurnt(
+            distanceKm = distance,
+            fillKmPerL = fillKmPerL,
+            bikeKmPerL = RideAnalytics.avgBikeEcon(samples),
+        )
+        val fuelUsedText = fuelBurn?.let { "~${"%.2f".format(it.litres)} L" } ?: "—"
         val inProgress = ride.endedAtMillis == null
         val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 
@@ -160,6 +168,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                     HeroStat(label = "Max speed", value = "${ride.maxSpeedKmh} km/h")
                     HeroStat(label = "Samples", value = "${ride.sampleCount}")
+                    HeroStat(label = "Fuel used", value = fuelUsedText)
                 }
             }
         }

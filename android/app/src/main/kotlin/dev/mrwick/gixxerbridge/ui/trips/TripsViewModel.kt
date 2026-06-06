@@ -8,6 +8,8 @@ import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
+import dev.mrwick.gixxerbridge.data.FuelStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,10 +28,20 @@ import kotlin.math.max
 class TripsViewModel(context: Context) : ViewModel() {
 
     private val store: RideStore = RideStore(GixxerDatabase.get(context).rideDao())
+    private val fuelStore: FuelStore = FuelStore(GixxerDatabase.get(context).fuelFillDao())
 
     /** All persisted rides, newest-first; reflects inserts and deletes live. */
     val rides: StateFlow<List<RideEntity>> = store.observeRides()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Rider's fill-measured trailing-average km/L, or null until enough fuel
+     * fills exist. When present it's the calibrated source for per-ride fuel
+     * burnt; otherwise the UI falls back to the bike's logged economy.
+     */
+    val fillKmPerL: StateFlow<Double?> = fuelStore.observe()
+        .map { MileageAnalytics.averageKmPerL(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
      * Summary stats for the current calendar month: ride count + total distance.
