@@ -62,9 +62,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Estimated tank state (litres left, %, range) from the fuel-fill ledger +
      * current odometer. Uses the measured fill-to-fill avg km/L, falling back to
-     * the bike's live economy then a fixed default. Works offline via the
-     * persisted last-telemetry snapshot. Null when no estimate is possible
-     * (no fills and no fuel-bar reading).
+     * the bike's live economy then a fixed default. The current odometer is taken
+     * from live telemetry, else the persisted last-telemetry snapshot, else the
+     * last-known odometer from ride history — so the estimate shows immediately
+     * after a fill even when the bike has never connected this session. Null when
+     * no estimate is possible (no fills and no fuel-bar reading).
      */
     val fuelEstimate: StateFlow<FuelEstimate?> =
         combine(
@@ -72,10 +74,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             TelemetryRepository.latest,
             settings.lastTelemetry,
             settings.fuelCapacityL,
-        ) { fills, latest, lastTelem, capacity ->
+            rideStore.observeRides(),
+        ) { fills, latest, lastTelem, capacity, rides ->
+            val rideOdo = rides.maxOfOrNull { it.endOdoKm ?: it.startOdoKm }
             FuelTankEstimator.estimate(
                 fills = fills,
-                currentOdometerKm = latest?.odometerKm ?: lastTelem?.odometerKm,
+                currentOdometerKm = latest?.odometerKm ?: lastTelem?.odometerKm ?: rideOdo,
                 avgKmPerL = MileageAnalytics.averageKmPerL(fills),
                 bikeLiveKmPerL = latest?.fuelEconKmlV2 ?: lastTelem?.kmPerL,
                 bikeFuelBars = latest?.fuelBars ?: lastTelem?.fuelBars,
