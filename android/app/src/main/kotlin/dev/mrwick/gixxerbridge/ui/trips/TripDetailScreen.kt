@@ -112,7 +112,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             fillKmPerL = fillKmPerL,
             bikeKmPerL = RideAnalytics.avgBikeEcon(samples),
         )
-        val fuelUsedText = fuelBurn?.let { "~${"%.2f".format(it.litres)} L" } ?: "—"
+        val fuelUsedText = fuelBurn?.let { "~${"%.2f".format(it.litres)} L (est.)" } ?: "—"
         val inProgress = ride.endedAtMillis == null
         val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 

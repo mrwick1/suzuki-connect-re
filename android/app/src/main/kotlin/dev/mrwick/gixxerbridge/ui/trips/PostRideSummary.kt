@@ -248,7 +248,7 @@ private fun DistanceDurationCard(ride: RideEntity?, fuelBurntL: Double?) {
         )
         Text(
             "km · $durationMin min" +
-                (fuelBurntL?.let { " · ~${"%.2f".format(it)} L" } ?: ""),
+                (fuelBurntL?.let { " · ~${"%.2f".format(it)} L (est.)" } ?: ""),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.W600,
             color = GixxerTokens.textMuted,
