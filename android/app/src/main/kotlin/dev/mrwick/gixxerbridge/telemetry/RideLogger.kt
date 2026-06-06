@@ -142,7 +142,15 @@ class RideLogger(
 
     private suspend fun endRideInternal() {
         mutex.withLock {
-            val id = rideId ?: return
+            val id = rideId
+            // Always clear connect-time state, even if no ride ever started
+            // (parked key-on then disconnect) — otherwise a stale connectOdo
+            // leaks into the next connection on this long-lived RideLogger and
+            // can trigger a phantom ride.
+            connectOdo = null
+            val didMove = everMoved
+            everMoved = false
+            if (id == null) return@withLock
             val last = telemetry.value
             val endOdo = last?.odometerKm ?: startOdo
             val distance = endOdo - startOdo
@@ -151,7 +159,7 @@ class RideLogger(
 
             // Discard noise: never-moved (parked key-on capture) or a key-on/off
             // blip (moved but < 1 km in < 30 s). See shouldDiscard for full logic.
-            val discard = shouldDiscard(everMoved, distance, durationMs)
+            val discard = shouldDiscard(didMove, distance, durationMs)
             if (discard) {
                 store.deleteRide(id)
             } else {
@@ -166,8 +174,6 @@ class RideLogger(
                 onRideEnded?.invoke(id)
             }
             rideId = null
-            connectOdo = null
-            everMoved = false
             if (trackerStarted) {
                 locationTracker?.stop()
                 trackerStarted = false
