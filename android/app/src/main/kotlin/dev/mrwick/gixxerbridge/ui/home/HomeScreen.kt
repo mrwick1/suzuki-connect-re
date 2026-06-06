@@ -204,9 +204,9 @@ private fun ParkedHero(lastParked: LastParked?, todayKm: Double?, index: Int) {
 @Composable
 private fun FuelTile(estimate: FuelEstimate?, modifier: Modifier, index: Int) {
     BentoTile(modifier.height(178.dp), index = index, container = MaterialTheme.colorScheme.surfaceVariant) {
-        Text("FUEL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(10.dp))
         if (estimate == null) {
+            Text("FUEL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(10.dp))
             Text(
                 "—",
                 style = GixxerMono.display.copy(fontSize = 40.sp),
@@ -219,30 +219,29 @@ private fun FuelTile(estimate: FuelEstimate?, modifier: Modifier, index: Int) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
+            Text(
+                "FUEL · ${(estimate.percent * 100).toInt()}%",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    "%.1f".format(estimate.litresLeft),
+                    "${estimate.rangeKm.toInt()}",
                     style = GixxerMono.display.copy(fontSize = 40.sp),
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    "L",
+                    "km",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 6.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "${(estimate.percent * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = GixxerBrand.zoneCool,
                     modifier = Modifier.padding(bottom = 6.dp),
                 )
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Range ≈ ${estimate.rangeKm.toInt()} km",
+                "%.1f L left".format(estimate.litresLeft),
                 style = MaterialTheme.typography.bodySmall,
                 color = GixxerBrand.zoneCool,
             )
