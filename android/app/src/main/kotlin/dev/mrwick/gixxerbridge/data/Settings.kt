@@ -158,7 +158,7 @@ class Settings(context: Context) {
             val odo = p[Keys.LAST_TELEM_ODO] ?: return@map null
             LastTelemetry(
                 odometerKm = odo,
-                fuelBars = decodeNullableInt(p[Keys.LAST_TELEM_BARS] ?: -1),
+                fuelBars = decodeNullableInt(p[Keys.LAST_TELEM_BARS]),
                 kmPerL = decodeNullableDouble(p[Keys.LAST_TELEM_KMPL]),
                 tMillis = p[Keys.LAST_TELEM_TMS] ?: 0L,
             )
