@@ -4,6 +4,7 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,8 +38,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -47,12 +52,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.SpeedTrack
+import dev.mrwick.gixxerbridge.analytics.SpeedTrackColors
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.export.GpxExporter
 import dev.mrwick.gixxerbridge.export.ShareCardRenderer
+import dev.mrwick.gixxerbridge.export.TripShareText
 import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
@@ -64,6 +72,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.max
 
 /** Detail screen for one ride: hero card with aggregates + GPX export + per-sample log. */
@@ -313,8 +322,39 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             ) { Text("Share card", color = GixxerTokens.textMuted) }
         }
 
+        // Share for AI — fires a plain-text share sheet (ChatGPT / Gemini / Claude / any app).
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    val rideSamples = vm.samplesFor(ride.id)
+                    val rideLocations = vm.locationsFor(ride.id)
+                    val text = withContext(Dispatchers.Default) {
+                        TripShareText.build(
+                            ride = ride,
+                            samples = rideSamples,
+                            locations = rideLocations,
+                            zone = TimeZone.getDefault().id,
+                        )
+                    }
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Share ride for AI analysis"))
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Share,
+                contentDescription = null,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Text("Share for AI")
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
-        RideTrackCard(locations)
+        RideTrackCard(locations = locations, samples = samples)
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
             color = GixxerTokens.border,
@@ -397,10 +437,27 @@ private fun RenameRideDialog(
     )
 }
 
-/** Square Canvas card that plots the ride's GPS samples as an equal-aspect polyline. */
+/**
+ * Square Canvas card that plots the ride's GPS samples as a speed-colored polyline.
+ *
+ * When [samples] is empty the polyline falls back to a single accent color (the
+ * [SpeedTrackColors.COLOR_COOL] teal), so the card still renders without telemetry.
+ * Each segment is painted with the color matching the speed band at the GPS point.
+ *
+ * A three-chip legend below the map shows the zone thresholds.
+ */
 @Composable
-private fun RideTrackCard(locations: List<RideLocationEntity>) {
+private fun RideTrackCard(
+    locations: List<RideLocationEntity>,
+    samples: List<dev.mrwick.gixxerbridge.data.RideSampleEntity>,
+) {
     if (locations.size < 2) return
+
+    // Build speed-colored segments once; recompute only when inputs change.
+    val segments = remember(locations, samples) {
+        SpeedTrack.build(locations, samples)
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -434,26 +491,94 @@ private fun RideTrackCard(locations: List<RideLocationEntity>) {
                     x = ((lng - minLng) * scale + xOffset).toFloat(),
                     y = (size.height - ((lat - minLat) * scale + yOffset)).toFloat(),
                 )
-                // Use token-derived colors for the track canvas.
-                val trackColor = GixxerTokens.accent
+
                 val bgColor = GixxerTokens.surfaceElevated
                 drawRect(bgColor, size = size, style = Stroke(width = 1f))
-                val path = Path()
-                val first = project(locations[0].lat, locations[0].lng)
-                path.moveTo(first.x, first.y)
-                for (i in 1 until locations.size) {
-                    val p = project(locations[i].lat, locations[i].lng)
-                    path.lineTo(p.x, p.y)
+
+                if (segments.isEmpty()) {
+                    // Fallback: no segments (< 2 GPS points would have returned early;
+                    // this path is reached when locations >= 2 but samples is empty and
+                    // SpeedTrack returned an empty list — should not happen per contract,
+                    // but be defensive).
+                    val path = Path()
+                    val first = project(locations[0].lat, locations[0].lng)
+                    path.moveTo(first.x, first.y)
+                    for (i in 1 until locations.size) {
+                        val p = project(locations[i].lat, locations[i].lng)
+                        path.lineTo(p.x, p.y)
+                    }
+                    drawPath(
+                        path,
+                        color = GixxerTokens.accent,
+                        style = Stroke(width = 4f, cap = StrokeCap.Round),
+                    )
+                } else {
+                    // Draw each segment with its zone color.
+                    for (seg in segments) {
+                        val start = project(seg.startLat, seg.startLng)
+                        val end = project(seg.endLat, seg.endLng)
+                        drawLine(
+                            color = Color(seg.colorArgb),
+                            start = start,
+                            end = end,
+                            strokeWidth = 5f,
+                            cap = StrokeCap.Round,
+                        )
+                    }
                 }
-                drawPath(
-                    path,
-                    color = trackColor,
-                    style = Stroke(width = 4f, cap = StrokeCap.Round),
-                )
-                drawCircle(GixxerTokens.success, radius = 8f, center = first)
+
+                // Start dot (green) + end dot (accent).
+                val first = project(locations.first().lat, locations.first().lng)
                 val last = project(locations.last().lat, locations.last().lng)
-                drawCircle(trackColor, radius = 8f, center = last)
+                drawCircle(GixxerTokens.success, radius = 8f, center = first)
+                drawCircle(GixxerTokens.accent, radius = 8f, center = last)
+            }
+
+            // Speed zone legend — only shown when we have actual speed data.
+            if (samples.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SpeedLegendChip(
+                        color = Color(SpeedTrackColors.COLOR_COOL),
+                        label = "< ${SpeedTrackColors.THRESHOLD_COOL_MID_KMH}",
+                    )
+                    SpeedLegendChip(
+                        color = Color(SpeedTrackColors.COLOR_MID),
+                        label = "${SpeedTrackColors.THRESHOLD_COOL_MID_KMH}–${SpeedTrackColors.THRESHOLD_MID_HOT_KMH}",
+                    )
+                    SpeedLegendChip(
+                        color = Color(SpeedTrackColors.COLOR_HOT),
+                        label = "≥ ${SpeedTrackColors.THRESHOLD_MID_HOT_KMH}",
+                    )
+                }
             }
         }
+    }
+}
+
+/** One colored dot + label for the speed zone legend. */
+@Composable
+private fun SpeedLegendChip(color: Color, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .then(Modifier),
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                drawCircle(color = color)
+            }
+        }
+        Text(
+            text = "$label km/h",
+            style = MaterialTheme.typography.labelSmall,
+            color = GixxerTokens.textMuted,
+        )
     }
 }
