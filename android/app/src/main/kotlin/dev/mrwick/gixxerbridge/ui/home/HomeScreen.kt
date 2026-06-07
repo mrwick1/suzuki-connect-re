@@ -70,6 +70,7 @@ fun HomeScreen(
     val telemetry by vm.latestTelemetry.collectAsStateWithLifecycle()
     val fuelEstimate by vm.fuelEstimate.collectAsStateWithLifecycle()
     val lastParked by vm.lastParked.collectAsStateWithLifecycle()
+    val refuelPrompt by vm.refuelPrompt.collectAsStateWithLifecycle()
 
     HomeContent(
         connectionState = connectionState,
@@ -80,6 +81,7 @@ fun HomeScreen(
         telemetry = telemetry,
         fuelEstimate = fuelEstimate,
         lastParked = lastParked,
+        refuelPrompt = refuelPrompt,
         onOpenNav = onOpenNav,
         onStartRide = onStartRide,
         onOpenPairing = onOpenPairing,
@@ -98,6 +100,7 @@ fun HomeContent(
     telemetry: TelemetryFrame?,
     fuelEstimate: FuelEstimate?,
     lastParked: LastParked?,
+    refuelPrompt: RefuelPromptUi? = null,
     onOpenNav: () -> Unit = {},
     onStartRide: () -> Unit = {},
     onOpenPairing: () -> Unit = {},
@@ -121,11 +124,11 @@ fun HomeContent(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FuelTile(fuelEstimate, Modifier.weight(1f), index = 1)
+            FuelTile(fuelEstimate, refuelPrompt, Modifier.weight(1f), index = 1)
             OdoTile(telemetry, Modifier.weight(1f), index = 2)
         }
 
-        HealthTile(nextService, onOpenMaintenance, index = 3)
+        HealthTile(nextService, refuelPrompt, onOpenMaintenance, index = 3)
 
         TodayStrip(todayKm, streak, index = 4)
 
@@ -202,7 +205,7 @@ private fun ParkedHero(lastParked: LastParked?, todayKm: Double?, index: Int) {
 }
 
 @Composable
-private fun FuelTile(estimate: FuelEstimate?, modifier: Modifier, index: Int) {
+private fun FuelTile(estimate: FuelEstimate?, refuel: RefuelPromptUi?, modifier: Modifier, index: Int) {
     BentoTile(modifier.height(178.dp), index = index, container = MaterialTheme.colorScheme.surfaceVariant) {
         if (estimate == null) {
             Text("FUEL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -245,6 +248,17 @@ private fun FuelTile(estimate: FuelEstimate?, modifier: Modifier, index: Int) {
                 style = MaterialTheme.typography.bodySmall,
                 color = GixxerBrand.zoneCool,
             )
+            // Coarse refuel bucket — only when a pace-based estimate exists.
+            // Never a precise day count (6-bar quantization + anecdotal km/L
+            // fallback mean the bucket is already as honest as we can be).
+            refuel?.refuelBucketLabel?.let { bucket ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Refuel $bucket",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -266,7 +280,12 @@ private fun OdoTile(telemetry: TelemetryFrame?, modifier: Modifier, index: Int) 
 }
 
 @Composable
-private fun HealthTile(nextService: NextServiceSummary?, onOpenMaintenance: () -> Unit, index: Int) {
+private fun HealthTile(
+    nextService: NextServiceSummary?,
+    refuel: RefuelPromptUi?,
+    onOpenMaintenance: () -> Unit,
+    index: Int,
+) {
     // No service baseline recorded yet → "Caution" (needs setup), not a green
     // "All good" that falsely reassures when we simply have no data.
     val state = when {
@@ -274,7 +293,11 @@ private fun HealthTile(nextService: NextServiceSummary?, onOpenMaintenance: () -
         nextService.overdue -> HealthState.Fault
         else -> HealthState.Good
     }
-    BentoTile(Modifier.fillMaxWidth().height(110.dp), index = index, onClick = onOpenMaintenance) {
+    val showCoPrompt = refuel?.bundleService == true
+    // Bump height to 132 dp when the fill-before-service co-prompt is visible so
+    // the extra line doesn't clip inside the BentoTile.
+    val tileHeight = if (showCoPrompt) 132.dp else 110.dp
+    BentoTile(Modifier.fillMaxWidth().height(tileHeight), index = index, onClick = onOpenMaintenance) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HealthRing(state = state, modifier = Modifier.size(64.dp))
             Spacer(Modifier.width(16.dp))
@@ -294,6 +317,16 @@ private fun HealthTile(nextService: NextServiceSummary?, onOpenMaintenance: () -
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // Fill-before-service co-prompt: the reliable half of the refuel
+                // predict feature — rides on exact odometer-gated kmRemaining.
+                if (showCoPrompt) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "Refuel soon — service due too. Do both this trip.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = GixxerBrand.accent,
+                    )
+                }
             }
         }
     }

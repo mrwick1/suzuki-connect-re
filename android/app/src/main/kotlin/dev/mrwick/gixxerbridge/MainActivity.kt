@@ -61,6 +61,8 @@ import dev.mrwick.gixxerbridge.ui.trips.PostRideSummaryHost
 import dev.mrwick.gixxerbridge.ui.trips.TripDetailScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsScreen
 import dev.mrwick.gixxerbridge.ui.trips.TripsViewModel
+import dev.mrwick.gixxerbridge.ui.routes.RouteRepeatScreen
+import dev.mrwick.gixxerbridge.ui.wrapped.WrappedScreen
 import dev.mrwick.gixxerbridge.app.AppEvent
 import dev.mrwick.gixxerbridge.app.AppEvents
 import dev.mrwick.gixxerbridge.app.AppGraph
@@ -374,6 +376,7 @@ private fun AppShell() {
                         vm,
                         onOpenRide = { rideId -> nav.navigate("trip/$rideId") },
                         onOpenSettings = { nav.navigate(Tab.Settings.route) },
+                        onOpenRoutes = { nav.navigate("routes") },
                     )
                 }
                 composable("trip/{rideId}") { backStackEntry ->
@@ -398,6 +401,16 @@ private fun AppShell() {
                         vm,
                         onOpenSettings = { nav.navigate(Tab.Settings.route) },
                         onOpenMileage = { nav.navigate("mileage") },
+                        onOpenWrapped = { nav.navigate("wrapped") },
+                    )
+                }
+                composable("wrapped") {
+                    WrappedScreen(onClose = { nav.popBackStack() })
+                }
+                composable("routes") {
+                    RouteRepeatScreen(
+                        onOpenRide = { rideId -> nav.navigate("trip/$rideId") },
+                        onBack = { nav.popBackStack() },
                     )
                 }
                 composable("mileage") {

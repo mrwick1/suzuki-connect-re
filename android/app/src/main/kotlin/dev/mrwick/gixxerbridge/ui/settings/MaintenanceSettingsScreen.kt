@@ -19,13 +19,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.EtaGate
+import dev.mrwick.gixxerbridge.analytics.ServiceEta
+import dev.mrwick.gixxerbridge.analytics.ServiceEtaForecast
 import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
+import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.ServiceItem
 import dev.mrwick.gixxerbridge.data.ServiceItemState
 import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * Maintenance sub-screen: five service-item editors, legacy interval field,
@@ -42,6 +50,11 @@ fun MaintenanceSettingsScreen(
     val service by vm.serviceIntervalKm.collectAsStateWithLifecycle()
     val telemetry by TelemetryRepository.latest.collectAsStateWithLifecycle()
     val currentOdoKm = telemetry?.odometerKm?.takeIf { it > 0 }
+
+    val ctx = LocalContext.current
+    val rideStore = remember(ctx) { AppGraph.rideStore(ctx) }
+    val rides by rideStore.observeRides().collectAsStateWithLifecycle(initialValue = emptyList())
+    val paceKmPerDay = remember(rides) { ServiceEta.paceKmPerDay(rides) }
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -62,6 +75,7 @@ fun MaintenanceSettingsScreen(
                     MaintenanceServiceItemEditor(
                         state = state,
                         currentOdoKm = currentOdoKm,
+                        paceKmPerDay = paceKmPerDay,
                         onUpdateThresholds = { km, days ->
                             vm.setServiceItemThresholds(item, km, days)
                         },
@@ -112,11 +126,15 @@ private fun defaultStateFor(item: ServiceItem): ServiceItemState =
 private fun MaintenanceServiceItemEditor(
     state: ServiceItemState,
     currentOdoKm: Int?,
+    paceKmPerDay: Double,
     onUpdateThresholds: (kmThreshold: Int?, daysThreshold: Int) -> Unit,
     onMarkServiced: () -> Unit,
 ) {
     val health = remember(state, currentOdoKm) {
         ServiceSchedule.healthFor(state, currentOdoKm)
+    }
+    val eta = remember(health, paceKmPerDay) {
+        ServiceEta.forecast(health, paceKmPerDay)
     }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(state.item.label, style = MaterialTheme.typography.titleSmall)
@@ -126,6 +144,18 @@ private fun MaintenanceServiceItemEditor(
             style = MaterialTheme.typography.bodySmall,
             color = maintenanceSubtextColor(health.daysRemaining, health.kmRemaining),
         )
+        // Service ETA forecast line — only when pace is known (recent rides exist)
+        // AND a forecast can be computed from at least one gate. Suppressed when
+        // pace is zero to avoid a calendar-only repeat of the days subtext above.
+        if (eta != null && paceKmPerDay > 0.0) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = etaLine(eta),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (eta.isOverdue) GixxerTokens.danger
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -211,4 +241,18 @@ private fun maintenanceSubtextColor(
         worst < 30 -> GixxerTokens.warning
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+}
+
+/**
+ * Format a service ETA forecast as a single-line "Forecast: ~18 days ≈ 24 Jun at your pace"
+ * string for the per-item maintenance editor. Uses the device's default time zone and locale
+ * so the date renders in the user's local format. Pure Kotlin (java.time) — no Android.
+ */
+private fun etaLine(eta: ServiceEtaForecast): String {
+    if (eta.isOverdue) return "Forecast: due now"
+    val date = Instant.ofEpochMilli(eta.dueAtMillis)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("d MMM"))
+    val gateNote = if (eta.gate == EtaGate.CALENDAR) " (calendar gate)" else " at your pace"
+    return "Forecast: ${ServiceEta.formatRelative(eta)} ≈ $date$gateNote"
 }

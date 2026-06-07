@@ -16,13 +16,17 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
+import kotlinx.coroutines.launch
 
 /**
  * Developer sub-screen: demo mode, frame inspector, diagnostics, restart
@@ -45,6 +49,13 @@ fun DeveloperSettingsScreen(
     // val maneuverSelfTrain by vm.maneuverSelfTrainEnabled.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
+    // Range-on-cluster toggle: read directly from Settings (not yet in the VM).
+    // ASSUMED (UNVERIFIED on bike): whether the cluster renders "RANGE / NNNN K"
+    // in the distNext/eta slots — see plan caveats. Default off / experimental.
+    val settingsForRange = remember(ctx) { Settings(ctx) }
+    val rangeOnCluster by settingsForRange.rangeOnCluster.collectAsStateWithLifecycle(false)
+    val rangeScope = rememberCoroutineScope()
+
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -56,6 +67,12 @@ fun DeveloperSettingsScreen(
                     demoMode,
                     vm::setDemoMode,
                 )
+                // Range on cluster: experimental / UNVERIFIED on the physical bike.
+                // Shows estimated km-remaining in the a531 idle rotation. Default off.
+                DevSwitchRow(
+                    "Range on cluster (experimental — unverified on bike)",
+                    rangeOnCluster,
+                ) { v -> rangeScope.launch { settingsForRange.setRangeOnCluster(v) } }
                 // PARKED (2026-06-04): maneuver self-train shelved with Google Maps nav.
                 // DevSwitchRow(
                 //     "Maneuver self-train (bitmap hash from text)",

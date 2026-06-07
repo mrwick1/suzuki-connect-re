@@ -60,6 +60,10 @@ class Settings(context: Context) {
     val nowPlayingOnCluster: Flow<Boolean> =
         ds.data.map { it[Keys.NOW_PLAYING_ON_CLUSTER] ?: true }
 
+    /** When true, estimated range-remaining joins the cluster idle rotation. Off by default. */
+    val rangeOnCluster: Flow<Boolean> =
+        ds.data.map { it[Keys.RANGE_ON_CLUSTER] ?: false }
+
     /** When true, the phone enables Do-Not-Disturb on bike connect. Off by default. */
     val autoDndOnConnect: Flow<Boolean> =
         ds.data.map { it[Keys.AUTO_DND_ON_CONNECT] ?: false }
@@ -202,6 +206,11 @@ class Settings(context: Context) {
         ds.edit { it[Keys.NOW_PLAYING_ON_CLUSTER] = v }
     }
 
+    /** Toggle range-remaining on the cluster idle rotation. */
+    suspend fun setRangeOnCluster(enabled: Boolean) {
+        ds.edit { it[Keys.RANGE_ON_CLUSTER] = enabled }
+    }
+
     /** Toggle whether the phone auto-enables DND on bike connect. */
     suspend fun setAutoDndOnConnect(v: Boolean) {
         ds.edit { it[Keys.AUTO_DND_ON_CONNECT] = v }
@@ -333,6 +342,7 @@ class Settings(context: Context) {
         val WEATHER_LNG = doublePreferencesKey("weather_lng")
         val IDLE_CLOCK_ENABLED = booleanPreferencesKey("idle_clock_enabled")
         val NOW_PLAYING_ON_CLUSTER = booleanPreferencesKey("now_playing_on_cluster")
+        val RANGE_ON_CLUSTER = booleanPreferencesKey("range_on_cluster")
         val AUTO_DND_ON_CONNECT = booleanPreferencesKey("auto_dnd_on_connect")
         val SERVICE_INTERVAL_KM = intPreferencesKey("service_interval_km")
         val LAST_SERVICE_ODO_KM = intPreferencesKey("last_service_odo_km")

@@ -105,6 +105,10 @@ interface RideDao {
     @Query("SELECT * FROM rides ORDER BY startedAtMillis DESC")
     fun observeRides(): Flow<List<RideEntity>>
 
+    /** Snapshot read of all rides, newest-first. */
+    @Query("SELECT * FROM rides ORDER BY startedAtMillis DESC")
+    suspend fun getAllRides(): List<RideEntity>
+
     /** Fetch a single ride by id, or null if it has been deleted. */
     @Query("SELECT * FROM rides WHERE id = :id")
     suspend fun getRide(id: Long): RideEntity?
@@ -275,6 +279,9 @@ class RideStore(private val dao: RideDao) {
     /** Observe all rides, newest-first. */
     fun observeRides(): Flow<List<RideEntity>> = dao.observeRides()
 
+    /** Snapshot read of all rides, newest-first. Used by route clustering. */
+    suspend fun getAllRides(): List<RideEntity> = dao.getAllRides()
+
     /** Fetch all samples for a ride, oldest-first. */
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)
 
@@ -324,4 +331,20 @@ class RideStore(private val dao: RideDao) {
 
     /** Fetch all GPS locations for a ride, oldest-first. */
     suspend fun getLocations(rideId: Long): List<RideLocationEntity> = dao.getLocations(rideId)
+
+    /**
+     * Fetch GPS location tracks for every ride, keyed by ride id.
+     *
+     * Used by [dev.mrwick.gixxerbridge.ui.routes.RouteRepeatViewModel] to build
+     * the route-clustering input in one pass. This is a read-only snapshot; it
+     * does not change any schema or add any Room entity.
+     *
+     * Rides with no recorded GPS points appear in the map with an empty list,
+     * allowing the caller to distinguish "no GPS" from "ride not found".
+     */
+    suspend fun getAllLocationsPerRide(rides: List<RideEntity>): Map<Long, List<RideLocationEntity>> {
+        return rides.associate { ride ->
+            ride.id to dao.getLocations(ride.id)
+        }
+    }
 }

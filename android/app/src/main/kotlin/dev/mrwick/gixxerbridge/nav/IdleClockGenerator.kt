@@ -93,4 +93,37 @@ class IdleClockGenerator(
             continueFlag = "1",
         )
     }
+
+    /**
+     * Build an a531 frame that surfaces estimated range remaining on the
+     * cluster's text positions.
+     *
+     * Layout (one a531 frame):
+     *   - maneuverId    = [ManeuverMap.DEFAULT_CLUSTER_BYTE] (no turn arrow)
+     *   - eta           = "RANGE" (fixed marker, fits the 6-char eta slot)
+     *   - distNext      = km number in up to 4 chars (e.g. "140"), or
+     *                     "----" when no estimate is available
+     *   - distNextUnit  = "K"
+     *   - distTotal     = "0000" / distTotalUnit = " " (unused here)
+     *   - status / continueFlag = "1" / "1"
+     *
+     * ASSUMED (UNVERIFIED on bike): the cluster renders the "RANGE" marker in
+     * the eta slot and a bare number+'K' in the distNext slot as legible text.
+     * Same creative-text-positions assumption as [build] / [buildNowPlaying];
+     * the specific "RANGE / NNNN K" layout has NOT been confirmed on the
+     * cluster. Revisit after first on-bike trial.
+     */
+    fun buildRange(rangeKm: Double?): NavFrame {
+        val r = ClusterRangeFormatter.format(rangeKm)
+        return NavFrame(
+            maneuverId = ManeuverMap.DEFAULT_CLUSTER_BYTE,
+            distNext = r.kmText,
+            distNextUnit = r.kmUnit,
+            eta = ClusterRangeFormatter.LABEL,
+            distTotal = "0000",
+            distTotalUnit = " ",
+            status = "1",
+            continueFlag = "1",
+        )
+    }
 }
