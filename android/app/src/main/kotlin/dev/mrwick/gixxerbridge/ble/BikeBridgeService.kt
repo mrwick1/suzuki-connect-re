@@ -21,6 +21,7 @@ import dev.mrwick.gixxerbridge.R
 import dev.mrwick.gixxerbridge.app.AppEvent
 import dev.mrwick.gixxerbridge.app.AppEvents
 import dev.mrwick.gixxerbridge.app.AppGraph
+import dev.mrwick.gixxerbridge.analytics.RangeEstimator
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.Greetings
 import dev.mrwick.gixxerbridge.data.RideStore
@@ -49,10 +50,13 @@ import dev.mrwick.gixxerbridge.util.AppLog
 import dev.mrwick.gixxerbridge.weather.WeatherProvider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -173,24 +177,55 @@ class BikeBridgeService : LifecycleService() {
         // PARKED (2026-06-04) — the maps slot is fed constant-null below, so only
         // the idle producer reaches the cluster.
         //
-        // Idle producer alternates every CYCLE_SECONDS=5 ticks (= 5s @ 1Hz):
-        //   ticks 0..4  -> clock + weather
-        //   ticks 5..9  -> now-playing (if available AND settings.nowPlayingOnCluster)
-        // If now-playing is disabled or no track is active, we stay on clock+weather.
+        // Idle producer rotates every CYCLE_SECONDS=5 ticks (= 5s @ 1Hz):
+        //   slot CLOCK      -> clock + weather (always present)
+        //   slot NOW_PLAYING -> now-playing (optional; gated on settings + active track)
+        //   slot RANGE       -> estimated range remaining (optional; gated on settings)
+        // Optional slots collapse out when their toggle is off / no data, so the
+        // clock is always shown. With all three on, a full cycle is 15 s.
         // ASSUMED: 5-second alternation is the right cadence — short enough that the
-        // rider sees the clock at a glance, long enough that they can read the track
-        // title. Revisit after first on-cluster trial.
+        // rider sees the clock at a glance, long enough that they can read the info.
+        // Revisit after first on-cluster trial.
+
+        // km-per-fuel-bar derived from this rider's history (median over rides
+        // with both fuelBarsStart/End). Null until enough history exists; falls
+        // back to RangeEstimator.FALLBACK_KM_PER_BAR (ASSUMED ~50, flagged).
+        val rideStoreForRange = RideStore(GixxerDatabase.get(applicationContext).rideDao())
+        val kmPerBarFlow = rideStoreForRange.observeRides()
+            .map { RangeEstimator.kmPerBar(it) }
+            .stateIn(lifecycleScope, SharingStarted.Eagerly, null)
+
         val idleProducer = kotlinx.coroutines.flow.flow {
             var tick = 0
             while (true) {
                 val track = nowPlayingProvider.track.value
                 val wantNowPlaying = settings.nowPlayingOnCluster.first() && track != null
-                val showNowPlaying = wantNowPlaying && (tick % (CYCLE_SECONDS * 2)) >= CYCLE_SECONDS
+                val wantRange = settings.rangeOnCluster.first()
+
+                // Rotation order, each CYCLE_SECONDS long: clock -> [now-playing] ->
+                // [range]. Optional slots collapse out when their toggle is off /
+                // no data, so the clock is always shown.
+                val slots = buildList {
+                    add(IdleSlot.CLOCK)
+                    if (wantNowPlaying) add(IdleSlot.NOW_PLAYING)
+                    if (wantRange) add(IdleSlot.RANGE)
+                }
+                val slot = slots[(tick / CYCLE_SECONDS) % slots.size]
                 val (wcode, tbyte) = weatherCache.currentEncoded()
-                val frame = if (showNowPlaying) {
-                    idleClock.buildNowPlaying(track!!.forCluster())
-                } else {
-                    idleClock.build(wcode, tempFromByte(tbyte))
+                val frame = when (slot) {
+                    IdleSlot.NOW_PLAYING -> idleClock.buildNowPlaying(track!!.forCluster())
+                    IdleSlot.RANGE -> {
+                        val bars = TelemetryRepository.latest.value?.fuelBars
+                        // Use real km/bar history; show "----" when no history yet
+                        // rather than a number the rider might mistake for measured.
+                        // FALLBACK_KM_PER_BAR (50.0) is ASSUMED/anecdotal — only
+                        // used when kmPerBarFlow.value is non-null (it won't be
+                        // until history exists; the null guard below returns null →
+                        // buildRange emits "----" safely).
+                        val kmPerBar = kmPerBarFlow.value
+                        idleClock.buildRange(RangeEstimator.estimateRemainingKm(bars, kmPerBar))
+                    }
+                    IdleSlot.CLOCK -> idleClock.build(wcode, tempFromByte(tbyte))
                 }
                 emit(frame)
                 delay(1_000)
@@ -739,7 +774,10 @@ class BikeBridgeService : LifecycleService() {
         private const val NOTIFICATION_ID = 1
         // ASSUMED: Bangalore as default weather location; overridden by Settings.weatherLatitude/Longitude.
         private val DEFAULT_LATLNG = 12.97 to 77.59
-        // ASSUMED: 5-second cycle window for clock <-> now-playing alternation.
+        // ASSUMED: 5-second cycle window for clock / now-playing / range rotation.
         private const val CYCLE_SECONDS = 5
     }
 }
+
+/** Slots in the cluster idle-frame rotation. */
+private enum class IdleSlot { CLOCK, NOW_PLAYING, RANGE }
