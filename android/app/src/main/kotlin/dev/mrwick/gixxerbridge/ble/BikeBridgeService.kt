@@ -48,9 +48,11 @@ import dev.mrwick.gixxerbridge.telemetry.TelemetryRepository
 import dev.mrwick.gixxerbridge.weather.WeatherCache
 import dev.mrwick.gixxerbridge.util.AppLog
 import dev.mrwick.gixxerbridge.weather.WeatherProvider
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -59,6 +61,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * Foreground service holding the BLE link to the bike.
@@ -195,12 +199,21 @@ class BikeBridgeService : LifecycleService() {
             .map { RangeEstimator.kmPerBar(it) }
             .stateIn(lifecycleScope, SharingStarted.Eagerly, null)
 
+        // R4: cache the three DataStore booleans as hot StateFlows so the idle
+        // producer can read .value instead of spinning a fresh DataStore collector
+        // every tick at 1 Hz. Seeds match the defaults in Settings to avoid a
+        // briefly-wrong first tick before the DataStore disk read completes.
+        val nowPlayingOnClusterFlow: StateFlow<Boolean> = settings.nowPlayingOnCluster
+            .stateIn(lifecycleScope, SharingStarted.Eagerly, true)
+        val rangeOnClusterFlow: StateFlow<Boolean> = settings.rangeOnCluster
+            .stateIn(lifecycleScope, SharingStarted.Eagerly, false)
+
         val idleProducer = kotlinx.coroutines.flow.flow {
             var tick = 0
             while (true) {
                 val track = nowPlayingProvider.track.value
-                val wantNowPlaying = settings.nowPlayingOnCluster.first() && track != null
-                val wantRange = settings.rangeOnCluster.first()
+                val wantNowPlaying = nowPlayingOnClusterFlow.value && track != null
+                val wantRange = rangeOnClusterFlow.value
 
                 // Rotation order, each CYCLE_SECONDS long: clock -> [now-playing] ->
                 // [range]. Optional slots collapse out when their toggle is off /
@@ -597,9 +610,22 @@ class BikeBridgeService : LifecycleService() {
             return
         }
         demoSource.stop()
-        // Best-effort: close out any open ride before lifecycleScope is cancelled.
+        // R1: flush the ride logger synchronously BEFORE super.onDestroy() cancels
+        // lifecycleScope. A fire-and-forget launch would be cancelled mid-write
+        // (Room transaction) because super.onDestroy() tears down the scope
+        // immediately after this block. runBlocking on IO dispatches the suspend
+        // call onto a pool thread; withTimeout(4 s) ensures we can never ANR
+        // indefinitely — a timeout is logged and swallowed so teardown continues.
+        // endRide() is idempotent (serialises on a Mutex) so calling it here is
+        // safe even though the Disconnected handler may have called it already.
         if (::rideLogger.isInitialized) {
-            lifecycleScope.launch { rideLogger.endRide() }
+            runBlocking(Dispatchers.IO) {
+                try {
+                    withTimeout(4_000L) { rideLogger.endRide() }
+                } catch (t: Throwable) {
+                    AppLog.w(tag, "onDestroy: rideLogger.endRide() timed-out or failed: ${t.message}")
+                }
+            }
         }
         phoneState.stop()
         weatherCache.stop()
