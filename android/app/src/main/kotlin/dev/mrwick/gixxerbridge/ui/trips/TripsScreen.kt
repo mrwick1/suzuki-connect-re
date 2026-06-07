@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.ui.trips
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,10 +11,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.data.RideEntity
+import dev.mrwick.gixxerbridge.data.RideMeta
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
@@ -52,10 +60,11 @@ import java.util.Locale
  *
  * Structure:
  *   - Left-aligned header "TRIPS" + month summary ("12 rides · 156 km this month")
+ *   - Filter bar: "All" | "Favourites" | one chip per tag present in any ride
  *   - Rides grouped by week, with section headers: "THIS WEEK", "LAST WEEK",
  *     "WEEK OF 19 MAY"
  *   - Each row: 48dp date rail (day + month) | distance headline + subtitle |
- *     60×32dp speed sparkline (loaded lazily per row)
+ *     optional star + tag pill | 60×32dp speed sparkline (loaded lazily per row)
  *   - Loading: 3 skeleton cards for 250 ms grace window
  *   - Empty: single EmptyState with Route icon
  */
@@ -66,8 +75,10 @@ fun TripsScreen(
     onOpenSettings: () -> Unit = {},
     onOpenRoutes: () -> Unit = {},
 ) {
-    val rides by vm.rides.collectAsStateWithLifecycle()
+    val ridesWithMeta by vm.ridesWithMeta.collectAsStateWithLifecycle()
     val monthSummary by vm.monthSummary.collectAsStateWithLifecycle()
+    val filter by vm.filter.collectAsStateWithLifecycle()
+    val allTags by vm.allTags.collectAsStateWithLifecycle()
 
     // 250 ms grace window before showing the real empty state, so skeletons
     // appear instead of a flash of empty state when Room hasn't emitted yet.
@@ -75,7 +86,7 @@ fun TripsScreen(
         delay(250); value = true
     }
 
-    if (rides.isEmpty() && !bootDone) {
+    if (ridesWithMeta.isEmpty() && !bootDone) {
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -85,11 +96,15 @@ fun TripsScreen(
         return
     }
 
-    if (rides.isEmpty()) {
+    if (ridesWithMeta.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             EmptyState(
                 icon = Icons.Outlined.Route,
-                body = "No rides yet — take the bike for a spin.",
+                body = if (filter == TripsFilter.All) {
+                    "No rides yet — take the bike for a spin."
+                } else {
+                    "No rides match the current filter."
+                },
                 ctaLabel = null,
                 onCta = null,
             )
@@ -98,7 +113,12 @@ fun TripsScreen(
     }
 
     // Group rides into week buckets for section headers.
-    val grouped = rememberWeekGroups(rides)
+    val grouped = rememberWeekGroups(ridesWithMeta.map { it.ride })
+
+    // Build a map of rideId → meta for fast lookup in each row.
+    val metaByRideId = remember(ridesWithMeta) {
+        ridesWithMeta.associate { it.ride.id to it.meta }
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -110,7 +130,17 @@ fun TripsScreen(
                 rideCount = monthSummary.rideCount,
                 totalKm = monthSummary.totalKm,
                 onOpenRoutes = onOpenRoutes,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
+            )
+        }
+
+        // ── Filter bar ────────────────────────────────────────────────────────
+        item(key = "__filter") {
+            TripsFilterBar(
+                filter = filter,
+                allTags = allTags,
+                onFilter = { vm.setFilter(it) },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
 
@@ -120,8 +150,10 @@ fun TripsScreen(
                 WeekSectionHeader(label = weekLabel)
             }
             items(weekRides, key = { it.id }) { ride ->
+                val meta = metaByRideId[ride.id] ?: RideMeta()
                 RideRowWithSparkline(
                     ride = ride,
+                    meta = meta,
                     vm = vm,
                     onOpen = { onOpenRide(ride.id) },
                     onDelete = { vm.delete(ride.id) },
@@ -183,6 +215,79 @@ private fun TripsScreenHeader(
     }
 }
 
+// ── Filter bar ────────────────────────────────────────────────────────────────
+
+/**
+ * Horizontally scrollable chip row for ride filtering.
+ *
+ * Chips: "All" | "★ Starred" | one chip per tag in [allTags] (sorted).
+ * Tapping a chip sets the filter; tapping the active chip resets to All.
+ */
+@Composable
+private fun TripsFilterBar(
+    filter: TripsFilter,
+    allTags: Set<String>,
+    onFilter: (TripsFilter) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // "All" chip
+        FilterChip(
+            selected = filter == TripsFilter.All,
+            onClick = { onFilter(TripsFilter.All) },
+            label = { Text("All") },
+            colors = filterChipColors(),
+        )
+
+        // "★ Starred" chip
+        FilterChip(
+            selected = filter == TripsFilter.Favourites,
+            onClick = {
+                onFilter(
+                    if (filter == TripsFilter.Favourites) TripsFilter.All
+                    else TripsFilter.Favourites
+                )
+            },
+            label = { Text("Starred") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                )
+            },
+            colors = filterChipColors(),
+        )
+
+        // One chip per tag, sorted alphabetically.
+        allTags.sorted().forEach { tag ->
+            val isSelected = filter is TripsFilter.ByTag && filter.tag == tag
+            FilterChip(
+                selected = isSelected,
+                onClick = {
+                    onFilter(if (isSelected) TripsFilter.All else TripsFilter.ByTag(tag))
+                },
+                label = { Text(tag) },
+                colors = filterChipColors(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun filterChipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = GixxerTokens.accent.copy(alpha = 0.15f),
+    selectedLabelColor = GixxerTokens.accent,
+    selectedLeadingIconColor = GixxerTokens.accent,
+    labelColor = GixxerTokens.textMuted,
+)
+
 // ── Row with lazy sparkline loading ───────────────────────────────────────────
 
 /**
@@ -193,6 +298,7 @@ private fun TripsScreenHeader(
 @Composable
 private fun RideRowWithSparkline(
     ride: RideEntity,
+    meta: RideMeta,
     vm: TripsViewModel,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
@@ -207,6 +313,7 @@ private fun RideRowWithSparkline(
 
     RideRow(
         ride = ride,
+        meta = meta,
         sparklineSamples = samples,
         onClick = onOpen,
         onDelete = onDelete,

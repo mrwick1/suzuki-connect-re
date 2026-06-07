@@ -8,6 +8,7 @@ import dev.mrwick.gixxerbridge.ble.FrameStream
 import dev.mrwick.gixxerbridge.ble.FrameWriter
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.QuickDestinations
+import dev.mrwick.gixxerbridge.data.RideMetaStore
 import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.location.LastParkedTracker
@@ -92,6 +93,7 @@ object AppGraph {
     @Volatile private var _quickDestinations: QuickDestinations? = null
     @Volatile private var _lastParkedTracker: LastParkedTracker? = null
     @Volatile private var _rideStore: RideStore? = null
+    @Volatile private var _rideMetaStore: RideMetaStore? = null
 
     /** Process-wide [Settings] handle. Safe to call from any thread / composable. */
     fun settings(context: Context): Settings {
@@ -129,6 +131,16 @@ object AppGraph {
         return synchronized(this) {
             _rideStore ?: RideStore(GixxerDatabase.get(context.applicationContext).rideDao())
                 .also { _rideStore = it }
+        }
+    }
+
+    /** Process-wide [RideMetaStore] handle (DataStore — lives outside Room). */
+    fun rideMetaStore(context: Context): RideMetaStore {
+        val cached = _rideMetaStore
+        if (cached != null) return cached
+        return synchronized(this) {
+            _rideMetaStore ?: RideMetaStore(context.applicationContext)
+                .also { _rideMetaStore = it }
         }
     }
 }
