@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import dev.mrwick.gixxerbridge.analytics.FuelEstimate
 import dev.mrwick.gixxerbridge.analytics.FuelTankEstimator
 import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
+import dev.mrwick.gixxerbridge.analytics.RefuelBucket
+import dev.mrwick.gixxerbridge.analytics.RefuelPredictor
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.analytics.RideStreak
+import dev.mrwick.gixxerbridge.analytics.ServiceEta
 import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.FuelStore
@@ -22,6 +25,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+
+/**
+ * Refuel-timing + fill-before-service co-prompt for the Home screen.
+ *
+ * [refuelBucketLabel] is a coarse human bucket ("~2-3 days") or null when no
+ * honest prediction is possible (no range or no recent rides). [bundleService]
+ * is true when a km-gated service is due within the tank's range / already
+ * overdue — the high-value "do both this trip" nudge. [serviceLabel] names that
+ * item (e.g. "Periodic service (engine oil)") for the co-prompt copy.
+ */
+data class RefuelPromptUi(
+    val refuelBucketLabel: String?,
+    val bundleService: Boolean,
+    val serviceLabel: String?,
+)
 
 /**
  * Computed service-schedule summary for HomeScreen's TodayHeroCard.
@@ -154,4 +172,54 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Refuel timing (coarse bucket) + fill-before-service co-prompt. Combines
+     * the existing [fuelEstimate] range with the rider's recent daily-km pace
+     * (rolling 30-day km ÷ 30) and the worst km-gated service item's remaining km.
+     *
+     * The refuel bucket is intentionally coarse (6-bar quantization + anecdotal
+     * km/L fallback); the bundle decision rides on the exact odometer-gated
+     * service km-remaining. Null when both pieces carry no useful information
+     * (no recent rides and no service bundle).
+     */
+    val refuelPrompt: StateFlow<RefuelPromptUi?> =
+        combine(
+            fuelEstimate,
+            rideStore.observeRides(),
+            settings.serviceSchedule,
+            TelemetryRepository.latest,
+        ) { estimate, rides, schedule, latest ->
+            val rangeKm = estimate?.rangeKm
+            // Rolling 30-day pace. totalsFor.km is Int, window is 30 days.
+            val kmPerDay30 = RideAnalytics.totalsFor(rides, days = ServiceEta.DEFAULT_PACE_WINDOW_DAYS).km / 30.0
+            // dailyKmPace is Double? — pass null when no recent rides so the
+            // predictor correctly returns UNKNOWN rather than dividing by zero.
+            val pace: Double? = if (kmPerDay30 > 0.0) kmPerDay30 else null
+
+            val odo = latest?.odometerKm
+            val worst = ServiceSchedule.mostOverdue(schedule.values, odo).worst
+            val prediction = RefuelPredictor.predict(rangeKm, pace, worst?.kmRemaining)
+
+            // Nothing useful to show: UNKNOWN bucket AND no bundle co-prompt → null.
+            if (prediction.bucket == RefuelBucket.UNKNOWN && !prediction.fillBeforeService) {
+                return@combine null
+            }
+            RefuelPromptUi(
+                refuelBucketLabel = if (prediction.bucket == RefuelBucket.UNKNOWN) null
+                    else prediction.bucket.toLabel(),
+                bundleService = prediction.fillBeforeService,
+                serviceLabel = worst?.state?.item?.label,
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+}
+
+/** Human-readable coarse label for a [RefuelBucket]. Never a precise day count. */
+private fun RefuelBucket.toLabel(): String = when (this) {
+    RefuelBucket.TODAY -> "today"
+    RefuelBucket.ONE_DAY -> "~1 day"
+    RefuelBucket.TWO_THREE_DAYS -> "~2-3 days"
+    RefuelBucket.THIS_WEEK -> "this week"
+    RefuelBucket.OVER_A_WEEK -> "over a week"
+    RefuelBucket.UNKNOWN -> "" // guarded upstream
 }

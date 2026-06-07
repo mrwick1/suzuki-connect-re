@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.mrwick.gixxerbridge.analytics.BikeHealth
 import dev.mrwick.gixxerbridge.analytics.RideStreak
+import dev.mrwick.gixxerbridge.analytics.ServiceEta
+import dev.mrwick.gixxerbridge.analytics.ServiceEtaForecast
 import dev.mrwick.gixxerbridge.analytics.ServiceItemHealth
 import dev.mrwick.gixxerbridge.analytics.ServiceSchedule
 import dev.mrwick.gixxerbridge.app.AppGraph
@@ -65,6 +67,10 @@ fun BikeHealthCard() {
     val scheduleHealth = remember(schedule, currentOdo) {
         ServiceSchedule.mostOverdue(schedule.values, currentOdo)
     }
+    val paceKmPerDay = remember(rides) { ServiceEta.paceKmPerDay(rides) }
+    val worstEta = remember(scheduleHealth, paceKmPerDay) {
+        scheduleHealth.worst?.let { ServiceEta.forecast(it, paceKmPerDay) }
+    }
     // Service sub-score: prefer the per-item worst when at least one item has
     // a recorded baseline. Falls back to the legacy single-interval calc when
     // nothing has been logged yet so first-run installs aren't stuck at 50.
@@ -87,7 +93,7 @@ fun BikeHealthCard() {
     val connectionKnown = rides.isNotEmpty()
     val insufficient = listOf(serviceKnown, fuelKnown, connectionKnown).count { it } <= 1
     val grade = if (insufficient) "Not enough data" else gradeFor(total)
-    val caption = captionFor(scheduleHealth.worst)
+    val caption = captionFor(scheduleHealth.worst, if (paceKmPerDay > 0.0) worstEta else null)
 
     val streak = remember(rides) { RideStreak.compute(rides) }
 
@@ -158,14 +164,19 @@ private fun gradeFor(total: Int): String = when {
     else -> "Needs attention"
 }
 
-/** "Engine oil — next in 320 km", or null when no item has a baseline. */
-private fun captionFor(worst: ServiceItemHealth?): String? {
+/**
+ * "Engine oil — 320 km left / 18 days left · ~32 days", or null when no item
+ * has a baseline. [eta] is appended as a relative estimate when pace is known;
+ * suppressed when pace is zero (no recent rides) to avoid false precision.
+ */
+private fun captionFor(worst: ServiceItemHealth?, eta: ServiceEtaForecast?): String? {
     if (worst == null) return null
     val parts = mutableListOf<String>()
     worst.kmRemaining?.let { parts += if (it >= 0) "$it km left" else "${-it} km overdue" }
     worst.daysRemaining?.let { parts += if (it >= 0) "$it days left" else "${-it} days overdue" }
     if (parts.isEmpty()) return null
-    return "${worst.state.item.label} — " + parts.joinToString(" / ")
+    val base = "${worst.state.item.label} — " + parts.joinToString(" / ")
+    return if (eta != null) "$base · ${ServiceEta.formatRelative(eta)}" else base
 }
 
 /** Circular Canvas gauge: dim ring + coloured arc proportional to [score]/100. */
