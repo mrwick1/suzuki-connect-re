@@ -23,8 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AltRoute
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Brightness4
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.CurrencyRupee
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Flag
@@ -70,6 +72,7 @@ import dev.mrwick.gixxerbridge.analytics.WeeklyTotal
 import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.components.TraceChart
+import dev.mrwick.gixxerbridge.ui.cost.CostDetailScreen
 import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
 import dev.mrwick.gixxerbridge.ui.stats.charts.BarChart
 import dev.mrwick.gixxerbridge.ui.stats.charts.CalendarHeatmap
@@ -103,11 +106,15 @@ fun StatsScreen(
     vm: StatsViewModel,
     onOpenSettings: () -> Unit = {},
     onOpenMileage: () -> Unit = {},
+    onOpenWrapped: () -> Unit = {},
 ) {
     val rides by vm.rides.collectAsStateWithLifecycle()
     val recentSamples by vm.recentSamples.collectAsStateWithLifecycle()
     val lastNSamples by vm.lastNSamples.collectAsStateWithLifecycle()
     val bestFuelEcon by vm.bestFuelEcon.collectAsStateWithLifecycle()
+    val costStats by vm.costStats.collectAsStateWithLifecycle()
+    val runningCost by vm.runningCost.collectAsStateWithLifecycle()
+    val monthlySpend by vm.monthlySpend.collectAsStateWithLifecycle()
 
     val weekly = remember(rides) { RideAnalytics.totalsFor(rides, days = 7) }
     val monthly = remember(rides) { RideAnalytics.totalsFor(rides, days = 30) }
@@ -239,6 +246,12 @@ fun StatsScreen(
                     StatsOverview(lifetime, streak, bests, avgPerRideKm, lifetimeAvgSpeed, monthRides)
                     PersonalBestsCard(bests)
                 }
+                StatsDetail.COSTS ->
+                    CostDetailScreen(
+                        costStats = costStats,
+                        runningCost = runningCost,
+                        monthlySpend = monthlySpend,
+                    )
             }
         }
         return
@@ -342,6 +355,40 @@ fun StatsScreen(
             }
         }
 
+        // Costs + Wrapped — side-by-side half-width tiles.
+        Row(modifier = Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Costs tile: ₹/km hero, drills into unified cost view.
+            BentoTile(Modifier.weight(1f).fillMaxHeight(), animateEntry = false, onClick = { detail = StatsDetail.COSTS }) {
+                InsightHeader(Icons.Outlined.CurrencyRupee, "COSTS")
+                Spacer(Modifier.height(8.dp))
+                if (costStats != null) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("₹", style = GixxerMono.body.copy(fontSize = 14.sp), color = GixxerBrand.accent, modifier = Modifier.padding(bottom = 6.dp))
+                        HeroNumeral("%.2f".format(costStats!!.rollingRupeesPerKm), color = GixxerBrand.accent, fontSize = 32.sp)
+                    }
+                    Text("/km · tap to explore", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("No cost data yet", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("tap to explore ›", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            // Wrapped tile: entry point for Gixxer Wrapped.
+            BentoTile(Modifier.weight(1f).fillMaxHeight(), animateEntry = false, onClick = onOpenWrapped) {
+                InsightHeader(Icons.Outlined.CalendarMonth, "YOUR YEAR")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "YOUR YEAR ›",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = GixxerBrand.accent,
+                )
+                Text(
+                    "Gixxer Wrapped",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         OutlinedButton(
             onClick = onOpenMileage,
             modifier = Modifier.fillMaxWidth(),
@@ -355,6 +402,7 @@ private enum class StatsDetail(val title: String) {
     SPEED("SPEED"),
     INSIGHTS("FOR FUN"),
     RECORDS("RECORDS"),
+    COSTS("COSTS"),
 }
 
 @Composable
