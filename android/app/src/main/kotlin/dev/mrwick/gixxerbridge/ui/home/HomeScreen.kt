@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -43,6 +45,7 @@ import dev.mrwick.gixxerbridge.ui.components.TraceChart
 import dev.mrwick.gixxerbridge.ui.home.components.ConnectionDot
 import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
+import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 
 /**
  * REDLINE PRESS Home — "Living Cover" (research: docs/superpowers/research/
@@ -86,6 +89,7 @@ fun HomeScreen(
         onStartRide = onStartRide,
         onOpenPairing = onOpenPairing,
         onOpenMaintenance = onOpenMaintenance,
+        onSnoozeRefuelPrompt = vm::snoozeRefuelPrompt,
     )
 }
 
@@ -105,8 +109,10 @@ fun HomeContent(
     onStartRide: () -> Unit = {},
     onOpenPairing: () -> Unit = {},
     onOpenMaintenance: () -> Unit = {},
+    onSnoozeRefuelPrompt: () -> Unit = {},
 ) {
     val live = connectionState is ConnectionState.Ready
+    val ctx = LocalContext.current // used for maps intents passed to child tiles
 
     Column(
         modifier = Modifier
@@ -124,11 +130,25 @@ fun HomeContent(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FuelTile(fuelEstimate, refuelPrompt, Modifier.weight(1f), index = 1)
+            FuelTile(
+                estimate = fuelEstimate,
+                refuel = refuelPrompt,
+                modifier = Modifier.weight(1f),
+                index = 1,
+                onTapFindPump = { launchGeoIntent(ctx, "petrol+pump") },
+                onSnooze = onSnoozeRefuelPrompt,
+            )
             OdoTile(telemetry, Modifier.weight(1f), index = 2)
         }
 
-        HealthTile(nextService, refuelPrompt, onOpenMaintenance, index = 3)
+        HealthTile(
+            nextService = nextService,
+            refuel = refuelPrompt,
+            onOpenMaintenance = onOpenMaintenance,
+            onTapFindService = { launchGeoIntent(ctx, "two+wheeler+service") },
+            onSnooze = onSnoozeRefuelPrompt,
+            index = 3,
+        )
 
         TodayStrip(todayKm, streak, index = 4)
 
@@ -205,8 +225,23 @@ private fun ParkedHero(lastParked: LastParked?, todayKm: Double?, index: Int) {
 }
 
 @Composable
-private fun FuelTile(estimate: FuelEstimate?, refuel: RefuelPromptUi?, modifier: Modifier, index: Int) {
-    BentoTile(modifier.height(178.dp), index = index, container = MaterialTheme.colorScheme.surfaceVariant) {
+private fun FuelTile(
+    estimate: FuelEstimate?,
+    refuel: RefuelPromptUi?,
+    modifier: Modifier,
+    index: Int,
+    onTapFindPump: () -> Unit = {},
+    onSnooze: () -> Unit = {},
+) {
+    // Bump height when the refuel bucket label or snooze row is visible.
+    val hasRefuelLabel = refuel?.refuelBucketLabel != null
+    val tileHeight = if (hasRefuelLabel) 210.dp else 178.dp
+    BentoTile(
+        modifier.height(tileHeight),
+        index = index,
+        container = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = if (refuel != null) onTapFindPump else null,
+    ) {
         if (estimate == null) {
             Text("FUEL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(10.dp))
@@ -251,13 +286,30 @@ private fun FuelTile(estimate: FuelEstimate?, refuel: RefuelPromptUi?, modifier:
             // Coarse refuel bucket — only when a pace-based estimate exists.
             // Never a precise day count (6-bar quantization + anecdotal km/L
             // fallback mean the bucket is already as honest as we can be).
-            refuel?.refuelBucketLabel?.let { bucket ->
+            if (hasRefuelLabel) {
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    "Refuel $bucket",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "Refuel ${refuel?.refuelBucketLabel} · tap for pump",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GixxerTokens.zoneMid,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = onSnooze,
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    ) {
+                        Text(
+                            "Dismiss",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
@@ -284,6 +336,8 @@ private fun HealthTile(
     nextService: NextServiceSummary?,
     refuel: RefuelPromptUi?,
     onOpenMaintenance: () -> Unit,
+    onTapFindService: () -> Unit = {},
+    onSnooze: () -> Unit = {},
     index: Int,
 ) {
     // No service baseline recorded yet → "Caution" (needs setup), not a green
@@ -294,9 +348,9 @@ private fun HealthTile(
         else -> HealthState.Good
     }
     val showCoPrompt = refuel?.bundleService == true
-    // Bump height to 132 dp when the fill-before-service co-prompt is visible so
-    // the extra line doesn't clip inside the BentoTile.
-    val tileHeight = if (showCoPrompt) 132.dp else 110.dp
+    // Bump height when the fill-before-service co-prompt + action row are visible
+    // so they don't clip inside the BentoTile.
+    val tileHeight = if (showCoPrompt) 158.dp else 110.dp
     BentoTile(Modifier.fillMaxWidth().height(tileHeight), index = index, onClick = onOpenMaintenance) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             HealthRing(state = state, modifier = Modifier.size(64.dp))
@@ -319,13 +373,41 @@ private fun HealthTile(
                 )
                 // Fill-before-service co-prompt: the reliable half of the refuel
                 // predict feature — rides on exact odometer-gated kmRemaining.
+                // CTA is tied to the service half (reliable km gate); opens a
+                // maps search for nearby two-wheeler service centres.
                 if (showCoPrompt) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "Refuel soon — service due too. Do both this trip.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = GixxerBrand.accent,
-                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        TextButton(
+                            onClick = onTapFindService,
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        ) {
+                            Text(
+                                "Service due — refuel too. Find service centre →",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GixxerBrand.accent,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(
+                            onClick = onSnooze,
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        ) {
+                            Text(
+                                "Dismiss",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -363,6 +445,22 @@ private fun ActionTile(label: String, icon: androidx.compose.ui.graphics.vector.
             Spacer(Modifier.width(8.dp))
             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onBackground)
         }
+    }
+}
+
+/**
+ * Fire a `geo:0,0?q=<query>` intent to open the system maps app. Gracefully
+ * no-ops when no maps app is installed (avoids crash on phones without Google
+ * Maps / Maps-compatible apps). The [query] should be a URL-safe string such
+ * as "petrol+pump" or "two+wheeler+service" — the geo: URI spec uses RFC-3986
+ * encoding but "+" is universally accepted by maps apps as a word separator.
+ */
+private fun launchGeoIntent(ctx: android.content.Context, query: String) {
+    runCatching {
+        ctx.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$query"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 }
 

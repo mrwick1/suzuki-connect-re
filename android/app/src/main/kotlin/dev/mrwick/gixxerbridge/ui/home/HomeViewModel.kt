@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * Refuel-timing + fill-before-service co-prompt for the Home screen.
@@ -181,15 +182,20 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
      * The refuel bucket is intentionally coarse (6-bar quantization + anecdotal
      * km/L fallback); the bundle decision rides on the exact odometer-gated
      * service km-remaining. Null when both pieces carry no useful information
-     * (no recent rides and no service bundle).
+     * (no recent rides and no service bundle), OR when the prompt was snoozed at
+     * the latest fill odometer (i.e. no new fill has been logged since the snooze).
+     *
+     * Snooze logic: a new fuel fill re-arms the prompt automatically because the
+     * latest fill's odometer will differ from [Settings.refuelPromptSnoozedAtFillOdo].
      */
     val refuelPrompt: StateFlow<RefuelPromptUi?> =
         combine(
             fuelEstimate,
+            fuelStore.observe(),
             rideStore.observeRides(),
             settings.serviceSchedule,
             TelemetryRepository.latest,
-        ) { estimate, rides, schedule, latest ->
+        ) { estimate, fills, rides, schedule, latest ->
             val rangeKm = estimate?.rangeKm
             // Rolling 30-day pace. totalsFor.km is Int, window is 30 days.
             val kmPerDay30 = RideAnalytics.totalsFor(rides, days = ServiceEta.DEFAULT_PACE_WINDOW_DAYS).km / 30.0
@@ -205,13 +211,58 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (prediction.bucket == RefuelBucket.UNKNOWN && !prediction.fillBeforeService) {
                 return@combine null
             }
-            RefuelPromptUi(
-                refuelBucketLabel = if (prediction.bucket == RefuelBucket.UNKNOWN) null
-                    else prediction.bucket.toLabel(),
-                bundleService = prediction.fillBeforeService,
-                serviceLabel = worst?.state?.item?.label,
+
+            Pair(
+                RefuelPromptUi(
+                    refuelBucketLabel = if (prediction.bucket == RefuelBucket.UNKNOWN) null
+                        else prediction.bucket.toLabel(),
+                    bundleService = prediction.fillBeforeService,
+                    serviceLabel = worst?.state?.item?.label,
+                ),
+                fills.firstOrNull()?.odometerKm, // latest fill's odo for snooze gate
             )
+        }.combine(settings.refuelPromptSnoozedAtFillOdo) { pair, snoozedAtOdo ->
+            val (prompt, latestFillOdo) = pair ?: return@combine null
+            // Snooze gate: suppress while the latest fill's odometer matches the
+            // snoozed value. A new fill (different odometer) re-arms automatically.
+            if (isRefuelPromptSnoozed(snoozedAtOdo, latestFillOdo)) null else prompt
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * Snooze the refuel co-prompt until the next fuel fill is logged. Persists
+     * the current latest fill's odometer to DataStore; the prompt will hide until
+     * a new fill (with a different odometer) is recorded.
+     *
+     * Safe to call from the UI thread — launches on [viewModelScope] internally.
+     */
+    fun snoozeRefuelPrompt() {
+        viewModelScope.launch {
+            // Snapshot the latest fill's odometer at snooze time.
+            val latestFillOdo = fuelStore.all().firstOrNull()?.odometerKm
+            settings.setRefuelPromptSnoozedAtFillOdo(latestFillOdo)
+        }
+    }
+}
+
+/**
+ * Pure snooze-visibility predicate: returns true when the refuel co-prompt
+ * should be hidden because the rider already snoozed it at [snoozedAtFillOdo]
+ * and no new fill has been logged since (i.e. the latest fill's odometer has
+ * not changed).
+ *
+ * Extracted as a top-level function so it can be unit-tested without Android
+ * framework dependencies (see [dev.mrwick.gixxerbridge.ui.home.RefuelPromptSnoozeTest]).
+ *
+ * @param snoozedAtFillOdo  the odometer stored in Settings at snooze time; null = never snoozed.
+ * @param latestFillOdo     the most-recent fuel fill's odometer; null = no fills logged yet.
+ */
+internal fun isRefuelPromptSnoozed(snoozedAtFillOdo: Int?, latestFillOdo: Int?): Boolean {
+    // If never snoozed, never hidden.
+    if (snoozedAtFillOdo == null) return false
+    // If there are no fills, there's nothing to snooze against; show the prompt.
+    if (latestFillOdo == null) return false
+    // Snoozed at the same fill → still suppressed.
+    return snoozedAtFillOdo == latestFillOdo
 }
 
 /** Human-readable coarse label for a [RefuelBucket]. Never a precise day count. */

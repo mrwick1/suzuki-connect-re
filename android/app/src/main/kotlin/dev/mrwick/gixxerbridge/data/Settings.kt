@@ -156,6 +156,18 @@ class Settings(context: Context) {
     val fuelCapacityL: Flow<Double> =
         ds.data.map { it[Keys.FUEL_CAPACITY_L] ?: DEFAULT_FUEL_CAPACITY_L }
 
+    /**
+     * Odometer (km) of the most-recently logged fuel fill at the time the user
+     * last dismissed / snoozed the refuel-co-prompt. Null means the prompt has
+     * never been snoozed. When a NEW fill is logged (its odometer differs from
+     * this value) the prompt re-arms automatically — recomputed in HomeViewModel,
+     * no alarm or Room polling needed.
+     *
+     * Sentinel: -1 (via [encodeNullableInt] / [decodeNullableInt]) = never snoozed.
+     */
+    val refuelPromptSnoozedAtFillOdo: Flow<Int?> =
+        ds.data.map { decodeNullableInt(it[Keys.REFUEL_PROMPT_SNOOZE_ODO]) }
+
     /** Last persisted telemetry snapshot (odo/bars/km-L); null until first frame. */
     val lastTelemetry: Flow<LastTelemetry?> =
         ds.data.map { p ->
@@ -332,6 +344,17 @@ class Settings(context: Context) {
         }
     }
 
+    /**
+     * Record the snooze: stores [fillOdometerKm] as the odometer at which the
+     * rider dismissed the co-prompt. Pass null to clear (re-arm unconditionally).
+     *
+     * Call this from [dev.mrwick.gixxerbridge.ui.home.HomeViewModel] when the
+     * rider taps the dismiss affordance on the FuelTile / HealthTile co-prompt.
+     */
+    suspend fun setRefuelPromptSnoozedAtFillOdo(fillOdometerKm: Int?) {
+        ds.edit { it[Keys.REFUEL_PROMPT_SNOOZE_ODO] = encodeNullableInt(fillOdometerKm) }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -361,6 +384,8 @@ class Settings(context: Context) {
         val LAST_TELEM_BARS = intPreferencesKey("last_telem_fuel_bars")
         val LAST_TELEM_KMPL = doublePreferencesKey("last_telem_kmpl")
         val LAST_TELEM_TMS = longPreferencesKey("last_telem_tmillis")
+        /** Odometer of the latest fill at snooze time; -1 sentinel = never snoozed. */
+        val REFUEL_PROMPT_SNOOZE_ODO = intPreferencesKey("refuel_prompt_snooze_odo")
 
         // Per-item service schedule (4 keys × 5 items). Key prefix uses the
         // ServiceItem.id string so rename-the-enum doesn't silently drop data
