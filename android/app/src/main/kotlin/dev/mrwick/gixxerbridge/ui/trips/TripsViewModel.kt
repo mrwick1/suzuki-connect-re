@@ -3,9 +3,12 @@ package dev.mrwick.gixxerbridge.ui.trips
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.GixxerDatabase
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
+import dev.mrwick.gixxerbridge.data.RideMeta
+import dev.mrwick.gixxerbridge.data.RideMetaStore
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.data.RideStore
 import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
@@ -14,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -24,15 +28,71 @@ import kotlin.math.max
 /**
  * Backs the Trips list + detail screens by exposing past rides from the Room
  * store and lazily loading samples for the currently-selected ride.
+ *
+ * Ride metadata (favourite flag, tags, notes) is joined from [RideMetaStore]
+ * which lives outside Room so it survives destructive migrations. The join is
+ * keyed by [RideEntity.startedAtMillis].
  */
 class TripsViewModel(context: Context) : ViewModel() {
 
     private val store: RideStore = RideStore(GixxerDatabase.get(context).rideDao())
     private val fuelStore: FuelStore = FuelStore(GixxerDatabase.get(context).fuelFillDao())
+    private val metaStore: RideMetaStore = AppGraph.rideMetaStore(context)
 
-    /** All persisted rides, newest-first; reflects inserts and deletes live. */
-    val rides: StateFlow<List<RideEntity>> = store.observeRides()
+    // ── Active filter ─────────────────────────────────────────────────────────
+
+    /**
+     * Current filter applied to the rides list.
+     *
+     * [TripsFilter.All]        — show every ride (default)
+     * [TripsFilter.Favourites] — only starred rides
+     * [TripsFilter.ByTag]      — only rides tagged with the given label
+     */
+    private val _filter = MutableStateFlow<TripsFilter>(TripsFilter.All)
+    val filter: StateFlow<TripsFilter> = _filter.asStateFlow()
+
+    fun setFilter(f: TripsFilter) { _filter.value = f }
+
+    // ── Meta map: startedAtMillis → RideMeta ─────────────────────────────────
+
+    /** Live meta map from [RideMetaStore]. Used by the detail screen directly. */
+    val metaMap: StateFlow<Map<Long, RideMeta>> = metaStore.observe()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    // ── Rides joined with meta and filtered ───────────────────────────────────
+
+    /**
+     * All rides enriched with their [RideMeta], newest-first, with the active
+     * [filter] applied. Recomputes whenever rides, meta, or the filter changes.
+     */
+    val ridesWithMeta: StateFlow<List<RideWithMeta>> =
+        combine(store.observeRides(), metaStore.observe(), _filter) { rides, meta, filter ->
+            val joined = rides.map { ride ->
+                RideWithMeta(ride, meta[ride.startedAtMillis] ?: RideMeta())
+            }
+            when (filter) {
+                TripsFilter.All -> joined
+                TripsFilter.Favourites -> joined.filter { it.meta.favorite }
+                is TripsFilter.ByTag -> joined.filter { filter.tag in it.meta.tags }
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Backwards-compatible [rides] alias that mirrors [ridesWithMeta] as plain
+     * [RideEntity] list. Screens that only need the entity (e.g. TripDetailScreen
+     * looking up a ride by id) continue to work unchanged.
+     */
+    val rides: StateFlow<List<RideEntity>> = ridesWithMeta
+        .map { list -> list.map { it.ride } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * All distinct tags across all rides (from unfiltered meta). Used to populate
+     * the tag filter chip list and the tag picker in TripDetailScreen.
+     */
+    val allTags: StateFlow<Set<String>> = metaStore.observe()
+        .map { meta -> meta.values.flatMapTo(mutableSetOf()) { it.tags } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     /**
      * Rider's fill-measured trailing-average km/L, or null until enough fuel
@@ -46,12 +106,13 @@ class TripsViewModel(context: Context) : ViewModel() {
     /**
      * Summary stats for the current calendar month: ride count + total distance.
      * Derived from [rides] so it updates live as rides are added/deleted.
+     *
+     * Note: counts all rides regardless of the active [filter].
      */
     val monthSummary: StateFlow<MonthSummary> = store.observeRides()
         .map { allRides ->
             val zone = ZoneId.systemDefault()
             val now = Instant.now().atZone(zone)
-            // Local midnight on the 1st of the current month.
             val monthStart = now
                 .withDayOfMonth(1)
                 .toLocalDate()
@@ -112,7 +173,54 @@ class TripsViewModel(context: Context) : ViewModel() {
     /** Direct access to the underlying ride entity for export (snapshot fetch). */
     suspend fun rideFor(rideId: Long): RideEntity? =
         rides.value.firstOrNull { it.id == rideId }
+
+    // ── Meta write operations (keyed by startedAtMillis) ─────────────────────
+
+    /** Toggle the favourite flag for the ride identified by [startedAtMillis]. */
+    fun setFavorite(startedAtMillis: Long, favorite: Boolean) {
+        viewModelScope.launch { metaStore.setFavorite(startedAtMillis, favorite) }
+    }
+
+    /** Replace the tag set for the ride identified by [startedAtMillis]. */
+    fun setTags(startedAtMillis: Long, tags: Set<String>) {
+        viewModelScope.launch { metaStore.setTags(startedAtMillis, tags) }
+    }
+
+    /** Set or clear the note for the ride identified by [startedAtMillis]. */
+    fun setNote(startedAtMillis: Long, note: String) {
+        viewModelScope.launch { metaStore.setNote(startedAtMillis, note) }
+    }
 }
+
+// ── Supporting types ──────────────────────────────────────────────────────────
+
+/** A [RideEntity] paired with its [RideMeta] (defaults applied when absent). */
+data class RideWithMeta(val ride: RideEntity, val meta: RideMeta)
 
 /** This-month aggregation shown in the Trips screen header. */
 data class MonthSummary(val rideCount: Int, val totalKm: Int)
+
+/** Filter state for the Trips list. */
+sealed interface TripsFilter {
+    /** Show all rides. */
+    data object All : TripsFilter
+
+    /** Show only starred rides. */
+    data object Favourites : TripsFilter
+
+    /** Show only rides bearing [tag]. */
+    data class ByTag(val tag: String) : TripsFilter
+}
+
+/** Preset tag labels shown in the tag picker chip row in TripDetailScreen. */
+val PRESET_TAGS: List<String> = listOf(
+    "commute",
+    "weekend",
+    "twisties",
+    "highway",
+    "city",
+    "rain",
+    "night",
+    "solo",
+    "group ride",
+)

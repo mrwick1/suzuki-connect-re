@@ -29,7 +29,13 @@ object TelemetryRepository {
         synchronized(this) {
             if (historyBuffer.size >= HISTORY_SIZE) historyBuffer.removeFirst()
             historyBuffer.addLast(frame)
-            _history.value = historyBuffer.toList()
+            // R5: only publish the immutable snapshot when at least one collector is
+            // active. The ArrayDeque push above always runs so that a subscriber
+            // joining mid-ride immediately sees a correct rolling window; we just
+            // skip the O(n) toList() copy when nobody is watching.
+            if (_history.subscriptionCount.value > 0) {
+                _history.value = historyBuffer.toList()
+            }
         }
     }
 

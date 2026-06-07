@@ -2,10 +2,13 @@ package dev.mrwick.gixxerbridge.ui.trips
 
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -16,19 +19,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,6 +68,7 @@ import dev.mrwick.gixxerbridge.analytics.SpeedTrack
 import dev.mrwick.gixxerbridge.analytics.SpeedTrackColors
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideLocationEntity
+import dev.mrwick.gixxerbridge.data.RideMeta
 import dev.mrwick.gixxerbridge.analytics.RideAnalytics
 import dev.mrwick.gixxerbridge.export.CsvExporter
 import dev.mrwick.gixxerbridge.export.GpxExporter
@@ -64,6 +77,7 @@ import dev.mrwick.gixxerbridge.export.TripShareText
 import dev.mrwick.gixxerbridge.ui.components.SkeletonBlock
 import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.components.SkeletonLine
+import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -75,12 +89,13 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.max
 
-/** Detail screen for one ride: hero card with aggregates + GPX export + per-sample log. */
+/** Detail screen for one ride: hero card with aggregates + meta (fav/tags/note) + GPX export + per-sample log. */
 @Composable
 fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
     LaunchedEffect(rideId) { vm.loadSamples(rideId) }
     val samples by vm.selectedSamples.collectAsStateWithLifecycle()
     val rides by vm.rides.collectAsStateWithLifecycle()
+    val metaMap by vm.metaMap.collectAsStateWithLifecycle()
     val fillKmPerL by vm.fillKmPerL.collectAsStateWithLifecycle()
     val ride: RideEntity? = remember(rides, rideId) { rides.firstOrNull { it.id == rideId } }
     val context = LocalContext.current
@@ -109,6 +124,9 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             return@Column
         }
 
+        // Resolve meta for this ride by its stable natural key.
+        val meta: RideMeta = metaMap[ride.startedAtMillis] ?: RideMeta()
+
         var showRename by remember(ride.id) { mutableStateOf(false) }
         val dateString = remember(ride.startedAtMillis) {
             SimpleDateFormat("EEE, MMM d yyyy · HH:mm", Locale.US)
@@ -133,11 +151,31 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
-                Text(
-                    "RIDE DISTANCE · KM",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = dev.mrwick.gixxerbridge.ui.theme.GixxerBrand.accent,
-                )
+                // ── Favourite star + label row ─────────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "RIDE DISTANCE · KM",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = GixxerBrand.accent,
+                    )
+                    // Star toggle — right-aligned, no extra padding needed.
+                    IconButton(
+                        onClick = { vm.setFavorite(ride.startedAtMillis, !meta.favorite) },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (meta.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (meta.favorite) "Remove from favourites" else "Add to favourites",
+                            tint = if (meta.favorite) GixxerTokens.zoneMid else GixxerTokens.textMuted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+
                 dev.mrwick.gixxerbridge.ui.components.HeroNumeral(
                     text = "$distance",
                     color = MaterialTheme.colorScheme.onBackground,
@@ -182,6 +220,17 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             }
         }
 
+        // ── Tags + Note section ───────────────────────────────────────────────
+        Spacer(modifier = Modifier.height(12.dp))
+        RideMetaSection(
+            meta = meta,
+            onToggleTag = { tag ->
+                val updated = if (tag in meta.tags) meta.tags - tag else meta.tags + tag
+                vm.setTags(ride.startedAtMillis, updated)
+            },
+            onNoteChange = { vm.setNote(ride.startedAtMillis, it) },
+        )
+
         if (samples.size >= 2) {
             Spacer(modifier = Modifier.height(12.dp))
             Card(
@@ -194,7 +243,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                     Text(
                         "SPEED · THIS RIDE (KM/H)",
                         style = MaterialTheme.typography.labelMedium,
-                        color = dev.mrwick.gixxerbridge.ui.theme.GixxerBrand.accent,
+                        color = GixxerBrand.accent,
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     dev.mrwick.gixxerbridge.ui.components.TraceChart(
@@ -382,6 +431,170 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         }
     }
 }
+
+// ── Meta section: tags + note ─────────────────────────────────────────────────
+
+/**
+ * Card section for editing ride metadata.
+ *
+ * Top row: horizontally-scrollable tag chips. Active tags are shown as
+ * [InputChip]s with a close button (removes the tag). Preset tags not yet
+ * applied appear as [SuggestionChip]s with a + icon. A free-text input
+ * at the end lets the rider add a custom tag.
+ *
+ * Bottom: a multi-line [OutlinedTextField] for the ride note.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RideMetaSection(
+    meta: RideMeta,
+    onToggleTag: (String) -> Unit,
+    onNoteChange: (String) -> Unit,
+) {
+    var noteText by remember(meta.note) { mutableStateOf(meta.note) }
+    var customTagInput by remember { mutableStateOf("") }
+    var showCustomTagField by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Text(
+                "TAGS & NOTES",
+                style = MaterialTheme.typography.labelMedium,
+                color = GixxerBrand.accent,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // ── Tag area: FlowRow wraps when chips are wide ───────────────────
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // Applied tags as InputChips (removable).
+                meta.tags.sorted().forEach { tag ->
+                    InputChip(
+                        selected = true,
+                        onClick = { onToggleTag(tag) },
+                        label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Remove $tag",
+                                modifier = Modifier.size(14.dp),
+                            )
+                        },
+                        colors = InputChipDefaults.inputChipColors(
+                            selectedContainerColor = GixxerTokens.accent.copy(alpha = 0.15f),
+                            selectedLabelColor = GixxerTokens.accent,
+                            selectedTrailingIconColor = GixxerTokens.accent,
+                        ),
+                    )
+                }
+
+                // Preset tags not yet applied as SuggestionChips.
+                PRESET_TAGS.filter { it !in meta.tags }.forEach { tag ->
+                    SuggestionChip(
+                        onClick = { onToggleTag(tag) },
+                        label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Add $tag",
+                                modifier = Modifier.size(14.dp),
+                            )
+                        },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            labelColor = GixxerTokens.textMuted,
+                            iconContentColor = GixxerTokens.textMuted,
+                        ),
+                        border = SuggestionChipDefaults.suggestionChipBorder(
+                            enabled = true,
+                            borderColor = GixxerTokens.border,
+                        ),
+                    )
+                }
+
+                // "+ custom" chip that reveals an inline text input.
+                if (!showCustomTagField) {
+                    SuggestionChip(
+                        onClick = { showCustomTagField = true },
+                        label = { Text("+ custom", style = MaterialTheme.typography.labelSmall) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            labelColor = GixxerTokens.textMuted,
+                        ),
+                        border = SuggestionChipDefaults.suggestionChipBorder(
+                            enabled = true,
+                            borderColor = GixxerTokens.border,
+                        ),
+                    )
+                }
+            }
+
+            // Inline custom-tag input field.
+            if (showCustomTagField) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = customTagInput,
+                    onValueChange = { customTagInput = it.take(30) },
+                    label = { Text("Custom tag") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        Row {
+                            TextButton(
+                                onClick = {
+                                    val tag = customTagInput.trim()
+                                    if (tag.isNotEmpty()) {
+                                        onToggleTag(tag)
+                                    }
+                                    customTagInput = ""
+                                    showCustomTagField = false
+                                },
+                            ) { Text("Add", color = GixxerTokens.accent) }
+                            TextButton(
+                                onClick = {
+                                    customTagInput = ""
+                                    showCustomTagField = false
+                                },
+                            ) { Text("Cancel", color = GixxerTokens.textMuted) }
+                        }
+                    },
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── Notes field ────────────────────────────────────────────────────
+            OutlinedTextField(
+                value = noteText,
+                onValueChange = { noteText = it.take(500) },
+                label = { Text("Note") },
+                placeholder = { Text("Anything memorable about this ride…", color = GixxerTokens.textMuted) },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 5,
+                // Persist on every keystroke — DataStore writes are coalesced
+                // internally; no explicit debounce needed for a 500-char field.
+                // The ViewModel coroutine launch is cheap.
+            )
+            // Trigger the VM write when the text settles (after each recomposition
+            // with a changed value). Since we remember(meta.note) above, initial
+            // set of noteText won't trigger an unnecessary write.
+            LaunchedEffect(noteText) {
+                if (noteText != meta.note) {
+                    onNoteChange(noteText)
+                }
+            }
+        }
+    }
+}
+
+// ── Existing private helpers ──────────────────────────────────────────────────
 
 /** One hero stat: small label above large value, Inter weight 600. */
 @Composable

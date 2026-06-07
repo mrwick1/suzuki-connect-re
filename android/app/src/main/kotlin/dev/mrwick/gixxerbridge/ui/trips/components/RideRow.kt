@@ -1,7 +1,9 @@
 package dev.mrwick.gixxerbridge.ui.trips.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,8 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -20,11 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.mrwick.gixxerbridge.data.RideEntity
+import dev.mrwick.gixxerbridge.data.RideMeta
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.ui.theme.GixxerMono
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
@@ -47,23 +48,22 @@ import kotlin.math.max
  * Premium ride row for the Trips list.
  *
  * Layout:
- *   [date rail 48dp] | [distance headline + subtitle] | [sparkline 60x32dp]
+ *   [date rail 48dp] | [distance headline + subtitle + meta badge row] | [sparkline 60x32dp] | [icons]
  *
  * Date rail: day number in GixxerMono.headline weight 700, month label below in
- * labelSmall textMuted. Physical anchor for the row — the eye lands here first.
+ * labelSmall textMuted.
  *
  * Center: distance in headlineMedium textPrimary, second line "duration · avg speed"
- * in bodyMedium textMuted.
+ * in bodyMedium textMuted. When the ride is starred or has tags a badge row appears:
+ * a gold star icon (starred) and up to one tag pill (the first tag, truncated).
  *
- * Sparkline: 60×32dp Canvas polyline of speed-over-time samples. Accent-colored
- * line, no grid, no labels. Hidden if [sparklineSamples] is null (not yet loaded)
- * or empty (no samples recorded for the ride).
- *
- * The card itself is the tap target. No chevron — modern touch UIs don't need it.
+ * Sparkline: 60×32dp Canvas polyline of speed-over-time samples. Hidden if
+ * [sparklineSamples] is null (not yet loaded) or empty (no samples recorded).
  */
 @Composable
 fun RideRow(
     ride: RideEntity,
+    meta: RideMeta,
     sparklineSamples: List<RideSampleEntity>?,
     onClick: () -> Unit,
     onDelete: () -> Unit,
@@ -81,6 +81,7 @@ fun RideRow(
     val avgSpeed = ride.avgSpeedKmh
 
     val accentColor = GixxerTokens.accent
+    val hasMeta = meta.favorite || meta.tags.isNotEmpty()
 
     Card(
         modifier = modifier
@@ -126,6 +127,32 @@ fun RideRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (inProgress) GixxerTokens.accent else GixxerTokens.textMuted,
                 )
+
+                // ── Meta badge row (star + first tag) ─────────────────────────
+                if (hasMeta) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (meta.favorite) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Starred",
+                                tint = GixxerTokens.zoneMid,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                        // Show the first tag as a small pill badge.
+                        meta.tags.firstOrNull()?.let { tag ->
+                            TagPill(tag = tag)
+                        }
+                        // If there are more tags, show a count badge.
+                        if (meta.tags.size > 1) {
+                            TagPill(tag = "+${meta.tags.size - 1}")
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.width(12.dp))
@@ -176,6 +203,25 @@ fun RideRow(
                 )
             }
         }
+    }
+}
+
+/** Small rounded pill chip for a tag label in a row badge. */
+@Composable
+private fun TagPill(tag: String) {
+    Box(
+        modifier = Modifier
+            .background(
+                color = GixxerTokens.accent.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(4.dp),
+            )
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = tag,
+            style = MaterialTheme.typography.labelSmall,
+            color = GixxerTokens.accent,
+        )
     }
 }
 
