@@ -144,6 +144,10 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             bikeKmPerL = RideAnalytics.avgBikeEcon(samples),
         )
         val fuelUsedText = fuelBurn?.let { "~${"%.2f".format(it.litres)} L (est.)" } ?: "—"
+        // Average fuel economy (km/L) the bike reported across this trip's samples.
+        // For a merged ride [samples] already unions the children (view-aware load).
+        val avgEconKmL = RideAnalytics.avgBikeEcon(samples)
+        val mileageText = avgEconKmL?.let { "${"%.1f".format(it)} km/L" } ?: "—"
         val inProgress = ride.endedAtMillis == null
         val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 
@@ -218,7 +222,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                     HeroStat(label = "Max speed", value = "${ride.maxSpeedKmh} km/h")
-                    HeroStat(label = "Samples", value = "${ride.sampleCount}")
+                    HeroStat(label = "Mileage", value = mileageText)
                     HeroStat(label = "Fuel used", value = fuelUsedText)
                 }
             }
