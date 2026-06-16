@@ -225,7 +225,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         }
 
         // ── Merged-ride segments: list of children + split-back ───────────────
-        if (ride.isMerged) {
+        if (ride.isMerged && children.isNotEmpty()) {
             MergedSegmentsCard(
                 children = children,
                 onSplit = {

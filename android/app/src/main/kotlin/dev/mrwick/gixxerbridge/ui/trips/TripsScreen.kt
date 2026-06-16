@@ -94,6 +94,7 @@ fun TripsScreen(
     val filter by vm.filter.collectAsStateWithLifecycle()
     val allTags by vm.allTags.collectAsStateWithLifecycle()
     val suggestion by vm.journeySuggestion.collectAsStateWithLifecycle()
+    val gapHintMax by vm.gapHintMaxMin.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -266,7 +267,7 @@ fun TripsScreen(
                                 if (older != null) {
                                     val gapMin = (ride.startedAtMillis - (older.endedAtMillis ?: older.startedAtMillis)) / 60_000L
                                     val chains = older.endOdoKm != null && ride.startOdoKm == older.endOdoKm
-                                    if (chains && gapMin in 0..120) {
+                                    if (chains && gapMin in 0L..gapHintMax.toLong()) {
                                         GapConnector(label = gapHintLabel(gapMin))
                                     }
                                 }

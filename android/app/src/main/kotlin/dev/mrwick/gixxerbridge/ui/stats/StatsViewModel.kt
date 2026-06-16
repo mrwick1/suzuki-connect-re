@@ -51,7 +51,7 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
         .map { rs ->
             val cutoff = System.currentTimeMillis() - 30L * 86_400_000L
             rs.filter { it.startedAtMillis >= cutoff }
-                .flatMap { store.getSamples(it.id) }
+                .flatMap { store.getSamplesForView(it.id) }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -62,7 +62,7 @@ class StatsViewModel(app: Application) : AndroidViewModel(app) {
      */
     val lastNSamples: StateFlow<List<RideSampleEntity>> = rides
         .map { rs ->
-            rs.take(LAST_N).flatMap { store.getSamples(it.id) }
+            rs.take(LAST_N).flatMap { store.getSamplesForView(it.id) }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

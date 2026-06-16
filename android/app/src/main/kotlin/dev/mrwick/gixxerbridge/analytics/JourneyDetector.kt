@@ -26,8 +26,10 @@ data class JourneySuggestion(
  */
 object JourneyDetector {
     fun detect(rides: List<RideEntity>, cfg: JourneyConfig): List<JourneySuggestion> {
-        // Only fully-ended rides participate; sort chronologically.
-        val ended = rides.filter { it.endedAtMillis != null && it.endOdoKm != null }
+        // Only fully-ended, non-merged rides participate; sort chronologically.
+        // A merged parent is itself a journey already — excluding it stops the
+        // detector from re-suggesting a merge that includes a merged ride.
+        val ended = rides.filter { it.endedAtMillis != null && it.endOdoKm != null && !it.isMerged }
             .sortedBy { it.startedAtMillis }
         if (ended.isEmpty()) return emptyList()
 

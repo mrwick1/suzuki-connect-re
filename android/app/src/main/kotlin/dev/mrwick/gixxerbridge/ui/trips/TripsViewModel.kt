@@ -59,6 +59,15 @@ class TripsViewModel(context: Context) : ViewModel() {
                 .maxByOrNull { it.startMillis }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /**
+     * Max inter-ride gap (minutes) for which the Trips list draws a "gap hint"
+     * connector between two rows of the same run. Mirrors the detector's tunable
+     * [JourneyConfig.gapMaxMin] so the connector and the suggestion stay in sync.
+     */
+    val gapHintMaxMin: StateFlow<Int> = settings.journeyConfig
+        .map { it.gapMaxMin }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 120)
+
     /** Dismiss a suggestion so it won't resurface. */
     fun dismissSuggestion(startMillis: Long) {
         viewModelScope.launch { dismissStore.dismiss(startMillis) }

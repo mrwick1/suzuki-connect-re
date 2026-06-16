@@ -78,4 +78,18 @@ class JourneyDetectorTest {
         assertEquals("1 h 5 min later", gapHintLabel(65))
         assertEquals("2 h later", gapHintLabel(120))
     }
+
+    @Test fun excludesAlreadyMergedRideFromDetection() {
+        // A merged parent (isMerged=true) sitting among normal rides must not be
+        // pulled into a run — it is already a journey. With seg 3 excluded the
+        // chain breaks (2 ends odo 60, 4 starts odo 90), leaving runs {1,2} and
+        // {4}, neither of which reaches minSegments=3.
+        val rides = listOf(
+            ride(1, 0, 30, 0, 30),
+            ride(2, 45, 75, 30, 60),
+            ride(3, 90, 120, 60, 90).copy(isMerged = true),
+            ride(4, 135, 165, 90, 120),
+        )
+        assertTrue(JourneyDetector.detect(rides, cfg).isEmpty())
+    }
 }

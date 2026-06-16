@@ -109,8 +109,8 @@ fun PostRideSummaryHost(
     // Load samples + locations off the main thread.
     LaunchedEffect(rideId) {
         withContext(Dispatchers.IO) {
-            val s = store.getSamples(rideId)
-            val l = store.getLocations(rideId)
+            val s = store.getSamplesForView(rideId)
+            val l = store.getLocationsForView(rideId)
             samples = s
             locations = l
         }
