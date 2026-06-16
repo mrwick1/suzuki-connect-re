@@ -96,12 +96,26 @@ class RideMergeStoreTest {
         assertEquals(parentId, top.first().id)
     }
 
-    @Test fun mergeRejectsNonContiguous() = runBlocking {
+    @Test fun mergeAcrossOdometerGapBridgesIt() = runBlocking {
+        // a ends at 110, b starts at 120 — a 10 km stretch the bike never recorded.
         val a = seedRide(1_000L, 2_000L, 100, 110)
-        val b = seedRide(3_000L, 4_000L, 120, 130) // gap: 110 != 120
+        val b = seedRide(3_000L, 4_000L, 120, 130)
         val result = store.mergeRides(listOf(a, b))
-        assertTrue(result is MergeResult.NotContiguous)
-        assertEquals(2, store.getAllRides().size) // unchanged
+        assertTrue("a gap should be bridged, not rejected", result is MergeResult.Success)
+        result as MergeResult.Success
+        assertEquals(10, result.bridgedGapKm) // (130-100) - (10 + 10) covered = 10
+
+        val parent = db.rideDao().getRide(result.parentId)!!
+        assertEquals(100, parent.startOdoKm)
+        assertEquals(130, parent.endOdoKm) // spans the whole range incl. the gap
+        assertEquals(1, store.getAllRides().size)
+    }
+
+    @Test fun contiguousMergeReportsZeroGap() = runBlocking {
+        val a = seedRide(1_000L, 2_000L, 100, 110)
+        val b = seedRide(3_000L, 4_000L, 110, 120) // chains perfectly
+        val result = store.mergeRides(listOf(a, b)) as MergeResult.Success
+        assertEquals(0, result.bridgedGapKm)
     }
 
     @Test fun mergeRejectsFewerThanTwo() = runBlocking {

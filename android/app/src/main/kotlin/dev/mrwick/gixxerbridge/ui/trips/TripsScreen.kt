@@ -121,6 +121,14 @@ fun TripsScreen(
             when (result) {
                 is MergeResult.Success -> {
                     exitSelection()
+                    // A bridged recording gap isn't silent — surface it via Toast.
+                    if (result.bridgedGapKm > 0) {
+                        Toast.makeText(
+                            context,
+                            "Combined across a ${result.bridgedGapKm} km gap",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                     scope.launch {
                         val r = snackbarHostState.showSnackbar(
                             message = "Trips combined", actionLabel = "Undo",
@@ -133,8 +141,6 @@ fun TripsScreen(
                 // a time, so a failure message could sit invisible behind it. A
                 // Toast always shows and never hides the reason. Selection is kept
                 // so the rider can adjust the picks and retry.
-                is MergeResult.NotContiguous ->
-                    Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
                 is MergeResult.InvalidSelection ->
                     Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
                 MergeResult.TooFew ->

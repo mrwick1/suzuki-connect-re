@@ -103,14 +103,18 @@ data class RideLocationEntity(
 
 /** Outcome of [RideStore.mergeRides]. */
 sealed interface MergeResult {
-    /** Merge succeeded; [parentId] is the new journey ride. */
-    data class Success(val parentId: Long) : MergeResult
+    /**
+     * Merge succeeded; [parentId] is the new journey ride. [bridgedGapKm] is the
+     * number of odometer kilometres that fall between the merged segments but
+     * aren't covered by any of them (a recording gap the bike skipped) — 0 when
+     * the segments chain perfectly. The UI surfaces it so a bridged gap isn't
+     * silent.
+     */
+    data class Success(val parentId: Long, val bridgedGapKm: Int = 0) : MergeResult
     /** Fewer than two distinct rides were selected. */
     data object TooFew : MergeResult
     /** A selected id was missing, in-progress, or already a merged/child row. */
     data class InvalidSelection(val reason: String) : MergeResult
-    /** Selected segments don't chain on the odometer (a segment is missing). */
-    data class NotContiguous(val reason: String) : MergeResult
 }
 
 /** Room DAO over [rides], [ride_samples], and [ride_locations]. */
@@ -363,7 +367,9 @@ class RideStore(private val dao: RideDao) {
      * nested parent); samples/GPS stay on the leaves, so [splitMerge] is lossless.
      *
      * Validation: after flattening, ≥ 2 distinct leaf segments; all ended; none a
-     * stray child of some other merge; sorted by start they chain on the odometer.
+     * stray child of some other merge. Segments need NOT chain on the odometer —
+     * a recording gap (a stretch the bike didn't log) is bridged, and the missing
+     * kilometres are reported as [MergeResult.Success.bridgedGapKm].
      */
     suspend fun mergeRides(rideIds: List<Long>): MergeResult {
         val distinct = rideIds.distinct()
@@ -389,20 +395,20 @@ class RideStore(private val dao: RideDao) {
         }.distinctBy { it.id }
         if (leaves.size < 2) return MergeResult.TooFew
 
+        // Time-ordered; odometer is monotonic with time, so first..last spans the
+        // whole journey. Segments need not chain — any odometer gap between them is
+        // a stretch the bike didn't record and is bridged into the merged ride.
         val sorted = leaves.sortedBy { it.startedAtMillis }
-        for (i in 1 until sorted.size) {
-            if (sorted[i].startOdoKm != sorted[i - 1].endOdoKm) {
-                return MergeResult.NotContiguous(
-                    "These trips don't join up — there's a gap in the odometer between them."
-                )
-            }
-        }
 
         val first = sorted.first()
         val last = sorted.last()
         val startOdo = first.startOdoKm
         val endOdo = last.endOdoKm!!
         val distanceKm = (endOdo - startOdo).coerceAtLeast(0)
+        // Kilometres inside the span that no selected segment covers (the bridged
+        // recording gap). 0 when the segments chain perfectly.
+        val coveredKm = sorted.sumOf { (it.endOdoKm!! - it.startOdoKm).coerceAtLeast(0) }
+        val bridgedGapKm = (distanceKm - coveredKm).coerceAtLeast(0)
 
         // Recompute average over MOVING samples across all leaves — matches the
         // endRide convention (RideStore.endRide). Falls back to the segment-count-
@@ -431,7 +437,7 @@ class RideStore(private val dao: RideDao) {
             isMerged = true,
         )
         val parentId = dao.absorbIntoParent(parent, sorted.map { it.id }, supersededParentIds)
-        return MergeResult.Success(parentId)
+        return MergeResult.Success(parentId, bridgedGapKm)
     }
 
     /** Reverse a merge: release the children and delete the parent. No-op if the

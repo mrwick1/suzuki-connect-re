@@ -38,8 +38,11 @@ entry representing the whole journey — and be able to undo it later.
 2. **Undo:** persistent split-back (reversible days later), not just a snackbar.
 3. **Merged indicator:** the merged trip's detail view shows it is merged and
    lists its child segments.
-4. **Selection rule:** contiguous-only. Reject merges where the odometer doesn't
-   chain.
+4. **Selection rule:** any selected trips may be combined. An odometer gap between
+   them (a stretch the bike didn't record) is **bridged**, not rejected — the
+   merged distance spans the full range and the missing km are reported as
+   `bridgedGapKm` and surfaced via a Toast. (Revised 2026-06-16 after a real ride
+   hit a 2 km recording gap that the original contiguous-only rule blocked.)
 5. **Entry point:** long-press a Trips row to enter multi-select mode.
 6. **Row time:** each trip row shows its clock start time, plus a "gap hint"
    connector between consecutive rows of the same short-gap run (e.g.
@@ -110,10 +113,12 @@ existing rows survive. Bump `@Database(version = 5)`.
    the superseded parent ids for deletion. The resulting leaf set is sorted
    ascending by `startedAtMillis`; a parent's children are always original leaf
    segments, never nested parents.
-2. **Validate contiguity:** for each adjacent leaf pair require
-   `next.startOdoKm == current.endOdoKm` and non-overlapping times. (A stray hidden
-   child id is rejected; in-progress rides are rejected.) On failure, return a typed
-   result the UI maps to an explanatory message; make no changes.
+2. **Validate selection** (no contiguity requirement): reject only an empty/single
+   selection (`TooFew`), a missing ride, an in-progress ride, or a stray hidden
+   child (`InvalidSelection`). The leaves are sorted by start; odometer is monotonic
+   with time, so first..last spans the journey. `bridgedGapKm = (last.endOdo −
+   first.startOdo) − Σ(each leaf's own distance)` — the km inside the span that no
+   segment covered (0 when they chain). Returned in `Success` for the UI Toast.
    On success the new parent is created and the superseded parent rows are deleted
    in the same transaction (leaves are re-parented before the old parents are
    dropped, so no leaf is orphaned — `parentRideId` is not a FK).
@@ -279,6 +284,8 @@ Plain-JVM (`test/`) unit tests, no Room:
 
 ## Out of scope
 
-- Merging across non-contiguous odometer (explicitly rejected — sanity guard only).
+- (Removed limitation) Merging across an odometer gap is now supported — bridged,
+  with the missing km reported. The journey-suggestion detector still uses odo-chain
+  + time-gap to *propose* runs, but manual merge no longer requires contiguity.
 - Editing/trimming segment boundaries.
 - Auto-*performing* a merge. Detection only suggests; the rider always confirms.
