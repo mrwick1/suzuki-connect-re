@@ -102,6 +102,10 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
     val scope = rememberCoroutineScope()
     var locations by remember(rideId) { mutableStateOf<List<RideLocationEntity>>(emptyList()) }
     LaunchedEffect(rideId) { locations = vm.locationsFor(rideId) }
+    var children by remember(rideId) { mutableStateOf<List<RideEntity>>(emptyList()) }
+    LaunchedEffect(rideId, ride?.isMerged) {
+        children = if (ride?.isMerged == true) vm.childrenOf(rideId) else emptyList()
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         if (ride == null) {
@@ -218,6 +222,18 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                     HeroStat(label = "Fuel used", value = fuelUsedText)
                 }
             }
+        }
+
+        // ── Merged-ride segments: list of children + split-back ───────────────
+        if (ride.isMerged) {
+            MergedSegmentsCard(
+                children = children,
+                onSplit = {
+                    vm.split(ride.id)
+                    Toast.makeText(context, "Split back into segments", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
         }
 
         // ── Tags + Note section ───────────────────────────────────────────────
@@ -793,5 +809,45 @@ private fun SpeedLegendChip(color: Color, label: String) {
             style = MaterialTheme.typography.labelSmall,
             color = GixxerTokens.textMuted,
         )
+    }
+}
+
+/**
+ * Shown only for merged rides: lists the original child segments (start time +
+ * distance) and offers a "Split back into segments" action that reverses the
+ * merge via [onSplit].
+ */
+@Composable
+private fun MergedSegmentsCard(
+    children: List<RideEntity>,
+    onSplit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val timeFmt = remember { SimpleDateFormat("d MMM HH:mm", Locale.US) }
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Merged from ${children.size} segments",
+                style = MaterialTheme.typography.titleMedium,
+                color = GixxerTokens.textPrimary,
+            )
+            Spacer(Modifier.height(8.dp))
+            children.forEach { c ->
+                val km = max(0, (c.endOdoKm ?: c.startOdoKm) - c.startOdoKm)
+                Text(
+                    "${timeFmt.format(Date(c.startedAtMillis))} · $km km",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = GixxerTokens.textMuted,
+                    modifier = Modifier.padding(vertical = 2.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onSplit) { Text("Split back into segments") }
+        }
     }
 }

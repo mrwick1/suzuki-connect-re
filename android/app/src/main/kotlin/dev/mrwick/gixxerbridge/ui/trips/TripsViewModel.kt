@@ -77,6 +77,9 @@ class TripsViewModel(context: Context) : ViewModel() {
         viewModelScope.launch { store.splitMerge(parentId) }
     }
 
+    /** Child segments of a merged ride, chronological. */
+    suspend fun childrenOf(parentId: Long): List<RideEntity> = store.getChildren(parentId)
+
     // ── Active filter ─────────────────────────────────────────────────────────
 
     /**
