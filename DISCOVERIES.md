@@ -2101,3 +2101,32 @@ themselves as cluster icons in M5. In both cases, the No-Assumptions rule
 applies: tool-derived labels are heuristic until you trace them to source.
 "`ic_step_N.xml` exists therefore the cluster renders it" was an inference,
 not an observation.
+
+---
+
+## 2026-06-16 — BLE fuel-economy field (`fuelEconKmlV2`) over-reads ~30%
+
+**Observation (ground truth from fuel fills):** Two logged fills — odo 16891 @ 9.49 L,
+then odo 17271 @ 7.73 L — give a tank mileage of (17271−16891)/7.73 = **49.2 km/L**.
+The rider also reports the bike's own cluster average for the ~670 km round trip was
+**~53 km/L**.
+
+**What the app's BLE field shows:** `RideSampleEntity.fuelEconKml` (persisted from
+`TelemetryFrame.fuelEconKmlV2`, i.e. byte 25 / 2) averages **64–65 km/L** across both
+the Sunday (id 98) and Saturday (id 99) merged journeys — arithmetic mean 64.3, median
+65.5, and a distance-weighted (Σspeed / Σ(speed/econ)) figure of 65.0. So the high value
+is **not** a coasting/instantaneous-spike artifact (median ≈ mean ≈ distance-weighted);
+the field itself reads consistently ~30% high versus reality.
+
+**Conclusion:** `fuelEconKmlV2` is not a trustworthy absolute mileage on this bike — it
+over-reads ~30% (≈64 vs fill-measured ≈49 / cluster ≈53). The earlier code comment
+("byte 25 / 2 … median ~48 km/L observed, realistic") does not hold for these rides.
+
+**Applied:** The trip-detail "Mileage" stat now uses the fill-measured km/L
+(`MileageAnalytics.averageKmPerL`), not the BLE econ field. The BLE econ is still kept
+for trend display (clearly labelled as bike-reported), never as an absolute figure.
+
+**To verify (future):** which cluster byte carries the *displayed* trip-average mileage
+(the ~53 figure). byte 25/2 ≈ 64 is close-but-high; candidates: a different scale on
+byte 25, or another byte entirely. Capture cluster avg-mileage readout alongside an HCI
+snoop to pin the exact byte + formula.

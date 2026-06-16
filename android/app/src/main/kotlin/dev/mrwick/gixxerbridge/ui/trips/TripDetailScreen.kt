@@ -144,10 +144,11 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             bikeKmPerL = RideAnalytics.avgBikeEcon(samples),
         )
         val fuelUsedText = fuelBurn?.let { "~${"%.2f".format(it.litres)} L (est.)" } ?: "—"
-        // Average fuel economy (km/L) the bike reported across this trip's samples.
-        // For a merged ride [samples] already unions the children (view-aware load).
-        val avgEconKmL = RideAnalytics.avgBikeEcon(samples)
-        val mileageText = avgEconKmL?.let { "${"%.1f".format(it)} km/L" } ?: "—"
+        // Mileage uses the rider's FILL-measured km/L, not the bike's BLE econ
+        // field: the latter (fuelEconKmlV2 = byte25/2) over-reads ~30% (≈64 vs a
+        // fill-measured ≈49 and bike-cluster ≈53 — see DISCOVERIES 2026-06-16).
+        // Falls back to "—" rather than show the unreliable bike figure.
+        val mileageText = fillKmPerL?.let { "${"%.1f".format(it)} km/L" } ?: "—"
         val inProgress = ride.endedAtMillis == null
         val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 
