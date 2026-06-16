@@ -1,6 +1,7 @@
 package dev.mrwick.gixxerbridge.data
 
 import androidx.compose.runtime.Immutable
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -34,6 +35,14 @@ data class RideEntity(
      * the destructive migration to v4. User can override via TripDetailScreen.
      */
     val name: String? = null,
+    /** Set to the merged-parent ride's id when this row is an absorbed child
+     *  segment; NULL for normal rides and for merged parents. Children are
+     *  hidden from every list/stat query (see [RideDao.observeRides]). */
+    val parentRideId: Long? = null,
+    /** True only on a merged-parent row. Lets the detail view show the merged
+     *  banner without a child-count query. Stored as INTEGER NOT NULL DEFAULT 0;
+     *  the explicit defaultValue keeps Room's schema check happy after migration. */
+    @ColumnInfo(defaultValue = "0") val isMerged: Boolean = false,
 )
 
 /** One telemetry sample collected during an active ride. */

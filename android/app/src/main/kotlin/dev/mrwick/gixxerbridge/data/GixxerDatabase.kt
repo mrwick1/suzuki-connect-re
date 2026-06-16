@@ -4,14 +4,17 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * Singleton Room database for ride history.
  *
- * Schema version is 4 (v2 adds [RideLocationEntity] for GPS tracks; v3 adds
+ * Schema version is 5 (v2 adds [RideLocationEntity] for GPS tracks; v3 adds
  * [FuelFillEntity] for the manual fuel-fill log; v4 adds [RideEntity.name]
  * for auto-generated trip titles + [ServiceLogEntity] for the maintenance
- * history log). Destructive migration is enabled — this is acceptable pre-1.0
+ * history log; v5 adds RideEntity.parentRideId + isMerged for trip merging).
+ * Destructive migration is enabled — this is acceptable pre-1.0
  * because the only persisted user data here is ride history + fuel log +
  * service log (all re-capturable / re-enterable). Settings / profile live in
  * DataStore, not in Room.
@@ -28,7 +31,7 @@ import androidx.room.RoomDatabase
         FuelFillEntity::class,
         ServiceLogEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class GixxerDatabase : RoomDatabase() {
@@ -47,6 +50,17 @@ abstract class GixxerDatabase : RoomDatabase() {
         // pattern is safe.
         @Volatile private var INSTANCE: GixxerDatabase? = null
 
+        /**
+         * v4→v5: add merge columns. ALTER ... ADD COLUMN is non-destructive, so
+         * existing ride history survives (unlike the destructive fallback).
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE rides ADD COLUMN parentRideId INTEGER")
+                db.execSQL("ALTER TABLE rides ADD COLUMN isMerged INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Return the process-wide [GixxerDatabase], constructing it on first call. */
         fun get(context: Context): GixxerDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
@@ -54,6 +68,7 @@ abstract class GixxerDatabase : RoomDatabase() {
                 GixxerDatabase::class.java,
                 "gixxer.db",
             )
+                .addMigrations(MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { INSTANCE = it }
