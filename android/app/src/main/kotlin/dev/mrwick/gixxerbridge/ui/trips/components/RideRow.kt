@@ -1,8 +1,9 @@
 package dev.mrwick.gixxerbridge.ui.trips.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,8 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -60,6 +63,7 @@ import kotlin.math.max
  * Sparkline: 60×32dp Canvas polyline of speed-over-time samples. Hidden if
  * [sparklineSamples] is null (not yet loaded) or empty (no samples recorded).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RideRow(
     ride: RideEntity,
@@ -68,12 +72,17 @@ fun RideRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {},
 ) {
     val dayFmt = remember { SimpleDateFormat("d", Locale.US) }
     val monthFmt = remember { SimpleDateFormat("MMM", Locale.US) }
+    val timeFmt = remember { SimpleDateFormat("HH:mm", Locale.US) }
     val date = Date(ride.startedAtMillis)
     val dayStr = dayFmt.format(date).uppercase(Locale.US)
     val monthStr = monthFmt.format(date).uppercase(Locale.US)
+    val startTimeStr = timeFmt.format(date)
 
     val inProgress = ride.endedAtMillis == null
     val durationMin = (((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000).coerceAtLeast(0)
@@ -86,9 +95,12 @@ fun RideRow(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = MaterialTheme.shapes.large,            // 18dp per GixxerShapes.large
-        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) GixxerTokens.accent.copy(alpha = 0.12f)
+                             else GixxerTokens.surface,
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
@@ -123,7 +135,8 @@ fun RideRow(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = if (inProgress) "In progress…" else "${durationMin} min · ${"%.0f".format(avgSpeed)} km/h avg",
+                    text = if (inProgress) "In progress…"
+                           else "$startTimeStr · ${durationMin} min · ${"%.0f".format(avgSpeed)} km/h avg",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (inProgress) GixxerTokens.accent else GixxerTokens.textMuted,
                 )
@@ -190,17 +203,24 @@ fun RideRow(
                 Spacer(Modifier.width(8.dp))
             }
 
-            // ── Delete icon ───────────────────────────────────────────────────
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(32.dp),
-            ) {
+            // ── Trailing control: select indicator or delete ─────────────────
+            if (selectionMode) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete ride",
-                    tint = GixxerTokens.textMuted,
-                    modifier = Modifier.size(18.dp),
+                    imageVector = if (selected) Icons.Filled.CheckCircle
+                                  else Icons.Outlined.RadioButtonUnchecked,
+                    contentDescription = if (selected) "Selected" else "Not selected",
+                    tint = if (selected) GixxerTokens.accent else GixxerTokens.textMuted,
+                    modifier = Modifier.size(24.dp),
                 )
+            } else {
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete ride",
+                        tint = GixxerTokens.textMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
