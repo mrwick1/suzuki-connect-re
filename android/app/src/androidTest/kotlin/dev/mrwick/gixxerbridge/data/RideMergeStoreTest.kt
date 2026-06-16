@@ -121,4 +121,20 @@ class RideMergeStoreTest {
         assertEquals(listOf(a, b).sorted(), top)
         assertNull("parent row deleted", db.rideDao().getRide(parentId))
     }
+
+    @Test fun getSamplesForViewUnionsChildren() = runBlocking {
+        val a = seedRide(1_000L, 2_000L, 100, 110)
+        store.appendSample(a, 1_500L, speedKmh = 40, odometerKm = 105, tripA = 0.0, tripB = 0.0, fuelBars = null, fuelEconKml = null)
+        val b = seedRide(3_000L, 4_000L, 110, 120)
+        store.appendSample(b, 3_500L, speedKmh = 80, odometerKm = 115, tripA = 0.0, tripB = 0.0, fuelBars = null, fuelEconKml = null)
+        val parentId = (store.mergeRides(listOf(a, b)) as MergeResult.Success).parentId
+
+        val viewSamples = store.getSamplesForView(parentId)
+        assertEquals(2, viewSamples.size)
+        assertEquals(1_500L, viewSamples[0].tMillis) // chronological
+        assertEquals(3_500L, viewSamples[1].tMillis)
+
+        // a normal ride still returns just its own
+        assertEquals(1, store.getSamplesForView(a).size)
+    }
 }

@@ -412,6 +412,27 @@ class RideStore(private val dao: RideDao) {
     /** Fetch all samples for a ride, oldest-first. */
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)
 
+    /** Samples for display: a merged parent unions its children's samples
+     *  (chronological); a normal ride returns its own. */
+    suspend fun getSamplesForView(rideId: Long): List<RideSampleEntity> {
+        val ride = dao.getRide(rideId) ?: return emptyList()
+        return if (ride.isMerged) {
+            dao.getChildren(rideId).flatMap { dao.getSamples(it.id) }.sortedBy { it.tMillis }
+        } else {
+            dao.getSamples(rideId)
+        }
+    }
+
+    /** GPS locations for display: merged parent unions children's tracks. */
+    suspend fun getLocationsForView(rideId: Long): List<RideLocationEntity> {
+        val ride = dao.getRide(rideId) ?: return emptyList()
+        return if (ride.isMerged) {
+            dao.getChildren(rideId).flatMap { dao.getLocations(it.id) }.sortedBy { it.tMillis }
+        } else {
+            dao.getLocations(rideId)
+        }
+    }
+
     /**
      * Fetch up to [limit] evenly-distributed samples for the sparkline shown in
      * the Trips list row. Downsampled in Kotlin by position (not by row id): the
