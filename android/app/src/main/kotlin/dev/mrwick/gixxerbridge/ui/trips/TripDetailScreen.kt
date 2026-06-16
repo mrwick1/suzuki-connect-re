@@ -4,6 +4,8 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,7 +110,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         children = if (ride?.isMerged == true) vm.childrenOf(rideId) else emptyList()
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         if (ride == null) {
             // rides flow seeds with emptyList(); show a skeleton header + map +
             // a few sample rows while Room's first emission lands.
@@ -435,23 +437,21 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
         RideTrackCard(locations = locations, samples = samples)
+        Spacer(Modifier.height(12.dp))
+        SpeedDistributionCard(samples)
+        Spacer(Modifier.height(12.dp))
+        FuelEconomyTrendCard(samples)
+        Spacer(Modifier.height(12.dp))
+        FuelLevelCard(samples)
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = GixxerTokens.border,
+        )
 
-        // The body Column doesn't scroll — only this LazyColumn does. Put the
-        // graph cards inside it (weight(1f) so it fills the space below the tall
-        // hero + track card) or they'd sit below the fold, unreachable.
-        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            item {
-                Spacer(Modifier.height(12.dp))
-                SpeedDistributionCard(samples)
-                Spacer(Modifier.height(12.dp))
-                FuelEconomyTrendCard(samples)
-                Spacer(Modifier.height(12.dp))
-                FuelLevelCard(samples)
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 12.dp),
-                    color = GixxerTokens.border,
-                )
-            }
+        // Raw per-sample log: a fixed-height inner scroller (legal nested scroll
+        // inside the outer verticalScroll) so the thousands of rows stay lazy
+        // without giving the LazyColumn an unbounded height.
+        LazyColumn(modifier = Modifier.fillMaxWidth().height(360.dp)) {
             items(samples, key = { it.id }) { s ->
                 Text(
                     String.format(
