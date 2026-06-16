@@ -110,12 +110,12 @@ interface RideDao {
     /** Update an existing ride row (used for aggregate refresh + end-of-ride). */
     @Update suspend fun updateRide(ride: RideEntity)
 
-    /** Observe all rides, newest-first. */
-    @Query("SELECT * FROM rides ORDER BY startedAtMillis DESC")
+    /** Observe all top-level rides (excludes absorbed merge children), newest-first. */
+    @Query("SELECT * FROM rides WHERE parentRideId IS NULL ORDER BY startedAtMillis DESC")
     fun observeRides(): Flow<List<RideEntity>>
 
-    /** Snapshot read of all rides, newest-first. */
-    @Query("SELECT * FROM rides ORDER BY startedAtMillis DESC")
+    /** Snapshot of all top-level rides (excludes absorbed children), newest-first. */
+    @Query("SELECT * FROM rides WHERE parentRideId IS NULL ORDER BY startedAtMillis DESC")
     suspend fun getAllRides(): List<RideEntity>
 
     /** Fetch a single ride by id, or null if it has been deleted. */
@@ -145,13 +145,40 @@ interface RideDao {
     @Query("SELECT MAX(fuelEconKml) FROM ride_samples")
     suspend fun maxFuelEcon(): Double?
 
-    /** Fetch the most-recent ride that has no end timestamp, or null. */
-    @Query("SELECT * FROM rides WHERE endedAtMillis IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
+    /** Most-recent in-progress top-level ride, or null. */
+    @Query("SELECT * FROM rides WHERE endedAtMillis IS NULL AND parentRideId IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
     suspend fun getRideInProgress(): RideEntity?
 
-    /** The most recently-ended ride (has an end odometer), or null. */
-    @Query("SELECT * FROM rides WHERE endOdoKm IS NOT NULL ORDER BY startedAtMillis DESC LIMIT 1")
+    /** Most recently-ended top-level ride (has an end odometer), or null. */
+    @Query("SELECT * FROM rides WHERE endOdoKm IS NOT NULL AND parentRideId IS NULL ORDER BY startedAtMillis DESC LIMIT 1")
     suspend fun getLastEndedRide(): RideEntity?
+
+    /** Child segments of a merged parent, chronological. */
+    @Query("SELECT * FROM rides WHERE parentRideId = :parentId ORDER BY startedAtMillis ASC")
+    suspend fun getChildren(parentId: Long): List<RideEntity>
+
+    /** Stamp a set of rides as absorbed children of [parentId]. */
+    @Query("UPDATE rides SET parentRideId = :parentId WHERE id IN (:childIds)")
+    suspend fun setParent(childIds: List<Long>, parentId: Long)
+
+    /** Release all children of [parentId] back to top-level. */
+    @Query("UPDATE rides SET parentRideId = NULL WHERE parentRideId = :parentId")
+    suspend fun clearParent(parentId: Long)
+
+    /** Atomically create the parent row and absorb [childIds]; returns parent id. */
+    @androidx.room.Transaction
+    suspend fun absorbIntoParent(parent: RideEntity, childIds: List<Long>): Long {
+        val parentId = insertRide(parent)
+        setParent(childIds, parentId)
+        return parentId
+    }
+
+    /** Atomically release children and delete the parent row. */
+    @androidx.room.Transaction
+    suspend fun releaseChildrenAndDeleteParent(parentId: Long) {
+        clearParent(parentId)
+        deleteRide(parentId)
+    }
 
     /** Insert one GPS location for a ride; returns the new auto-generated id. */
     @Insert suspend fun insertLocation(loc: RideLocationEntity): Long
@@ -290,6 +317,9 @@ class RideStore(private val dao: RideDao) {
 
     /** Snapshot read of all rides, newest-first. Used by route clustering. */
     suspend fun getAllRides(): List<RideEntity> = dao.getAllRides()
+
+    /** Child segments of a merged parent, chronological. */
+    suspend fun getChildren(parentId: Long): List<RideEntity> = dao.getChildren(parentId)
 
     /** Fetch all samples for a ride, oldest-first. */
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)

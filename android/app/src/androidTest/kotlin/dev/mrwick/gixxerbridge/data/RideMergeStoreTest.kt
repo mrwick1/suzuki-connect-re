@@ -46,4 +46,19 @@ class RideMergeStoreTest {
         assertNull("parentRideId defaults null", ride.parentRideId)
         assertFalse("isMerged defaults false", ride.isMerged)
     }
+
+    @Test fun childrenAreHiddenFromGetAllRides() = runBlocking {
+        val a = seedRide(1_000L, 2_000L, 100, 110)
+        val b = seedRide(3_000L, 4_000L, 110, 120)
+        // Manually mark b as a child of a (Task 3 will do this via mergeRides).
+        db.rideDao().setParent(listOf(b), a)
+
+        val top = store.getAllRides()
+        assertEquals("only the non-child remains top-level", 1, top.size)
+        assertEquals(a, top.first().id)
+
+        val kids = store.getChildren(a)
+        assertEquals(1, kids.size)
+        assertEquals(b, kids.first().id)
+    }
 }
