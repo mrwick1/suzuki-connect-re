@@ -11,8 +11,13 @@ import dev.mrwick.gixxerbridge.data.RideMeta
 import dev.mrwick.gixxerbridge.data.RideMetaStore
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
 import dev.mrwick.gixxerbridge.data.RideStore
+import dev.mrwick.gixxerbridge.analytics.JourneyDetector
+import dev.mrwick.gixxerbridge.analytics.JourneySuggestion
 import dev.mrwick.gixxerbridge.analytics.MileageAnalytics
 import dev.mrwick.gixxerbridge.data.FuelStore
+import dev.mrwick.gixxerbridge.data.JourneyDismissStore
+import dev.mrwick.gixxerbridge.data.MergeResult
+import dev.mrwick.gixxerbridge.data.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +43,39 @@ class TripsViewModel(context: Context) : ViewModel() {
     private val store: RideStore = RideStore(GixxerDatabase.get(context).rideDao())
     private val fuelStore: FuelStore = FuelStore(GixxerDatabase.get(context).fuelFillDao())
     private val metaStore: RideMetaStore = AppGraph.rideMetaStore(context)
+    private val dismissStore = JourneyDismissStore(context)
+    private val settings = Settings(context)
+
+    // ── Journey suggestion ────────────────────────────────────────────────────
+
+    /**
+     * The single most-recent non-dismissed journey suggestion, or null. Combines
+     * the live top-level rides, the dismissed-key set, and the tunable config.
+     */
+    val journeySuggestion: StateFlow<JourneySuggestion?> =
+        combine(store.observeRides(), dismissStore.observe(), settings.journeyConfig) { rides, dismissed, cfg ->
+            JourneyDetector.detect(rides, cfg)
+                .filter { it.startMillis !in dismissed }
+                .maxByOrNull { it.startMillis }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Dismiss a suggestion so it won't resurface. */
+    fun dismissSuggestion(startMillis: Long) {
+        viewModelScope.launch { dismissStore.dismiss(startMillis) }
+    }
+
+    /**
+     * Merge [rideIds]; [onResult] runs with the outcome so the screen can show a
+     * snackbar / clear selection.
+     */
+    fun merge(rideIds: List<Long>, onResult: (MergeResult) -> Unit) {
+        viewModelScope.launch { onResult(store.mergeRides(rideIds)) }
+    }
+
+    /** Reverse a merge by parent id. */
+    fun split(parentId: Long) {
+        viewModelScope.launch { store.splitMerge(parentId) }
+    }
 
     // ── Active filter ─────────────────────────────────────────────────────────
 
@@ -135,7 +173,7 @@ class TripsViewModel(context: Context) : ViewModel() {
     /** Load all samples for [rideId] into [selectedSamples]; safe to re-call. */
     fun loadSamples(rideId: Long) {
         viewModelScope.launch {
-            _selectedSamples.value = store.getSamples(rideId)
+            _selectedSamples.value = store.getSamplesForView(rideId)
         }
     }
 
@@ -164,11 +202,11 @@ class TripsViewModel(context: Context) : ViewModel() {
      * Called from TripDetailScreen's Share-GPX flow.
      */
     suspend fun locationsFor(rideId: Long): List<RideLocationEntity> =
-        store.getLocations(rideId)
+        store.getLocationsForView(rideId)
 
     /** Fetch telemetry samples for [rideId], oldest-first. Used by Share-CSV. */
     suspend fun samplesFor(rideId: Long): List<RideSampleEntity> =
-        store.getSamples(rideId)
+        store.getSamplesForView(rideId)
 
     /** Direct access to the underlying ride entity for export (snapshot fetch). */
     suspend fun rideFor(rideId: Long): RideEntity? =
