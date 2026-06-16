@@ -394,25 +394,44 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             ) { Text("Share card", color = GixxerTokens.textMuted) }
         }
 
-        // Share for AI — fires a plain-text share sheet (ChatGPT / Gemini / Claude / any app).
+        // Share for AI — writes a complete .txt report (rich summary + the full
+        // per-sample telemetry as CSV) and shares it as a FILE, so nothing is
+        // truncated. Drop it into ChatGPT / Gemini / Claude, or save anywhere.
         OutlinedButton(
             onClick = {
                 scope.launch {
                     val rideSamples = vm.samplesFor(ride.id)
                     val rideLocations = vm.locationsFor(ride.id)
-                    val text = withContext(Dispatchers.Default) {
-                        TripShareText.build(
+                    val uri = withContext(Dispatchers.IO) {
+                        val summary = TripShareText.build(
                             ride = ride,
                             samples = rideSamples,
                             locations = rideLocations,
                             zone = TimeZone.getDefault().id,
+                            children = children,
+                            fillKmPerL = fillKmPerL,
+                        )
+                        val full = buildString {
+                            append(summary)
+                            append("\n\n=== FULL PER-SAMPLE TELEMETRY (CSV, ")
+                            append(rideSamples.size)
+                            append(" rows) ===\n")
+                            append(CsvExporter.rideSamplesToCsv(ride, rideSamples))
+                        }
+                        val cache = File(context.cacheDir, "ride-${ride.id}-report.txt")
+                        cache.writeText(full)
+                        FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            cache,
                         )
                     }
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                    context.startActivity(Intent.createChooser(intent, "Share ride for AI analysis"))
+                    context.startActivity(Intent.createChooser(intent, "Share full ride report for AI"))
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -422,7 +441,7 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                 contentDescription = null,
                 modifier = Modifier.padding(end = 8.dp),
             )
-            Text("Share for AI")
+            Text("Share full report for AI")
         }
 
         Spacer(modifier = Modifier.height(12.dp))

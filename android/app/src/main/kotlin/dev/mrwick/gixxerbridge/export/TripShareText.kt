@@ -45,6 +45,8 @@ object TripShareText {
         samples: List<RideSampleEntity>,
         locations: List<RideLocationEntity>,
         zone: String = "UTC",
+        children: List<RideEntity> = emptyList(),
+        fillKmPerL: Double? = null,
     ): String {
         val tz = TimeZone.getTimeZone(zone)
         val dateTimeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.US).apply { timeZone = tz }
@@ -87,11 +89,30 @@ object TripShareText {
             appendLine("End odo    : ${ride.endOdoKm?.let { "$it km" } ?: "(not recorded)"}")
             appendLine()
 
+            // ---- Merged journey breakdown ----
+            if (children.isNotEmpty()) {
+                appendLine("=== MERGED JOURNEY — ${children.size} SEGMENTS ===")
+                appendLine("This trip is one journey combined from ${children.size} key-off-separated segments:")
+                children.sortedBy { it.startedAtMillis }.forEach { c ->
+                    val ckm = if (c.endOdoKm != null) max(0, c.endOdoKm - c.startOdoKm) else 0
+                    appendLine(
+                        "  - ${timeFmt.format(Date(c.startedAtMillis))}  ${ckm} km  " +
+                            "(odo ${c.startOdoKm}→${c.endOdoKm?.toString() ?: "?"})"
+                    )
+                }
+                appendLine()
+            }
+
             // ---- Speed ----
             appendLine("=== SPEED ===")
             appendLine("Max speed  : ${ride.maxSpeedKmh} km/h")
             // avgSpeedKmh is a moving average computed at ride-end (ignores stationary samples)
             appendLine("Avg speed  : ${"%.1f".format(ride.avgSpeedKmh)} km/h  [moving average, stops excluded]")
+
+            val (movingMin, idleMin) = RideAnalytics.movingIdleMinutes(samples)
+            if (movingMin > 0 || idleMin > 0) {
+                appendLine("Moving/idle: ${movingMin} min moving, ${idleMin} min idle  [idle = stopped, engine on; excludes key-off rest gaps]")
+            }
 
             if (samples.isNotEmpty()) {
                 val speedProfile = buildSpeedProfile(samples)
@@ -108,14 +129,25 @@ object TripShareText {
             appendLine("Fuel end   : ${ride.fuelBarsEnd?.let { "$it bars" } ?: "(not recorded)"}")
             appendLine("Fuel used  : ${fuelUsedBars?.let { "$it bar(s)" } ?: "(not available)"}")
 
+            // Mileage: prefer the rider's FILL-measured km/L. The BLE cluster econ
+            // field over-reads ~30% on this bike, so it's labelled untrustworthy.
+            appendLine(
+                "Mileage    : ${fillKmPerL?.let { "${"%.1f".format(it)} km/L  [fill-measured, trustworthy]" }
+                    ?: "(no fuel fills logged — can't measure accurately)"}"
+            )
             val avgEcon = RideAnalytics.avgBikeEcon(samples)
-            appendLine("Avg econ   : ${avgEcon?.let { "${"%.1f".format(it)} km/L  [bike cluster average]" } ?: "(not recorded)"}")
+            appendLine(
+                "Bike econ  : ${avgEcon?.let { "${"%.1f".format(it)} km/L  [BLE cluster field — OVER-READS ~30%, do NOT treat as real mileage]" }
+                    ?: "(not recorded)"}"
+            )
 
-            // Estimated litres via RideAnalytics.fuelBurnt — uses bike cluster econ as proxy
-            if (distKm != null && avgEcon != null) {
-                val burn = RideAnalytics.fuelBurnt(distKm, fillKmPerL = null, bikeKmPerL = avgEcon)
+            // Estimated litres — prefer fill-measured km/L; fall back to bike econ.
+            val econForBurn = fillKmPerL ?: avgEcon
+            if (distKm != null && econForBurn != null) {
+                val burn = RideAnalytics.fuelBurnt(distKm, fillKmPerL = fillKmPerL, bikeKmPerL = avgEcon)
                 if (burn != null) {
-                    appendLine("Fuel burnt : ${"%.2f".format(burn.litres)} L (est.)  [distance ÷ avg cluster econ]")
+                    val basis = if (fillKmPerL != null) "fill-measured km/L" else "bike econ (over-reads)"
+                    appendLine("Fuel burnt : ${"%.2f".format(burn.litres)} L (est.)  [distance ÷ $basis]")
                 }
             }
             appendLine()
