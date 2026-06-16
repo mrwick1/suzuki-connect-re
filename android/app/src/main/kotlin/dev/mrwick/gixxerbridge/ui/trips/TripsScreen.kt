@@ -1,5 +1,6 @@
 package dev.mrwick.gixxerbridge.ui.trips
 
+import android.widget.Toast
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -97,6 +99,7 @@ fun TripsScreen(
     val gapHintMax by vm.gapHintMaxMin.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // Selection state: rideId set + whether we're in selection mode.
     val selected = remember { mutableStateListOf<Long>() }
@@ -125,12 +128,17 @@ fun TripsScreen(
                         if (r == SnackbarResult.ActionPerformed) vm.split(result.parentId)
                     }
                 }
+                // Failures use a Toast, not a Snackbar: the success Snackbar (with
+                // Undo) can still be visible, and Material3 queues Snackbars one at
+                // a time, so a failure message could sit invisible behind it. A
+                // Toast always shows and never hides the reason. Selection is kept
+                // so the rider can adjust the picks and retry.
                 is MergeResult.NotContiguous ->
-                    scope.launch { snackbarHostState.showSnackbar(result.reason) }
+                    Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
                 is MergeResult.InvalidSelection ->
-                    scope.launch { snackbarHostState.showSnackbar(result.reason) }
+                    Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
                 MergeResult.TooFew ->
-                    scope.launch { snackbarHostState.showSnackbar("Select at least two trips") }
+                    Toast.makeText(context, "Select at least two trips", Toast.LENGTH_SHORT).show()
             }
         }
     }
