@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.Canvas
@@ -149,6 +150,9 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         // fill-measured ≈49 and bike-cluster ≈53 — see DISCOVERIES 2026-06-16).
         // Falls back to "—" rather than show the unreliable bike figure.
         val mileageText = fillKmPerL?.let { "${"%.1f".format(it)} km/L" } ?: "—"
+        val (movingMin, idleMin) = RideAnalytics.movingIdleMinutes(samples)
+        val fuelBarsText = if (ride.fuelBarsStart != null && ride.fuelBarsEnd != null)
+            "${ride.fuelBarsStart} → ${ride.fuelBarsEnd}" else "—"
         val inProgress = ride.endedAtMillis == null
         val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 
@@ -225,6 +229,12 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                     HeroStat(label = "Max speed", value = "${ride.maxSpeedKmh} km/h")
                     HeroStat(label = "Mileage", value = mileageText)
                     HeroStat(label = "Fuel used", value = fuelUsedText)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                    HeroStat(label = "Moving", value = "$movingMin min")
+                    HeroStat(label = "Idle", value = "$idleMin min")
+                    HeroStat(label = "Fuel bars", value = fuelBarsText)
                 }
             }
         }
@@ -425,6 +435,12 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
         RideTrackCard(locations = locations, samples = samples)
+        Spacer(Modifier.height(12.dp))
+        SpeedDistributionCard(samples)
+        Spacer(Modifier.height(12.dp))
+        FuelEconomyTrendCard(samples)
+        Spacer(Modifier.height(12.dp))
+        FuelLevelCard(samples)
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
             color = GixxerTokens.border,
@@ -853,6 +869,88 @@ private fun MergedSegmentsCard(
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onSplit) { Text("Split back into segments") }
+        }
+    }
+}
+
+@Composable
+private fun SpeedDistributionCard(samples: List<dev.mrwick.gixxerbridge.data.RideSampleEntity>) {
+    if (samples.isEmpty()) return
+    val buckets = RideAnalytics.speedHistogram(samples, bucketSizeKmh = 20, maxKmh = 120)
+    val maxCount = (buckets.maxOfOrNull { it.sampleCount } ?: 0).coerceAtLeast(1)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("SPEED DISTRIBUTION", style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+            Spacer(Modifier.height(12.dp))
+            buckets.forEach { b ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                    Text("${b.lowKmh}–${b.highKmh}", style = MaterialTheme.typography.bodySmall,
+                        color = GixxerTokens.textMuted, modifier = Modifier.width(64.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(14.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(b.sampleCount.toFloat() / maxCount)
+                                .height(14.dp)
+                                .background(GixxerTokens.accent.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FuelEconomyTrendCard(samples: List<dev.mrwick.gixxerbridge.data.RideSampleEntity>) {
+    val econ = samples.mapNotNull { it.fuelEconKml }.filter { it > 0.0 }
+    if (econ.size < 2) return
+    val maxE = (econ.maxOrNull() ?: 1.0).coerceAtLeast(1.0)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("FUEL ECONOMY TREND", style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+            Spacer(Modifier.height(4.dp))
+            Text("Bike-reported km/L over the ride (trend only)", style = MaterialTheme.typography.bodySmall, color = GixxerTokens.textMuted)
+            Spacer(Modifier.height(12.dp))
+            dev.mrwick.gixxerbridge.ui.components.TraceChart(
+                points = econ.map { (it / maxE).toFloat() },
+                modifier = Modifier.fillMaxWidth().height(120.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FuelLevelCard(samples: List<dev.mrwick.gixxerbridge.data.RideSampleEntity>) {
+    val bars = samples.mapNotNull { it.fuelBars }
+    if (bars.size < 2) return
+    val maxB = (bars.maxOrNull() ?: 1).coerceAtLeast(1)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text("FUEL LEVEL", style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+            Spacer(Modifier.height(12.dp))
+            dev.mrwick.gixxerbridge.ui.components.TraceChart(
+                points = bars.map { it.toFloat() / maxB },
+                modifier = Modifier.fillMaxWidth().height(80.dp),
+            )
         }
     }
 }

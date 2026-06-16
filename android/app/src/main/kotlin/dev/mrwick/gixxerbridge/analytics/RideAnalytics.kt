@@ -244,6 +244,25 @@ object RideAnalytics {
     }
 
     /**
+     * Moving vs idle minutes from timestamped [samples]. Inter-sample gaps longer
+     * than [maxGapMs] (key-off / rest stops between merged segments) are excluded so
+     * a multi-segment journey doesn't count hours parked. Pair = (moving, idle) min.
+     */
+    fun movingIdleMinutes(samples: List<RideSampleEntity>, maxGapMs: Long = 15_000): Pair<Int, Int> {
+        if (samples.size < 2) return 0 to 0
+        val sorted = samples.sortedBy { it.tMillis }
+        var movingMs = 0L
+        var idleMs = 0L
+        for (i in 1 until sorted.size) {
+            val dt = sorted[i].tMillis - sorted[i - 1].tMillis
+            if (dt in 1..maxGapMs) {
+                if (sorted[i - 1].speedKmh > 0) movingMs += dt else idleMs += dt
+            }
+        }
+        return (movingMs / 60_000L).toInt() to (idleMs / 60_000L).toInt()
+    }
+
+    /**
      * Estimate litres burnt over [distanceKm] given a km/L figure. Prefers the
      * rider's fill-measured mileage [fillKmPerL]; falls back to the bike's own
      * economy [bikeKmPerL]. Returns null when neither source is usable or the

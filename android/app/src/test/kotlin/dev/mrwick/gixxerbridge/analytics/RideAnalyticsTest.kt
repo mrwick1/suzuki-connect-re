@@ -59,6 +59,19 @@ class RideAnalyticsTest {
             fuelEconKml = fuelEcon,
         )
 
+    private fun sampleAt(rideId: Long, tMillis: Long, speed: Int): RideSampleEntity =
+        RideSampleEntity(
+            id = 0,
+            rideId = rideId,
+            tMillis = tMillis,
+            speedKmh = speed,
+            odometerKm = 1000,
+            tripAKm = 0.0,
+            tripBKm = 0.0,
+            fuelBars = 4,
+            fuelEconKml = null,
+        )
+
     // ---------- totalsFor ----------
 
     @Test fun totalsForEmptyIsZero() {
@@ -293,6 +306,28 @@ class RideAnalyticsTest {
     @Test fun avgBikeEconNullWhenNoUsableReadings() {
         assertNull(RideAnalytics.avgBikeEcon(listOf(sample(1, 40, fuelEcon = null))))
         assertNull(RideAnalytics.avgBikeEcon(emptyList()))
+    }
+
+    // ---------- movingIdleMinutes ----------
+
+    @Test fun movingIdleMinutesExcludesLongGaps() {
+        // dt from sample[0]→[1] = 120 s, prev speed 40 > 0  → moving
+        // dt from sample[1]→[2] = 120 s, prev speed 0        → idle
+        // dt from sample[2]→[3] = 300 s, exceeds maxGapMs    → excluded
+        val samples = listOf(
+            sampleAt(1, tMillis = 0L, speed = 40),
+            sampleAt(1, tMillis = 120_000L, speed = 0),
+            sampleAt(1, tMillis = 240_000L, speed = 60),
+            sampleAt(1, tMillis = 540_000L, speed = 50),
+        )
+        val (moving, idle) = RideAnalytics.movingIdleMinutes(samples, maxGapMs = 200_000L)
+        assertEquals(2, moving)
+        assertEquals(2, idle)
+    }
+
+    @Test fun movingIdleMinutesTooFewSamplesIsZero() {
+        assertEquals(0 to 0, RideAnalytics.movingIdleMinutes(emptyList()))
+        assertEquals(0 to 0, RideAnalytics.movingIdleMinutes(listOf(sampleAt(1, 0L, 40))))
     }
 
     // ---------- fuelBurnt ----------
