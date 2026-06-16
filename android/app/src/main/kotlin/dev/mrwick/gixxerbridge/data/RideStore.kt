@@ -101,6 +101,18 @@ data class RideLocationEntity(
     val accuracyM: Float?,
 )
 
+/** Outcome of [RideStore.mergeRides]. */
+sealed interface MergeResult {
+    /** Merge succeeded; [parentId] is the new journey ride. */
+    data class Success(val parentId: Long) : MergeResult
+    /** Fewer than two distinct rides were selected. */
+    data object TooFew : MergeResult
+    /** A selected id was missing, in-progress, or already a merged/child row. */
+    data class InvalidSelection(val reason: String) : MergeResult
+    /** Selected segments don't chain on the odometer (a segment is missing). */
+    data class NotContiguous(val reason: String) : MergeResult
+}
+
 /** Room DAO over [rides], [ride_samples], and [ride_locations]. */
 @Dao
 interface RideDao {
@@ -320,6 +332,82 @@ class RideStore(private val dao: RideDao) {
 
     /** Child segments of a merged parent, chronological. */
     suspend fun getChildren(parentId: Long): List<RideEntity> = dao.getChildren(parentId)
+
+    /**
+     * Merge [rideIds] into one parent journey ride. The selected rides become
+     * hidden children; a new parent row carries the combined aggregates. Samples
+     * and GPS stay attached to the children (so [splitMerge] is lossless).
+     *
+     * Validation: ≥ 2 ids; every id is an existing, ended, top-level
+     * (non-merged, non-child) ride; sorted by start they chain on the odometer.
+     */
+    suspend fun mergeRides(rideIds: List<Long>): MergeResult {
+        val distinct = rideIds.distinct()
+        if (distinct.size < 2) return MergeResult.TooFew
+
+        val rides = distinct.mapNotNull { dao.getRide(it) }
+        if (rides.size != distinct.size) {
+            return MergeResult.InvalidSelection("One or more selected rides no longer exist.")
+        }
+        if (rides.any { it.endedAtMillis == null || it.endOdoKm == null }) {
+            return MergeResult.InvalidSelection("Can't merge a ride that's still in progress.")
+        }
+        if (rides.any { it.isMerged || it.parentRideId != null }) {
+            return MergeResult.InvalidSelection("Can't merge a ride that's already part of a merge.")
+        }
+
+        val sorted = rides.sortedBy { it.startedAtMillis }
+        for (i in 1 until sorted.size) {
+            if (sorted[i].startOdoKm != sorted[i - 1].endOdoKm) {
+                return MergeResult.NotContiguous(
+                    "These trips don't join up — there's a gap in the odometer between them."
+                )
+            }
+        }
+
+        val first = sorted.first()
+        val last = sorted.last()
+        val startOdo = first.startOdoKm
+        val endOdo = last.endOdoKm!!
+        val distanceKm = (endOdo - startOdo).coerceAtLeast(0)
+
+        // Recompute average over MOVING samples across all children — matches the
+        // endRide convention (RideStore.endRide). Falls back to the segment-count-
+        // weighted average if no moving samples exist.
+        val childSamples = sorted.flatMap { dao.getSamples(it.id) }
+        val movingSpeeds = childSamples.map { it.speedKmh }.filter { it > 0 }
+        val totalSamples = sorted.sumOf { it.sampleCount }
+        val avg = when {
+            movingSpeeds.isNotEmpty() -> movingSpeeds.average()
+            totalSamples > 0 -> sorted.sumOf { it.avgSpeedKmh * it.sampleCount } / totalSamples
+            else -> 0.0
+        }
+
+        val parent = RideEntity(
+            startedAtMillis = first.startedAtMillis,
+            endedAtMillis = last.endedAtMillis,
+            startOdoKm = startOdo,
+            endOdoKm = endOdo,
+            maxSpeedKmh = sorted.maxOf { it.maxSpeedKmh },
+            avgSpeedKmh = avg,
+            sampleCount = totalSamples,
+            fuelBarsStart = first.fuelBarsStart,
+            fuelBarsEnd = last.fuelBarsEnd,
+            name = mergedRideName(first.startedAtMillis, distanceKm),
+            parentRideId = null,
+            isMerged = true,
+        )
+        val parentId = dao.absorbIntoParent(parent, sorted.map { it.id })
+        return MergeResult.Success(parentId)
+    }
+
+    /** Reverse a merge: release the children and delete the parent. No-op if the
+     *  parent is gone or isn't a merged ride. */
+    suspend fun splitMerge(parentId: Long) {
+        val parent = dao.getRide(parentId) ?: return
+        if (!parent.isMerged) return
+        dao.releaseChildrenAndDeleteParent(parentId)
+    }
 
     /** Fetch all samples for a ride, oldest-first. */
     suspend fun getSamples(rideId: Long): List<RideSampleEntity> = dao.getSamples(rideId)
