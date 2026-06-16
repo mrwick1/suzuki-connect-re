@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import dev.mrwick.gixxerbridge.analytics.JourneyConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -177,6 +178,21 @@ class Settings(context: Context) {
                 fuelBars = decodeNullableInt(p[Keys.LAST_TELEM_BARS]),
                 kmPerL = decodeNullableDouble(p[Keys.LAST_TELEM_KMPL]),
                 tMillis = p[Keys.LAST_TELEM_TMS] ?: 0L,
+            )
+        }
+
+    /**
+     * Tunable thresholds for [dev.mrwick.gixxerbridge.analytics.JourneyDetector],
+     * exposed as one [JourneyConfig] snapshot. Defaults mirror the detector's own
+     * defaults (gap ≤ 120 min, ≥ 3 segments, ≥ 80 km). Edited from the Developer
+     * settings screen; consumed by `TripsViewModel` (Task 9).
+     */
+    val journeyConfig: Flow<JourneyConfig> =
+        ds.data.map { p ->
+            JourneyConfig(
+                gapMaxMin = p[Keys.JOURNEY_GAP_MAX_MIN] ?: DEFAULT_JOURNEY_GAP_MAX_MIN,
+                minSegments = p[Keys.JOURNEY_MIN_SEGMENTS] ?: DEFAULT_JOURNEY_MIN_SEGMENTS,
+                minTotalKm = p[Keys.JOURNEY_MIN_TOTAL_KM] ?: DEFAULT_JOURNEY_MIN_TOTAL_KM,
             )
         }
 
@@ -355,6 +371,21 @@ class Settings(context: Context) {
         ds.edit { it[Keys.REFUEL_PROMPT_SNOOZE_ODO] = encodeNullableInt(fillOdometerKm) }
     }
 
+    /** Max inter-segment gap (minutes) the journey detector will bridge. See [journeyConfig]. */
+    suspend fun setJourneyGapMaxMin(v: Int) {
+        ds.edit { it[Keys.JOURNEY_GAP_MAX_MIN] = v }
+    }
+
+    /** Minimum segment count for a run to qualify as a suggested journey. See [journeyConfig]. */
+    suspend fun setJourneyMinSegments(v: Int) {
+        ds.edit { it[Keys.JOURNEY_MIN_SEGMENTS] = v }
+    }
+
+    /** Minimum total distance (km) for a run to qualify as a suggested journey. See [journeyConfig]. */
+    suspend fun setJourneyMinTotalKm(v: Int) {
+        ds.edit { it[Keys.JOURNEY_MIN_TOTAL_KM] = v }
+    }
+
     /** Internal preference keys. */
     private object Keys {
         val BIKE_MAC = stringPreferencesKey("bike_mac")
@@ -386,6 +417,11 @@ class Settings(context: Context) {
         val LAST_TELEM_TMS = longPreferencesKey("last_telem_tmillis")
         /** Odometer of the latest fill at snooze time; -1 sentinel = never snoozed. */
         val REFUEL_PROMPT_SNOOZE_ODO = intPreferencesKey("refuel_prompt_snooze_odo")
+
+        // Journey-detector thresholds (see Settings.journeyConfig).
+        val JOURNEY_GAP_MAX_MIN = intPreferencesKey("journey_gap_max_min")
+        val JOURNEY_MIN_SEGMENTS = intPreferencesKey("journey_min_segments")
+        val JOURNEY_MIN_TOTAL_KM = intPreferencesKey("journey_min_total_km")
 
         // Per-item service schedule (4 keys × 5 items). Key prefix uses the
         // ServiceItem.id string so rename-the-enum doesn't silently drop data
@@ -426,6 +462,11 @@ class Settings(context: Context) {
 
         /** Default fuel-tank capacity (litres) - Gixxer SF 150, user-editable. */
         const val DEFAULT_FUEL_CAPACITY_L: Double = 12.0
+
+        /** Default journey-detector thresholds; mirror [JourneyConfig]'s own defaults. */
+        const val DEFAULT_JOURNEY_GAP_MAX_MIN: Int = 120
+        const val DEFAULT_JOURNEY_MIN_SEGMENTS: Int = 3
+        const val DEFAULT_JOURNEY_MIN_TOTAL_KM: Int = 80
 
         /**
          * Default package allowlist for notification mirroring.
