@@ -104,11 +104,19 @@ existing rows survive. Bump `@Database(version = 5)`.
 
 ### Merge operation — `RideStore.mergeRides(childIds: List<Long>): Long`
 
-1. Load the selected rides; sort ascending by `startedAtMillis`.
-2. **Validate contiguity:** for each adjacent pair require
-   `next.startOdoKm == current.endOdoKm` and non-overlapping times. Also require
-   every selected ride to be a normal (non-merged, non-child) ride. On failure,
-   throw a typed result the UI maps to an explanatory message; make no changes.
+1. Load the selected rides. **Flatten any already-merged trip** back to its leaf
+   segments (a selection may include a merged trip — this lets the rider add a
+   missed segment, or combine two merged trips, without splitting first). Remember
+   the superseded parent ids for deletion. The resulting leaf set is sorted
+   ascending by `startedAtMillis`; a parent's children are always original leaf
+   segments, never nested parents.
+2. **Validate contiguity:** for each adjacent leaf pair require
+   `next.startOdoKm == current.endOdoKm` and non-overlapping times. (A stray hidden
+   child id is rejected; in-progress rides are rejected.) On failure, return a typed
+   result the UI maps to an explanatory message; make no changes.
+   On success the new parent is created and the superseded parent rows are deleted
+   in the same transaction (leaves are re-parented before the old parents are
+   dropped, so no leaf is orphaned — `parentRideId` is not a FK).
 3. **Create the parent** `RideEntity`:
    - `startedAtMillis` = first.start, `endedAtMillis` = last.end
    - `startOdoKm` = first.startOdoKm, `endOdoKm` = last.endOdoKm

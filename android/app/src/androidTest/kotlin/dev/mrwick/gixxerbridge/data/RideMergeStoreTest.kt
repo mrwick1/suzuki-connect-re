@@ -137,4 +137,51 @@ class RideMergeStoreTest {
         // a normal ride still returns just its own
         assertEquals(1, store.getSamplesForView(a).size)
     }
+
+    @Test fun reMergeAbsorbsExistingMergePlusMissedTrip() = runBlocking {
+        // Merge a + b, then realise c was missed and merge the parent + c.
+        val a = seedRide(1_000L, 2_000L, 100, 110)
+        val b = seedRide(3_000L, 4_000L, 110, 120)
+        val p1 = (store.mergeRides(listOf(a, b)) as MergeResult.Success).parentId
+        val c = seedRide(5_000L, 6_000L, 120, 130) // contiguous after b
+
+        val result = store.mergeRides(listOf(p1, c))
+        assertTrue("merging a merged trip + a new trip should succeed", result is MergeResult.Success)
+        val p2 = (result as MergeResult.Success).parentId
+
+        // Old parent is gone; only the new flat parent is top-level.
+        assertNull("superseded parent deleted", db.rideDao().getRide(p1))
+        val top = store.getAllRides()
+        assertEquals(1, top.size)
+        assertEquals(p2, top.first().id)
+
+        // New parent spans a..c and its children are the original leaves (not p1).
+        val parent = db.rideDao().getRide(p2)!!
+        assertEquals(100, parent.startOdoKm)
+        assertEquals(130, parent.endOdoKm)
+        assertEquals(listOf(a, b, c).sorted(), store.getChildren(p2).map { it.id }.sorted())
+
+        // Split-back yields the three original segments.
+        store.splitMerge(p2)
+        assertEquals(listOf(a, b, c).sorted(), store.getAllRides().map { it.id }.sorted())
+    }
+
+    @Test fun mergeTwoMergedTrips() = runBlocking {
+        val a = seedRide(1_000L, 2_000L, 100, 110)
+        val b = seedRide(3_000L, 4_000L, 110, 120)
+        val c = seedRide(5_000L, 6_000L, 120, 130)
+        val d = seedRide(7_000L, 8_000L, 130, 140)
+        val p1 = (store.mergeRides(listOf(a, b)) as MergeResult.Success).parentId
+        val p2 = (store.mergeRides(listOf(c, d)) as MergeResult.Success).parentId
+
+        val p3 = (store.mergeRides(listOf(p1, p2)) as MergeResult.Success).parentId
+
+        assertNull(db.rideDao().getRide(p1))
+        assertNull(db.rideDao().getRide(p2))
+        assertEquals(1, store.getAllRides().size)
+        assertEquals(listOf(a, b, c, d).sorted(), store.getChildren(p3).map { it.id }.sorted())
+        val parent = db.rideDao().getRide(p3)!!
+        assertEquals(100, parent.startOdoKm)
+        assertEquals(140, parent.endOdoKm)
+    }
 }

@@ -177,11 +177,29 @@ interface RideDao {
     @Query("UPDATE rides SET parentRideId = NULL WHERE parentRideId = :parentId")
     suspend fun clearParent(parentId: Long)
 
-    /** Atomically create the parent row and absorb [childIds]; returns parent id. */
+    /** Delete a set of ride rows by id (used to drop superseded merge parents). */
+    @Query("DELETE FROM rides WHERE id IN (:ids)")
+    suspend fun deleteRides(ids: List<Long>)
+
+    /**
+     * Atomically create the new parent row, re-parent [childIds] onto it, and
+     * delete any [supersededParentIds] (old merge parents being re-merged).
+     * Returns the new parent id.
+     *
+     * Order matters: children are re-stamped to the new parent BEFORE the old
+     * parents are deleted, so the old-parent deletes never orphan a leaf. There
+     * is no self-FK on `parentRideId`, so deleting an old parent only removes its
+     * own (sample-less) row, never the leaves now pointing at the new parent.
+     */
     @androidx.room.Transaction
-    suspend fun absorbIntoParent(parent: RideEntity, childIds: List<Long>): Long {
+    suspend fun absorbIntoParent(
+        parent: RideEntity,
+        childIds: List<Long>,
+        supersededParentIds: List<Long> = emptyList(),
+    ): Long {
         val parentId = insertRide(parent)
         setParent(childIds, parentId)
+        if (supersededParentIds.isNotEmpty()) deleteRides(supersededParentIds)
         return parentId
     }
 
@@ -334,29 +352,44 @@ class RideStore(private val dao: RideDao) {
     suspend fun getChildren(parentId: Long): List<RideEntity> = dao.getChildren(parentId)
 
     /**
-     * Merge [rideIds] into one parent journey ride. The selected rides become
-     * hidden children; a new parent row carries the combined aggregates. Samples
-     * and GPS stay attached to the children (so [splitMerge] is lossless).
+     * Merge [rideIds] into one parent journey ride.
      *
-     * Validation: ≥ 2 ids; every id is an existing, ended, top-level
-     * (non-merged, non-child) ride; sorted by start they chain on the odometer.
+     * A selection may include an already-merged trip: it is flattened back to its
+     * original segments and re-merged with the rest, and the old parent row is
+     * deleted. This lets the rider add a missed segment to an existing merge
+     * without splitting it first. Two merged trips can likewise be combined.
+     *
+     * The resulting parent's children are always original leaf segments (never a
+     * nested parent); samples/GPS stay on the leaves, so [splitMerge] is lossless.
+     *
+     * Validation: after flattening, ≥ 2 distinct leaf segments; all ended; none a
+     * stray child of some other merge; sorted by start they chain on the odometer.
      */
     suspend fun mergeRides(rideIds: List<Long>): MergeResult {
         val distinct = rideIds.distinct()
         if (distinct.size < 2) return MergeResult.TooFew
 
-        val rides = distinct.mapNotNull { dao.getRide(it) }
-        if (rides.size != distinct.size) {
+        val selected = distinct.mapNotNull { dao.getRide(it) }
+        if (selected.size != distinct.size) {
             return MergeResult.InvalidSelection("One or more selected rides no longer exist.")
         }
-        if (rides.any { it.endedAtMillis == null || it.endOdoKm == null }) {
+        if (selected.any { it.endedAtMillis == null || it.endOdoKm == null }) {
             return MergeResult.InvalidSelection("Can't merge a ride that's still in progress.")
         }
-        if (rides.any { it.isMerged || it.parentRideId != null }) {
+        // A hidden child should never be selectable, but guard against stale ids.
+        if (selected.any { it.parentRideId != null }) {
             return MergeResult.InvalidSelection("Can't merge a ride that's already part of a merge.")
         }
 
-        val sorted = rides.sortedBy { it.startedAtMillis }
+        // Flatten: expand any already-merged trip into its leaf segments, and
+        // remember the old parents so they can be deleted after re-parenting.
+        val supersededParentIds = selected.filter { it.isMerged }.map { it.id }
+        val leaves = selected.flatMap { ride ->
+            if (ride.isMerged) dao.getChildren(ride.id) else listOf(ride)
+        }.distinctBy { it.id }
+        if (leaves.size < 2) return MergeResult.TooFew
+
+        val sorted = leaves.sortedBy { it.startedAtMillis }
         for (i in 1 until sorted.size) {
             if (sorted[i].startOdoKm != sorted[i - 1].endOdoKm) {
                 return MergeResult.NotContiguous(
@@ -371,7 +404,7 @@ class RideStore(private val dao: RideDao) {
         val endOdo = last.endOdoKm!!
         val distanceKm = (endOdo - startOdo).coerceAtLeast(0)
 
-        // Recompute average over MOVING samples across all children — matches the
+        // Recompute average over MOVING samples across all leaves — matches the
         // endRide convention (RideStore.endRide). Falls back to the segment-count-
         // weighted average if no moving samples exist.
         val childSamples = sorted.flatMap { dao.getSamples(it.id) }
@@ -397,7 +430,7 @@ class RideStore(private val dao: RideDao) {
             parentRideId = null,
             isMerged = true,
         )
-        val parentId = dao.absorbIntoParent(parent, sorted.map { it.id })
+        val parentId = dao.absorbIntoParent(parent, sorted.map { it.id }, supersededParentIds)
         return MergeResult.Success(parentId)
     }
 
