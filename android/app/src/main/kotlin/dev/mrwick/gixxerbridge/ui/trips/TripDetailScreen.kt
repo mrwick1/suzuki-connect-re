@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Share
@@ -431,32 +433,33 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         FuelEconomyTrendCard(samples)
         Spacer(Modifier.height(12.dp))
         FuelLevelCard(samples)
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 12.dp),
-            color = GixxerTokens.border,
-        )
-
-        // Raw per-sample log: a fixed-height inner scroller (legal nested scroll
-        // inside the outer verticalScroll) so the thousands of rows stay lazy
-        // without giving the LazyColumn an unbounded height.
-        LazyColumn(modifier = Modifier.fillMaxWidth().height(360.dp)) {
-            items(samples, key = { it.id }) { s ->
-                Text(
-                    String.format(
-                        Locale.US,
-                        "%tT  %3d km/h  odo=%6d  A=%.1f  B=%.1f  fuel=%s  km/L=%s",
-                        Date(s.tMillis),
-                        s.speedKmh,
-                        s.odometerKm,
-                        s.tripAKm,
-                        s.tripBKm,
-                        s.fuelBars?.toString() ?: "-",
-                        s.fuelEconKml?.let { "%.1f".format(it) } ?: "-",
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = GixxerTokens.textMuted,
-                    fontFamily = FontFamily.Monospace,
-                )
+        Spacer(Modifier.height(12.dp))
+        // Raw per-sample log — tucked into a collapsible accordion (collapsed by
+        // default) to keep the page clean. When open it's a fixed-height inner
+        // scroller (legal nested scroll inside the outer verticalScroll) so the
+        // thousands of rows stay lazy.
+        if (samples.isNotEmpty()) {
+            AccordionCard(title = "RAW TELEMETRY · ${samples.size} SAMPLES") {
+                LazyColumn(modifier = Modifier.fillMaxWidth().height(360.dp)) {
+                    items(samples, key = { it.id }) { s ->
+                        Text(
+                            String.format(
+                                Locale.US,
+                                "%tT  %3d km/h  odo=%6d  A=%.1f  B=%.1f  fuel=%s  km/L=%s",
+                                Date(s.tMillis),
+                                s.speedKmh,
+                                s.odometerKm,
+                                s.tripAKm,
+                                s.tripBKm,
+                                s.fuelBars?.toString() ?: "-",
+                                s.fuelEconKml?.let { "%.1f".format(it) } ?: "-",
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = GixxerTokens.textMuted,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
             }
         }
 
@@ -840,9 +843,49 @@ private fun SpeedLegendChip(color: Color, label: String) {
 }
 
 /**
- * Shown only for merged rides: lists the original child segments (start time +
- * distance) and offers a "Split back into segments" action that reverses the
- * merge via [onSplit].
+ * Collapsible card: a tappable title row with a chevron that shows/hides
+ * [content]. Used to tuck long/secondary sections (raw log, merged segments)
+ * away by default so the detail page stays clean.
+ */
+@Composable
+private fun AccordionCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    initiallyExpanded: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surfaceElevated),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, style = MaterialTheme.typography.labelMedium, color = GixxerBrand.accent)
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = GixxerTokens.textMuted,
+                )
+            }
+            if (expanded) {
+                Spacer(Modifier.height(12.dp))
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * Shown only for merged rides: a collapsible card listing the original child
+ * segments (start time + distance) with a "Split back into segments" action
+ * that reverses the merge via [onSplit].
  */
 @Composable
 private fun MergedSegmentsCard(
@@ -851,31 +894,18 @@ private fun MergedSegmentsCard(
     modifier: Modifier = Modifier,
 ) {
     val timeFmt = remember { SimpleDateFormat("d MMM HH:mm", Locale.US) }
-    Card(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = GixxerTokens.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    AccordionCard(title = "MERGED FROM ${children.size} SEGMENTS", modifier = modifier) {
+        children.forEach { c ->
+            val km = max(0, (c.endOdoKm ?: c.startOdoKm) - c.startOdoKm)
             Text(
-                "Merged from ${children.size} segments",
-                style = MaterialTheme.typography.titleMedium,
-                color = GixxerTokens.textPrimary,
+                "${timeFmt.format(Date(c.startedAtMillis))} · $km km",
+                style = MaterialTheme.typography.bodyMedium,
+                color = GixxerTokens.textMuted,
+                modifier = Modifier.padding(vertical = 2.dp),
             )
-            Spacer(Modifier.height(8.dp))
-            children.forEach { c ->
-                val km = max(0, (c.endOdoKm ?: c.startOdoKm) - c.startOdoKm)
-                Text(
-                    "${timeFmt.format(Date(c.startedAtMillis))} · $km km",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = GixxerTokens.textMuted,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onSplit) { Text("Split back into segments") }
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onSplit) { Text("Split back into segments") }
     }
 }
 
