@@ -435,18 +435,23 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
         RideTrackCard(locations = locations, samples = samples)
-        Spacer(Modifier.height(12.dp))
-        SpeedDistributionCard(samples)
-        Spacer(Modifier.height(12.dp))
-        FuelEconomyTrendCard(samples)
-        Spacer(Modifier.height(12.dp))
-        FuelLevelCard(samples)
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 12.dp),
-            color = GixxerTokens.border,
-        )
 
-        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+        // The body Column doesn't scroll — only this LazyColumn does. Put the
+        // graph cards inside it (weight(1f) so it fills the space below the tall
+        // hero + track card) or they'd sit below the fold, unreachable.
+        LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            item {
+                Spacer(Modifier.height(12.dp))
+                SpeedDistributionCard(samples)
+                Spacer(Modifier.height(12.dp))
+                FuelEconomyTrendCard(samples)
+                Spacer(Modifier.height(12.dp))
+                FuelLevelCard(samples)
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 12.dp),
+                    color = GixxerTokens.border,
+                )
+            }
             items(samples, key = { it.id }) { s ->
                 Text(
                     String.format(
