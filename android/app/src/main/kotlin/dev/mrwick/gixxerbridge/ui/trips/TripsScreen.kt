@@ -14,29 +14,40 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.analytics.gapHintLabel
+import dev.mrwick.gixxerbridge.data.MergeResult
 import dev.mrwick.gixxerbridge.data.RideEntity
 import dev.mrwick.gixxerbridge.data.RideMeta
 import dev.mrwick.gixxerbridge.data.RideSampleEntity
@@ -44,8 +55,11 @@ import dev.mrwick.gixxerbridge.ui.components.SkeletonCard
 import dev.mrwick.gixxerbridge.ui.home.components.EmptyState
 import dev.mrwick.gixxerbridge.ui.theme.GixxerBrand
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
+import dev.mrwick.gixxerbridge.ui.trips.components.GapConnector
+import dev.mrwick.gixxerbridge.ui.trips.components.JourneyBanner
 import dev.mrwick.gixxerbridge.ui.trips.components.RideRow
 import dev.mrwick.gixxerbridge.ui.trips.components.WeekSectionHeader
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.time.DayOfWeek
 import java.time.Instant
@@ -79,6 +93,46 @@ fun TripsScreen(
     val monthSummary by vm.monthSummary.collectAsStateWithLifecycle()
     val filter by vm.filter.collectAsStateWithLifecycle()
     val allTags by vm.allTags.collectAsStateWithLifecycle()
+    val suggestion by vm.journeySuggestion.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // Selection state: rideId set + whether we're in selection mode.
+    val selected = remember { mutableStateListOf<Long>() }
+    var selectionMode by remember { mutableStateOf(false) }
+
+    fun exitSelection() { selectionMode = false; selected.clear() }
+    fun toggle(id: Long) {
+        if (selected.contains(id)) selected.remove(id) else selected.add(id)
+        if (selected.isEmpty()) selectionMode = false
+    }
+    fun enterSelectionWith(ids: List<Long>) {
+        selectionMode = true
+        selected.clear(); selected.addAll(ids)
+    }
+
+    fun doCombine() {
+        val ids = selected.toList()
+        vm.merge(ids) { result ->
+            when (result) {
+                is MergeResult.Success -> {
+                    exitSelection()
+                    scope.launch {
+                        val r = snackbarHostState.showSnackbar(
+                            message = "Trips combined", actionLabel = "Undo",
+                        )
+                        if (r == SnackbarResult.ActionPerformed) vm.split(result.parentId)
+                    }
+                }
+                is MergeResult.NotContiguous ->
+                    scope.launch { snackbarHostState.showSnackbar(result.reason) }
+                is MergeResult.InvalidSelection ->
+                    scope.launch { snackbarHostState.showSnackbar(result.reason) }
+                MergeResult.TooFew ->
+                    scope.launch { snackbarHostState.showSnackbar("Select at least two trips") }
+            }
+        }
+    }
 
     // 250 ms grace window before showing the real empty state, so skeletons
     // appear instead of a flash of empty state when Room hasn't emitted yet.
@@ -86,84 +140,149 @@ fun TripsScreen(
         delay(250); value = true
     }
 
-    if (ridesWithMeta.isEmpty() && !bootDone) {
-        LazyColumn(
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(3) { SkeletonCard() }
-        }
-        return
-    }
-
-    if (ridesWithMeta.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            EmptyState(
-                icon = Icons.Outlined.Route,
-                body = if (filter == TripsFilter.All) {
-                    "No rides yet — take the bike for a spin."
-                } else {
-                    "No rides match the current filter."
-                },
-                ctaLabel = null,
-                onCta = null,
-            )
-        }
-        return
-    }
-
-    // Group rides into week buckets for section headers.
-    val grouped = rememberWeekGroups(ridesWithMeta.map { it.ride })
-
-    // Build a map of rideId → meta for fast lookup in each row.
-    val metaByRideId = remember(ridesWithMeta) {
-        ridesWithMeta.associate { it.ride.id to it.meta }
-    }
-
-    LazyColumn(
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        // ── Screen header ─────────────────────────────────────────────────────
-        item(key = "__header") {
-            TripsScreenHeader(
-                rideCount = monthSummary.rideCount,
-                totalKm = monthSummary.totalKm,
-                onOpenRoutes = onOpenRoutes,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
-            )
-        }
-
-        // ── Filter bar ────────────────────────────────────────────────────────
-        item(key = "__filter") {
-            TripsFilterBar(
-                filter = filter,
-                allTags = allTags,
-                onFilter = { vm.setFilter(it) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
-
-        // ── Week-grouped ride rows ─────────────────────────────────────────────
-        grouped.forEach { (weekLabel, weekRides) ->
-            item(key = "header__$weekLabel") {
-                WeekSectionHeader(label = weekLabel)
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            if (selectionMode) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { exitSelection() }) { Text("Cancel") }
+                    Spacer(Modifier.weight(1f))
+                    Button(onClick = { doCombine() }, enabled = selected.size >= 2) {
+                        Text("Combine ${selected.size}")
+                    }
+                }
             }
-            items(weekRides, key = { it.id }) { ride ->
-                val meta = metaByRideId[ride.id] ?: RideMeta()
-                RideRowWithSparkline(
-                    ride = ride,
-                    meta = meta,
-                    vm = vm,
-                    onOpen = { onOpenRide(ride.id) },
-                    onDelete = { vm.delete(ride.id) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+        },
+    ) { innerPadding ->
+        when {
+            ridesWithMeta.isEmpty() && !bootDone -> {
+                LazyColumn(
+                    modifier = Modifier.padding(innerPadding),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(3) { SkeletonCard() }
+                }
+            }
+
+            ridesWithMeta.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    EmptyState(
+                        icon = Icons.Outlined.Route,
+                        body = if (filter == TripsFilter.All) {
+                            "No rides yet — take the bike for a spin."
+                        } else {
+                            "No rides match the current filter."
+                        },
+                        ctaLabel = null,
+                        onCta = null,
+                    )
+                }
+            }
+
+            else -> {
+                // Group rides into week buckets for section headers.
+                val grouped = rememberWeekGroups(ridesWithMeta.map { it.ride })
+
+                // Build a map of rideId → meta for fast lookup in each row.
+                val metaByRideId = remember(ridesWithMeta) {
+                    ridesWithMeta.associate { it.ride.id to it.meta }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.padding(innerPadding),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    // ── Journey suggestion banner ─────────────────────────────────
+                    suggestion?.let { s ->
+                        if (!selectionMode) item(key = "__journey_banner") {
+                            JourneyBanner(
+                                tripCount = s.rideIds.size,
+                                dateLabel = formatJourneyDate(s.startMillis),
+                                totalKm = s.totalKm,
+                                onReview = { enterSelectionWith(s.rideIds) },
+                                onDismiss = { vm.dismissSuggestion(s.startMillis) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+
+                    // ── Screen header ─────────────────────────────────────────────
+                    item(key = "__header") {
+                        TripsScreenHeader(
+                            rideCount = monthSummary.rideCount,
+                            totalKm = monthSummary.totalKm,
+                            onOpenRoutes = onOpenRoutes,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
+                        )
+                    }
+
+                    // ── Filter bar ────────────────────────────────────────────────
+                    item(key = "__filter") {
+                        TripsFilterBar(
+                            filter = filter,
+                            allTags = allTags,
+                            onFilter = { vm.setFilter(it) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+
+                    // ── Week-grouped ride rows ────────────────────────────────────
+                    grouped.forEach { (weekLabel, weekRides) ->
+                        item(key = "header__$weekLabel") {
+                            WeekSectionHeader(label = weekLabel)
+                        }
+                        itemsIndexed(weekRides, key = { _, r -> r.id }) { i, ride ->
+                            val meta = metaByRideId[ride.id] ?: RideMeta()
+                            Column {
+                                RideRowWithSparkline(
+                                    ride = ride,
+                                    meta = meta,
+                                    vm = vm,
+                                    selectionMode = selectionMode,
+                                    selected = selected.contains(ride.id),
+                                    onOpen = {
+                                        if (selectionMode) toggle(ride.id) else onOpenRide(ride.id)
+                                    },
+                                    onLongOpen = {
+                                        if (!selectionMode) selectionMode = true
+                                        toggle(ride.id)
+                                    },
+                                    onDelete = { vm.delete(ride.id) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                )
+                                // Gap connector to the older neighbour within this week group.
+                                val older = weekRides.getOrNull(i + 1)
+                                if (older != null) {
+                                    val gapMin = (ride.startedAtMillis - (older.endedAtMillis ?: older.startedAtMillis)) / 60_000L
+                                    val chains = older.endOdoKm != null && ride.startOdoKm == older.endOdoKm
+                                    if (chains && gapMin in 0..120) {
+                                        GapConnector(label = gapHintLabel(gapMin))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+/** Formats a journey start time as "Wed 12 Jun" for the suggestion banner. */
+private fun formatJourneyDate(millis: Long): String {
+    val fmt = DateTimeFormatter.ofPattern("EEE d MMM", Locale.US)
+    return Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(fmt)
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
@@ -303,6 +422,9 @@ private fun RideRowWithSparkline(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onLongOpen: () -> Unit = {},
 ) {
     // null = not loaded yet; emptyList = loaded but ride has no samples
     var samples by remember(ride.id) { mutableStateOf<List<RideSampleEntity>?>(null) }
@@ -317,6 +439,9 @@ private fun RideRowWithSparkline(
         sparklineSamples = samples,
         onClick = onOpen,
         onDelete = onDelete,
+        selectionMode = selectionMode,
+        selected = selected,
+        onLongClick = onLongOpen,
         modifier = modifier,
     )
 }
