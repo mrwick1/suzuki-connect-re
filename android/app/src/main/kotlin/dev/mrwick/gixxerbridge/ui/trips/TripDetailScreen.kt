@@ -160,6 +160,46 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
         val inProgress = ride.endedAtMillis == null
         val durationMin = ((ride.endedAtMillis ?: ride.startedAtMillis) - ride.startedAtMillis) / 60_000
 
+        // Share-for-AI: writes a complete .txt report (rich summary + the full
+        // per-sample telemetry CSV) and shares it as a file, so AI apps get
+        // everything untruncated. Triggered from the top-right icon.
+        val shareForAi: () -> Unit = {
+            scope.launch {
+                val rideSamples = vm.samplesFor(ride.id)
+                val rideLocations = vm.locationsFor(ride.id)
+                val uri = withContext(Dispatchers.IO) {
+                    val summary = TripShareText.build(
+                        ride = ride,
+                        samples = rideSamples,
+                        locations = rideLocations,
+                        zone = TimeZone.getDefault().id,
+                        children = children,
+                        fillKmPerL = fillKmPerL,
+                    )
+                    val full = buildString {
+                        append(summary)
+                        append("\n\n=== FULL PER-SAMPLE TELEMETRY (CSV, ")
+                        append(rideSamples.size)
+                        append(" rows) ===\n")
+                        append(CsvExporter.rideSamplesToCsv(ride, rideSamples))
+                    }
+                    val cache = File(context.cacheDir, "ride-${ride.id}-report.txt")
+                    cache.writeText(full)
+                    FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        cache,
+                    )
+                }
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(intent, "Share full ride report for AI"))
+            }
+        }
+
         // --- Hero card: large distance + duration, Inter weight 600 ---
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -179,17 +219,30 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                         style = MaterialTheme.typography.labelMedium,
                         color = GixxerBrand.accent,
                     )
-                    // Star toggle — right-aligned, no extra padding needed.
-                    IconButton(
-                        onClick = { vm.setFavorite(ride.startedAtMillis, !meta.favorite) },
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (meta.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                            contentDescription = if (meta.favorite) "Remove from favourites" else "Add to favourites",
-                            tint = if (meta.favorite) GixxerTokens.zoneMid else GixxerTokens.textMuted,
-                            modifier = Modifier.size(22.dp),
-                        )
+                    // Top-right actions: Share-for-AI, then the favourite star.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = shareForAi,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Share,
+                                contentDescription = "Share full report for AI",
+                                tint = GixxerTokens.textMuted,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = { vm.setFavorite(ride.startedAtMillis, !meta.favorite) },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (meta.favorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                contentDescription = if (meta.favorite) "Remove from favourites" else "Add to favourites",
+                                tint = if (meta.favorite) GixxerTokens.zoneMid else GixxerTokens.textMuted,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
                     }
                 }
 
@@ -394,55 +447,6 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             ) { Text("Share card", color = GixxerTokens.textMuted) }
         }
 
-        // Share for AI — writes a complete .txt report (rich summary + the full
-        // per-sample telemetry as CSV) and shares it as a FILE, so nothing is
-        // truncated. Drop it into ChatGPT / Gemini / Claude, or save anywhere.
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    val rideSamples = vm.samplesFor(ride.id)
-                    val rideLocations = vm.locationsFor(ride.id)
-                    val uri = withContext(Dispatchers.IO) {
-                        val summary = TripShareText.build(
-                            ride = ride,
-                            samples = rideSamples,
-                            locations = rideLocations,
-                            zone = TimeZone.getDefault().id,
-                            children = children,
-                            fillKmPerL = fillKmPerL,
-                        )
-                        val full = buildString {
-                            append(summary)
-                            append("\n\n=== FULL PER-SAMPLE TELEMETRY (CSV, ")
-                            append(rideSamples.size)
-                            append(" rows) ===\n")
-                            append(CsvExporter.rideSamplesToCsv(ride, rideSamples))
-                        }
-                        val cache = File(context.cacheDir, "ride-${ride.id}-report.txt")
-                        cache.writeText(full)
-                        FileProvider.getUriForFile(
-                            context,
-                            "${context.packageName}.fileprovider",
-                            cache,
-                        )
-                    }
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "Share full ride report for AI"))
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Share,
-                contentDescription = null,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-            Text("Share full report for AI")
-        }
 
         Spacer(modifier = Modifier.height(12.dp))
         RideTrackCard(locations = locations, samples = samples)
