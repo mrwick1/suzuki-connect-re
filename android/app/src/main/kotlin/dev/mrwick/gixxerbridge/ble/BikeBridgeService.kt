@@ -155,8 +155,12 @@ class BikeBridgeService : LifecycleService() {
         heartbeatLoop = HeartbeatLoop(
             phoneBatteryProvider = { phoneState.batteryPercent.value to phoneState.isCharging.value },
             signalBarsProvider = { phoneState.signalBars.value },
-            smsPendingProvider = { false },   // wired by NotificationDispatcher later if needed
-            callPendingProvider = { false },
+            // Default false → a533 SMS/Call bytes behave as before. The debug
+            // toggles (DeveloperSettings) flip these live so we can characterize
+            // the white "i" LED on-bike. Will be wired to real notification state
+            // once the LED semantics are confirmed.
+            smsPendingProvider = { AppGraph.debugSmsPending },
+            callPendingProvider = { AppGraph.debugCallPending },
             weatherProvider = { weatherCache.currentEncoded() },
         )
 
@@ -211,6 +215,15 @@ class BikeBridgeService : LifecycleService() {
         val idleProducer = kotlinx.coroutines.flow.flow {
             var tick = 0
             while (true) {
+                // Respect the rider's "Show clock + weather when nav idle" toggle.
+                // When off, emit nothing so the cluster keeps its native idle
+                // screen — and so dev tools (maneuver sweep) get a clean a531
+                // channel that isn't overwritten every second.
+                if (!settings.idleClockEnabled.first()) {
+                    delay(1_000)
+                    tick++
+                    continue
+                }
                 val track = nowPlayingProvider.track.value
                 val wantNowPlaying = nowPlayingOnClusterFlow.value && track != null
                 val wantRange = rangeOnClusterFlow.value

@@ -43,7 +43,7 @@ fun RideSummaryCard() {
     val store = remember(context) { AppGraph.rideStore(context) }
     val rides by store.observeRides().collectAsStateWithLifecycle(initialValue = emptyList())
 
-    val today = remember(rides) { RideAnalytics.totalsFor(rides, days = 1L) }
+    val today = remember(rides) { RideAnalytics.totalsToday(rides) }
     val week = remember(rides) { RideAnalytics.totalsFor(rides, days = 7L) }
 
     // Quiet when no data this week (avoid empty-state noise on a fresh install).

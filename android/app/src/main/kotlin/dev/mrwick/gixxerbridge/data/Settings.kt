@@ -438,6 +438,7 @@ class Settings(context: Context) {
             "com.google.android.apps.messaging",  // SMS/RCS
             "com.whatsapp",
             "org.telegram.messenger",
+            "com.microsoft.teams",                // work chat
             "com.spotify.music",
             "com.google.android.apps.youtube.music",
             "au.com.shiftyjelly.pocketcasts",

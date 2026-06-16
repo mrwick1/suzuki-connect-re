@@ -16,14 +16,17 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.mrwick.gixxerbridge.app.AppGraph
 import dev.mrwick.gixxerbridge.data.Settings
 import dev.mrwick.gixxerbridge.ui.theme.GixxerTokens
 import kotlinx.coroutines.launch
@@ -87,14 +90,24 @@ fun DeveloperSettingsScreen(
                 Button(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
                     Text("Diagnostics / log viewer")
                 }
-                // PARKED (2026-06-04): maneuver sweep is a navigation dev tool — shelved.
-                // Spacer(modifier = Modifier.height(8.dp))
-                // Button(onClick = onOpenManeuverSweep, modifier = Modifier.fillMaxWidth()) {
-                //     Text("Maneuver sweep (verify cluster icons)")
-                // }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onOpenManeuverSweep, modifier = Modifier.fillMaxWidth()) {
+                    Text("Maneuver sweep (find blank icon byte)")
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(onClick = onOpenWeatherSweep, modifier = Modifier.fillMaxWidth()) {
                     Text("Weather sweep (verify cluster icons)")
+                }
+                // On-bike LED test (transient, not persisted). Toggle each and
+                // watch the white "i" LED + SMS/call icons on the cluster to map
+                // a533 byte 14/15 -> LED and the N/Y on/off direction.
+                var smsDbg by remember { mutableStateOf(AppGraph.debugSmsPending) }
+                DevSwitchRow("LED test: a533 SMS byte (14) = pending", smsDbg) {
+                    smsDbg = it; AppGraph.debugSmsPending = it
+                }
+                var callDbg by remember { mutableStateOf(AppGraph.debugCallPending) }
+                DevSwitchRow("LED test: a533 Call byte (15) = pending", callDbg) {
+                    callDbg = it; AppGraph.debugCallPending = it
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(

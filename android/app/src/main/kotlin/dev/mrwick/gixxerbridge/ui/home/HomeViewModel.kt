@@ -117,14 +117,15 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.Eagerly, "Rider")
 
     /**
-     * Total distance ridden in the last 24 h (rolling window, not calendar-day aligned).
-     * Null only when the ride list has never been loaded — emits Double once the first
-     * DB read completes.
+     * Total distance ridden so far on the current calendar day (local midnight →
+     * now). Calendar-aligned so yesterday-evening rides drop off at midnight
+     * rather than lingering for 24 h. Null only when the ride list has never been
+     * loaded — emits Double once the first DB read completes.
      */
     val todayDistanceKm: StateFlow<Double?> =
         rideStore.observeRides()
             .map { rides ->
-                RideAnalytics.totalsFor(rides, days = 1L).km.toDouble()
+                RideAnalytics.totalsToday(rides).km.toDouble()
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 

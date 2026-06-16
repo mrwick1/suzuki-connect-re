@@ -54,9 +54,16 @@ fun LastParkedCard() {
             Spacer(modifier = Modifier.height(8.dp))
             Text(whenStr, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "${"%.5f".format(p.lat)}, ${"%.5f".format(p.lng)}",
+                "${if (p.isLocationStale) "≈ " else ""}${"%.5f".format(p.lat)}, ${"%.5f".format(p.lng)}",
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (p.isLocationStale) {
+                Text(
+                    "Approximate — no fresh GPS fix at park",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {

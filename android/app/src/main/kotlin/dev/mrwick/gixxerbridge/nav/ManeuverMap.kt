@@ -14,6 +14,19 @@ object ManeuverMap {
      */
     const val DEFAULT_CLUSTER_BYTE = 8
 
+    /**
+     * Cluster byte for "no real maneuver" — `0x2e` ('.'). The OEM app forces this
+     * into the a531 maneuver slot when there's no active navigation (degraded /
+     * idle), and the cluster renders no arrow for it (NOTES.md §maneuver table,
+     * DISCOVERIES.md 2026-05-23 "A0.D() forces 46 when status not in {1,3,5}").
+     * Used for the idle clock / welcome so they don't draw a misleading turn
+     * arrow when nothing is being navigated.
+     *
+     * HYPOTHESIS (to verify on-bike via ManeuverSweep): renders blank, not a
+     * literal "." glyph.
+     */
+    const val NO_MANEUVER_BYTE = 46
+
     // -----------------------------------------------------------------------
     // Perceptual-hash table — empirically populated at runtime by
     // [ManeuverClassifier]. Survives process restarts via [initPersistence].

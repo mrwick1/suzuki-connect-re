@@ -36,6 +36,14 @@ object AppGraph {
     @Volatile var frameWriter: FrameWriter? = null
     @Volatile var navMux: NavMux? = null
 
+    // Transient on-bike test toggles (NOT persisted). Set from DeveloperSettings,
+    // read by HeartbeatLoop's a533 providers, so we can flip the SMS/Call
+    // indicator bytes (a533 pos 14/15) live and observe which one drives the
+    // white "i" LED + the N/Y on/off semantics (DISCOVERIES.md:367). Default
+    // false → providers behave as before.
+    @Volatile var debugSmsPending: Boolean = false
+    @Volatile var debugCallPending: Boolean = false
+
     fun publishConnectionState(state: ConnectionState) {
         _connectionState.value = state
     }

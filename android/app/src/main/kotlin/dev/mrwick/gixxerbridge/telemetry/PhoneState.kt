@@ -42,8 +42,11 @@ class PhoneState(private val context: Context) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             object : TelephonyCallback(), TelephonyCallback.SignalStrengthsListener {
                 override fun onSignalStrengthsChanged(signalStrength: SignalStrength) {
-                    _signalBars.value = signalStrength.level.coerceIn(0, 4) // 0..4 -> map to 0..3
-                        .let { if (it >= 4) 3 else it }
+                    // Match the OEM app's mapping (com.suzuki.application.fragment.B):
+                    // Android's 5-level signal (0..4) is shifted DOWN by one to the
+                    // cluster's 0..3 scale — level 4→3, 3→2, 2→1, 1→0, 0→0. REDLINE
+                    // previously mapped the level directly, sending one bar too many.
+                    _signalBars.value = (signalStrength.level - 1).coerceIn(0, 3)
                 }
             }
         } else null

@@ -22,9 +22,11 @@ import dev.mrwick.gixxerbridge.protocol.NavFrame
  */
 object WelcomeFrame {
 
-    // Cluster byte for "straight/forward" (= ManeuverMap.DEFAULT_CLUSTER_BYTE).
-    // Was previously a Mappls ID before the Stage 2 translation was added.
-    private const val GREETING_MANEUVER_ID = 8
+    // No-maneuver placeholder (= ManeuverMap.NO_MANEUVER_BYTE, 0x2e '.'). The
+    // greeting is not a navigation step, so we use the OEM's "no real icon" byte
+    // instead of byte 8 (which the bike renders as a literal up-arrow — confirmed
+    // on-bike 2026-06-06, disproving the old "friendly default arrow" assumption).
+    private const val GREETING_MANEUVER_ID = ManeuverMap.NO_MANEUVER_BYTE
 
     /**
      * Build the welcome [NavFrame].

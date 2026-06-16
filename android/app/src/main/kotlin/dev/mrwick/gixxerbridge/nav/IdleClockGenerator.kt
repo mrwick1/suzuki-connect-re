@@ -46,7 +46,7 @@ class IdleClockGenerator(
         val weatherStr = "%04d".format(suzukiWeatherCode.coerceIn(0, 99))
 
         return NavFrame(
-            maneuverId = ManeuverMap.DEFAULT_CLUSTER_BYTE,
+            maneuverId = ManeuverMap.NO_MANEUVER_BYTE,
             distNext = weatherStr,
             distNextUnit = " ",
             eta = eta,
@@ -83,7 +83,7 @@ class IdleClockGenerator(
         return NavFrame(
             // ASSUMED: cluster will not draw a turn arrow for maneuverId=8 in
             // this layout; tolerates the text-only repurposing.
-            maneuverId = ManeuverMap.DEFAULT_CLUSTER_BYTE,
+            maneuverId = ManeuverMap.NO_MANEUVER_BYTE,
             distNext = chunk1,
             distNextUnit = "@",
             eta = "PLAYNG",

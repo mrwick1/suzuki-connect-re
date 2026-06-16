@@ -29,9 +29,27 @@ object RideAnalytics {
         rides: List<RideEntity>,
         days: Long,
         now: Long = System.currentTimeMillis(),
+    ): WeeklyTotal = totalsSince(rides, now - days * 86_400_000L)
+
+    /**
+     * Totals for the current calendar day in [zone] — from local midnight up to
+     * [now]. Unlike [totalsFor] this is calendar-aligned, so a ride from
+     * yesterday evening drops off at midnight instead of lingering in the count
+     * for a further 24 h. This is what the Home "Today" figure uses.
+     */
+    fun totalsToday(
+        rides: List<RideEntity>,
+        now: Long = System.currentTimeMillis(),
+        zone: ZoneId = ZoneId.systemDefault(),
     ): WeeklyTotal {
-        val cutoff = now - days * 86_400_000L
-        val window = rides.filter { it.startedAtMillis >= cutoff }
+        val startOfToday = Instant.ofEpochMilli(now).atZone(zone)
+            .toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+        return totalsSince(rides, startOfToday)
+    }
+
+    /** Totals over every ride started at or after [cutoffMillis]. */
+    private fun totalsSince(rides: List<RideEntity>, cutoffMillis: Long): WeeklyTotal {
+        val window = rides.filter { it.startedAtMillis >= cutoffMillis }
         val km = window.sumOf { ride ->
             val end = ride.endOdoKm ?: ride.startOdoKm
             max(0, end - ride.startOdoKm)

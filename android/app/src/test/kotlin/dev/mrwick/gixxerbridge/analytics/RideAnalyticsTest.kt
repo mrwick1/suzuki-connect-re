@@ -98,6 +98,48 @@ class RideAnalyticsTest {
         assertEquals(0.0, t.hours, 0.001)
     }
 
+    // ---------- totalsToday (calendar-day aligned) ----------
+
+    private fun rideAt(id: Long, startedAt: Long, startOdo: Int, distanceKm: Int): RideEntity =
+        RideEntity(
+            id = id,
+            startedAtMillis = startedAt,
+            endedAtMillis = startedAt + 30 * 60_000L,
+            startOdoKm = startOdo,
+            endOdoKm = startOdo + distanceKm,
+            maxSpeedKmh = 60,
+            avgSpeedKmh = 35.0,
+            sampleCount = 10,
+            fuelBarsStart = 4,
+            fuelBarsEnd = 3,
+        )
+
+    @Test fun totalsTodayExcludesYesterdayEveningThatRollingWindowWouldInclude() {
+        val zone = zoneUtc
+        val startOfToday = LocalDate.ofInstant(java.time.Instant.ofEpochMilli(nowMillis), zone)
+            .atStartOfDay(zone).toInstant().toEpochMilli()
+        // Earlier today (2 h after local midnight).
+        val todayRide = rideAt(1, startedAt = startOfToday + 2 * 3_600_000L, startOdo = 100, distanceKm = 7)
+        // Yesterday evening (3 h before local midnight) — still within 24 h of `now`,
+        // so the old rolling window counts it, but it is NOT part of today.
+        val yesterdayEve = rideAt(2, startedAt = startOfToday - 3 * 3_600_000L, startOdo = 90, distanceKm = 5)
+        val rides = listOf(todayRide, yesterdayEve)
+
+        val today = RideAnalytics.totalsToday(rides, now = nowMillis, zone = zone)
+        assertEquals(1, today.rides)
+        assertEquals(7, today.km)
+
+        // Contrast: the rolling 24 h window still sees both (the behaviour we moved away from).
+        val rolling = RideAnalytics.totalsFor(rides, days = 1L, now = nowMillis)
+        assertEquals(2, rolling.rides)
+        assertEquals(12, rolling.km)
+    }
+
+    @Test fun totalsTodayEmptyIsZero() {
+        val t = RideAnalytics.totalsToday(emptyList(), now = nowMillis, zone = zoneUtc)
+        assertEquals(WeeklyTotal(0, 0.0, 0), t)
+    }
+
     // ---------- speedHistogram ----------
 
     @Test fun speedHistogramEmptyHasZeroCounts() {
