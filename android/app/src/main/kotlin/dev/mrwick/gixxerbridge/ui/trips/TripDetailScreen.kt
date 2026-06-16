@@ -241,18 +241,6 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
             }
         }
 
-        // ── Merged-ride segments: list of children + split-back ───────────────
-        if (ride.isMerged && children.isNotEmpty()) {
-            MergedSegmentsCard(
-                children = children,
-                onSplit = {
-                    vm.split(ride.id)
-                    Toast.makeText(context, "Split back into segments", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
-        }
-
         // ── Tags + Note section ───────────────────────────────────────────────
         Spacer(modifier = Modifier.height(12.dp))
         RideMetaSection(
@@ -470,6 +458,19 @@ fun TripDetailScreen(rideId: Long, vm: TripsViewModel) {
                     fontFamily = FontFamily.Monospace,
                 )
             }
+        }
+
+        // ── Merged-ride segments (kept at the bottom): children + split-back ──
+        if (ride.isMerged && children.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            MergedSegmentsCard(
+                children = children,
+                onSplit = {
+                    vm.split(ride.id)
+                    Toast.makeText(context, "Split back into segments", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
         }
     }
 }
