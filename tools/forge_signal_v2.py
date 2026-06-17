@@ -30,7 +30,7 @@ Sequence (single connection, runs until Ctrl-C):
 SAFETY: only writes to 0xFFF1 (known write char). All payloads 30 bytes.
 
 Usage:
-    python tools/forge_signal_v2.py --address 74:b8:39:54:da:f1
+    python tools/forge_signal_v2.py --address AA:BB:CC:DD:EE:FF
     python tools/forge_signal_v2.py --address ... --maneuver 8 --duration 60
 """
 import argparse

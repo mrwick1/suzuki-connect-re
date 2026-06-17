@@ -138,7 +138,7 @@ bluetoothctl power on
 
 # Verify bike visible (key on)
 python tools/gatt_walk.py --scan
-# Should see the bike's MAC + name "SBM110202788"
+# Should see the bike's MAC + name "SBXXXXXXXXXX"
 
 # Re-pull HCI snoop log after a session (requires adb root, already enabled)
 adb pull /data/misc/bluetooth/logs/btsnoop_hci.log captures/<name>.pcap

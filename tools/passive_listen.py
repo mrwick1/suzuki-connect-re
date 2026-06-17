@@ -20,8 +20,8 @@ Prerequisites:
 - Laptop Bluetooth powered ON
 
 Usage:
-    python tools/passive_listen.py --address 74:b8:39:54:da:f1
-    python tools/passive_listen.py --address 74:b8:39:54:da:f1 --output captures/listen-$(date +%Y%m%d-%H%M).txt
+    python tools/passive_listen.py --address AA:BB:CC:DD:EE:FF
+    python tools/passive_listen.py --address AA:BB:CC:DD:EE:FF --output captures/listen-$(date +%Y%m%d-%H%M).txt
 """
 import argparse
 import asyncio

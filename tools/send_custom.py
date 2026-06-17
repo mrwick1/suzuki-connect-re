@@ -28,7 +28,7 @@ Prerequisites:
 
 Usage:
     # Sanity check — send a known-good captured a531 verbatim
-    python tools/send_custom.py --address 74:b8:39:54:da:f1 --mode replay
+    python tools/send_custom.py --address AA:BB:CC:DD:EE:FF --mode replay
 
     # Modify the time field to "9999", keep original checksum
     python tools/send_custom.py --address ... --mode text-time --time 9999

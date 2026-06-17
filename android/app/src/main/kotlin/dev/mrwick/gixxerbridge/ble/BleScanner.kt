@@ -176,7 +176,7 @@ class BleScanner(context: Context) {
      * always reports the same MAC (DISCOVERIES.md 2026-05-25 H1 vs H2).
      *
      * Format (single line, no nested objects):
-     *   {"t":"2026-05-25T09:24:05.123Z","name":"SBM110202788","mac":"74:B8:39:54:DA:F1","rssi":-50}
+     *   {"t":"2026-05-25T09:24:05.123Z","name":"SBXXXXXXXXXX","mac":"AA:BB:CC:DD:EE:FF","rssi":-50}
      *
      * Caps the file at [MAX_CLUSTER_HISTORY] entries: on overflow we drop the
      * oldest N lines so the file size stays bounded. Hand-rolled JSON encoding

@@ -360,7 +360,7 @@ Captured via direct GATT walk from laptop on M0 with bike key ON, Suzuki Connect
 | 0x1800 | `2a00` Device Name | write,write-without-response | no | (write-only) | rename device — write-only is unusual but bike accepts new name |
 | 0x1800 | `2a01` Appearance | write,write-without-response | no | (write-only) | also write-only — bike lets app set its advertised appearance class |
 | 0x1800 | `2a04` Preferred Connection Params | read | no | `5000a0000000e803` | conn interval min/max, latency, supervision timeout |
-| 0x180a | `2a23` System ID | read | no | `f1da54000039b874` | MAC in BE encoding |
+| 0x180a | `2a23` System ID | read | no | `ffeedd0000ccbbaa` | MAC in BE encoding |
 | 0x180a | `2a24` Model Number | read | no | `5846` = `"XF"` | Suzuki internal model code |
 | 0x180a | `2a25` Serial Number | read | no | PII — see LOCAL_NOTES | matches advertised name |
 | 0x180a | `2a26` Firmware Revision | read | no | `"From Host Controller"` | literal string, not a version |

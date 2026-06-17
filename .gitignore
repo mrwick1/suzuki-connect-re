@@ -27,3 +27,6 @@ venv/
 # OS
 .DS_Store
 frida-scripts/ride_capture.compiled.js
+
+# Kotlin build error logs (local paths)
+android/.kotlin/

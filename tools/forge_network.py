@@ -48,7 +48,7 @@ from bleak import BleakClient
 WRITE_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
 NOTIFY_CHAR_UUID = "0000fff2-0000-1000-8000-00805f9b34fb"
 
-DEFAULT_ADDRESS = "74:b8:39:54:da:f1"
+DEFAULT_ADDRESS = "AA:BB:CC:DD:EE:FF"
 
 # ---------------------------------------------------------------------------
 # Captured payloads (verbatim from M0 / WITH-SIM analysis)

@@ -38,7 +38,7 @@ class SettingsTest {
     }
 
     @Test fun stringRoundTripPreservesValue() {
-        val original = "SBM110202788"
+        val original = "SBXXXXXXXXXX"
         assertEquals(original, decodeNullableString(encodeNullableString(original)))
     }
 

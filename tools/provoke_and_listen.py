@@ -20,7 +20,7 @@ Suzuki Connect app sent — same checksum, same payload — so we're impersonati
 a legitimate Central's keepalive, not forging new content.
 
 Usage:
-    python tools/provoke_and_listen.py --address 74:b8:39:54:da:f1 --duration 60
+    python tools/provoke_and_listen.py --address AA:BB:CC:DD:EE:FF --duration 60
 """
 import argparse
 import asyncio

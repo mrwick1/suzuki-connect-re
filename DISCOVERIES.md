@@ -1777,9 +1777,9 @@ Bike then left pairing mode, accepted welcome a531, started streaming a537. Arju
 
 ### Findings during pair-screen testing
 
-1. **The Suzuki cluster's confirmed public MAC OUI is `74:B8:39`** (Texas Instruments BLE SoC range). Cluster name advertised: `SBM110202788` (`SBM` = Suzuki Bike Model prefix + 9-digit serial). Used as a "likely your bike" heuristic in the pair UI.
+1. **The Suzuki cluster's confirmed public MAC OUI is `74:B8:39`** (Texas Instruments BLE SoC range). Cluster name advertised: `SBXXXXXXXXXX` (`SBM` = Suzuki Bike Model prefix + 9-digit serial). Used as a "likely your bike" heuristic in the pair UI.
 
-2. **One earlier session showed a different MAC** `22:1E:DA:75:57:B4` saved in DataStore — leading byte `0x22 = 00100010`, top 2 bits `00` = **non-resolvable random BLE address**. Either the cluster occasionally rotates address (rare for a fixed peripheral), or this was a stale leftover from a different test device. Worth a follow-up confirmation that `74:B8:39:54:DA:F1` is the stable address for this bike across power cycles.
+2. **One earlier session showed a different MAC** `22:1E:DA:75:57:B4` saved in DataStore — leading byte `0x22 = 00100010`, top 2 bits `00` = **non-resolvable random BLE address**. Either the cluster occasionally rotates address (rare for a fixed peripheral), or this was a stale leftover from a different test device. Worth a follow-up confirmation that `AA:BB:CC:DD:EE:FF` is the stable address for this bike across power cycles.
 
 3. **Most non-Suzuki nearby BLE devices advertise no name at all** (31-byte adv packet fills up fast; phones/buds put their name only in the scan response or omit entirely). Without a vendor label, the pair list showed raw MACs and "(unknown)" titles. Fixed by `BleVendor.identify(ScanResult)` (`android/app/src/main/kotlin/dev/mrwick/gixxerbridge/ble/BleVendor.kt`) which derives a label from, in priority order:
    - Manufacturer-specific data → 16-bit Bluetooth SIG company ID (Apple=0x004C, Samsung=0x0075, Google=0x00E0, Microsoft=0x0006, …). Works on randomized-MAC devices because companies still embed their company ID.
@@ -1790,7 +1790,7 @@ Bike then left pairing mode, accepted welcome a531, started streaming a537. Arju
 
 ### What's open
 
-- Cluster MAC stability across power cycles — verify `74:B8:39:54:DA:F1` doesn't change. If it does, scanning by service-UUID-or-name (instead of MAC) is the only durable identity.
+- Cluster MAC stability across power cycles — verify `AA:BB:CC:DD:EE:FF` doesn't change. If it does, scanning by service-UUID-or-name (instead of MAC) is the only durable identity.
 
 ### 2026-05-25 (later) — Cluster MAC stability: evidence-based answer
 
@@ -1807,10 +1807,10 @@ The crucial question is therefore **what produces the `BleDevice` passed into `b
 
 **First-time pair** (`DeviceListingScanActivity`, decompiled/jadx-out/sources/com/suzuki/activity/DeviceListingScanActivity.java + `adapter/C0882j.java`):
 - The scan callback `G(this, 0).y(BleDevice)` (decompiled/jadx-out/sources/com/suzuki/activity/G.java:114-119) forwards every result into `C0882j.a(BleDevice)`.
-- `C0882j.a()` filters by **NAME**: it accepts a device only if `bleDevice.c()` (= `BluetoothDevice.getName()`) contains `"SC"`, `"SB"`, or `"SA"` **and** is exactly 12 chars long (adapter/C0882j.java:48). Our bike's name `SBM110202788` matches: starts with `SB`, 12 chars.
+- `C0882j.a()` filters by **NAME**: it accepts a device only if `bleDevice.c()` (= `BluetoothDevice.getName()`) contains `"SC"`, `"SB"`, or `"SA"` **and** is exactly 12 chars long (adapter/C0882j.java:48). Our bike's name `SBXXXXXXXXXX` matches: starts with `SB`, 12 chars.
 - When the rider taps a row, on `onConnectSuccess` (`C0855q0.b()` case `default`, activity/C0855q0.java:75-127) the app saves **both** the name AND the MAC into SharedPreferences `BLE_DEVICE`:
-  - `prev_cluster` = `bleDevice.c()` = the BLE name (e.g. `SBM110202788`)
-  - `prev_cluster_macAddr` = `bleDevice.b()` = the MAC (e.g. `74:b8:39:54:da:f1`)
+  - `prev_cluster` = `bleDevice.c()` = the BLE name (e.g. `SBXXXXXXXXXX`)
+  - `prev_cluster_macAddr` = `bleDevice.b()` = the MAC (e.g. `AA:BB:CC:DD:EE:FF`)
   - And the *name* (not the MAC) is mirrored into the in-memory `LiveData<String>` `com.google.android.gms.measurement.internal.K.t`.
 
 **Reconnect after disconnect** (`HomeScreenActivity.p()`, activity/HomeScreenActivity.java:527-534):
@@ -1827,22 +1827,22 @@ Across four `.pcap` files in `captures/` from 2 distinct days (2026-05-23 aftern
 
 | Capture file | Date | `74:b8:39:*` BD_ADDR hits | Distinct MACs |
 |---|---|---|---|
-| `m0-pairing-and-first-nav-20260523-1712.pcap` | 2026-05-23 ~17:12 | 332 | `74:b8:39:54:da:f1` |
-| `m0-with-2-nav-20260523-1719.pcap` | 2026-05-23 ~17:19 | 332 | `74:b8:39:54:da:f1` |
-| `with-sim-nav-20260523-1840.pcap` | 2026-05-23 ~18:40 | 5 | `74:b8:39:54:da:f1` |
-| `ride-20260524-1810.pcap` | 2026-05-24 ~18:10 | 14 | `74:b8:39:54:da:f1` |
+| `m0-pairing-and-first-nav-20260523-1712.pcap` | 2026-05-23 ~17:12 | 332 | `AA:BB:CC:DD:EE:FF` |
+| `m0-with-2-nav-20260523-1719.pcap` | 2026-05-23 ~17:19 | 332 | `AA:BB:CC:DD:EE:FF` |
+| `with-sim-nav-20260523-1840.pcap` | 2026-05-23 ~18:40 | 5 | `AA:BB:CC:DD:EE:FF` |
+| `ride-20260524-1810.pcap` | 2026-05-24 ~18:10 | 14 | `AA:BB:CC:DD:EE:FF` |
 
 No occurrence of `22:1e:da:*` in any pcap. Each pcap spans at least one full connection lifecycle (advertisement → discovery → GATT connect → identity write → notify stream), so every connection event observed across two days used the same MAC.
 
 #### 3. The MAC is in the bike's hardware via 2a23 System ID — FACT
 
-NOTES.md line 363 documents that reading the standard BLE Device Info Service characteristic `2a23 System ID` returns `f1da54000039b874` — that's `74:b8:39:54:da:f1` in big-endian with a 2-byte manufacturer-ID stub (`0x0000`) inserted between the upper and lower MAC halves, exactly per the BLE System ID spec (lower 3 bytes of MAC, then 2 manufacturer bytes, then upper 3 bytes of MAC). This is a hardware-burned identifier that a peripheral with rotating/non-resolvable random addresses *would not* expose — non-resolvable random BLE addresses by definition are unrelated to the chip's IEEE EUI-48.
+NOTES.md line 363 documents that reading the standard BLE Device Info Service characteristic `2a23 System ID` returns `ffeedd0000ccbbaa` — that's `AA:BB:CC:DD:EE:FF` in big-endian with a 2-byte manufacturer-ID stub (`0x0000`) inserted between the upper and lower MAC halves, exactly per the BLE System ID spec (lower 3 bytes of MAC, then 2 manufacturer bytes, then upper 3 bytes of MAC). This is a hardware-burned identifier that a peripheral with rotating/non-resolvable random addresses *would not* expose — non-resolvable random BLE addresses by definition are unrelated to the chip's IEEE EUI-48.
 
 A TI BLE SoC with a public IEEE-allocated OUI (`74:b8:39`) and a `2a23 System ID` that matches the advertised BD_ADDR is the canonical signature of a **fixed public BLE address**.
 
 #### Answer to H1 vs H2
 
-- **H1 (cluster rotates MAC every power cycle): falsified by current evidence.** Across 4 pcaps spanning ~25 hours and multiple key-on/key-off cycles, the bike's BLE BD_ADDR is `74:b8:39:54:da:f1` every time. Plus the hardware-burned `2a23 System ID` matches that MAC byte-for-byte, which is incompatible with random/rotating addresses.
+- **H1 (cluster rotates MAC every power cycle): falsified by current evidence.** Across 4 pcaps spanning ~25 hours and multiple key-on/key-off cycles, the bike's BLE BD_ADDR is `AA:BB:CC:DD:EE:FF` every time. Plus the hardware-burned `2a23 System ID` matches that MAC byte-for-byte, which is incompatible with random/rotating addresses.
 
 - **H2 (the `22:1E:DA:75:57:B4` DataStore entry was a stale leftover): supported.** That MAC's top 2 bits are `0b00` (non-resolvable random), and the OUI prefix `22:1E:DA` does not match the bike's TI OUI. No pcap contains it, and no current code persists it. Most plausible explanation: it was written in a prior debug build by either a typo, a different test device, or by an Android stack quirk where a peripheral's transient random address got cached before bonding upgraded to identity-resolved.
 
@@ -1858,7 +1858,7 @@ Today `BleClient.connect(mac)` uses the saved MAC directly via `adapter.getRemot
 
 Suggested future change (tracked here, not in this commit):
 
-1. Persist `bikeName` (e.g. `SBM110202788`) alongside `bikeMac` in `Settings`.
+1. Persist `bikeName` (e.g. `SBXXXXXXXXXX`) alongside `bikeMac` in `Settings`.
 2. On reconnect: first try `getRemoteDevice(savedMac).connectGatt()` (fast path).
 3. On `CONN_TIMEOUT` (status=8) for >N seconds, fall back to: scan with `ScanFilter` matching the saved name (or no filter + adapter-side filter), pick the first SBM* result whose name == saved name, and connect on the freshly discovered MAC. Update saved MAC if it changed.
 
@@ -1874,10 +1874,10 @@ adb shell run-as dev.mrwick.gixxerbridge.debug cat files/diag/cluster-mac-histor
 
 Line format (UTC timestamp, ISO8601 millis):
 ```
-{"t":"2026-05-25T09:24:05.123Z","name":"SBM110202788","mac":"74:B8:39:54:DA:F1","rssi":-50}
+{"t":"2026-05-25T09:24:05.123Z","name":"SBXXXXXXXXXX","mac":"AA:BB:CC:DD:EE:FF","rssi":-50}
 ```
 
-To-verify protocol: open the GixxerBridge pair screen → key the bike on → confirm a row is appended → key the bike off + power-cycle the cluster (turn bike fully off, count to 10, key on again) → open pair screen again → confirm a second row. Repeat across 5-10 power cycles over a few days. If all rows for `SBM110202788` show the same MAC, H2 is empirically confirmed. If any row shows a different MAC for the same serial, H1 becomes the live case and the name-based fallback above becomes load-bearing.
+To-verify protocol: open the GixxerBridge pair screen → key the bike on → confirm a row is appended → key the bike off + power-cycle the cluster (turn bike fully off, count to 10, key on again) → open pair screen again → confirm a second row. Repeat across 5-10 power cycles over a few days. If all rows for `SBXXXXXXXXXX` show the same MAC, H2 is empirically confirmed. If any row shows a different MAC for the same serial, H1 becomes the live case and the name-based fallback above becomes load-bearing.
 
 ---
 
