@@ -4,7 +4,7 @@ Personal educational reverse-engineering of the **Suzuki Connect BLE protocol** 
 
 ## 🚨 Morning quickstart (after the 2026-05-24 overnight build)
 
-The Android app **GixxerBridge** is built and installed. Phase 2 + Phase 3-A shipped overnight.
+The Android app **REDLINE** is built and installed. Phase 2 + Phase 3-A shipped overnight.
 
 1. Plug the K20 Pro in via USB, confirm `adb devices` shows it
 2. `./android/MORNING_QUICKSTART.sh` — builds fresh APK, installs, grants every perm, launches
@@ -41,7 +41,7 @@ If you're a fresh Claude agent loading this project for the first time, **read i
 | Phase | Goal | Status |
 |-------|------|--------|
 | **Phase 1** | Understand the BLE protocol fully. Document it so an encoder can be implemented from spec alone. | ✅ **Done** — all 7 frame types decoded, `tools/protocol.py` is the canonical reference |
-| **Phase 2** | Android app that translates Google Maps notifications to Suzuki BLE frames. | ✅ **Built overnight 2026-05-24** — see GixxerBridge in `android/` |
+| **Phase 2** | Android app that translates Google Maps notifications to Suzuki BLE frames. | ✅ **Built overnight 2026-05-24** — see REDLINE in `android/` |
 | **Phase 3-A** | Custom cluster display — clock/weather/now-playing rendered to the bike's text fields when nav idle. | ✅ **Built overnight 2026-05-24** — `IdleClockGenerator` + alternating now-playing cycle |
 | **Phase 3-B** | Telemetry dashboard on phone (speed / fuel / odo / trip from a537). | ✅ **Built overnight 2026-05-24** — Dashboard tab + Stats tab + ride analytics |
 
