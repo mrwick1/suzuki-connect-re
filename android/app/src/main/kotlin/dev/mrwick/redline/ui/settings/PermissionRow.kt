@@ -157,3 +157,26 @@ fun DndAccessPermissionRow() {
         onGrant = { openDndAccessSettings(context) },
     )
 }
+
+/** Convenience wrapper around [PermissionRow] for fine location (GPS ride tracks). */
+@Composable
+fun LocationPermissionRow() {
+    var refreshTick by remember { mutableStateOf(0) }
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { _ -> refreshTick++ }
+    androidx.compose.runtime.key(refreshTick) {
+        PermissionRow(
+            title = "Location (GPS)",
+            rationale = "Required — without this, rides are recorded with no GPS track.",
+            grantedRationale = "Granted — GPS points are recorded along each ride (~every 100 m).",
+            isGranted = { ctx ->
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    ctx,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED
+            },
+            onGrant = { launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+        )
+    }
+}

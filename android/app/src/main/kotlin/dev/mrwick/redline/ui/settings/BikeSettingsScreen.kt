@@ -100,6 +100,11 @@ fun BikeSettingsScreen(
             }
         }
         item {
+            SettingsSection("Location") {
+                LocationPermissionRow()
+            }
+        }
+        item {
             SafetySection(safetyVm)
         }
     }
