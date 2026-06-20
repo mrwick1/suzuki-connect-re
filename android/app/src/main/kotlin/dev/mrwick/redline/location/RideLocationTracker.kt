@@ -48,9 +48,10 @@ data class LocationSample(
  * is not granted, so callers don't need to pre-check. Re-call [start] after the
  * user grants the permission to pick up tracking.
  *
- * ASSUMED: `PRIORITY_BALANCED_POWER_ACCURACY` at 5 s cadence is a good
- * battery / accuracy tradeoff for motorcycle GPS tracks. Can be raised to
- * `PRIORITY_HIGH_ACCURACY` later if tracks look jagged.
+ * Distance-based sampling at SMALLEST_DISPLACEMENT_M (100 m) with
+ * `PRIORITY_BALANCED_POWER_ACCURACY`: a fix roughly every 100 m of travel,
+ * and none while stopped (saves battery, avoids GPS-drift clusters at lights).
+ * Raise to `PRIORITY_HIGH_ACCURACY` if tracks look jagged.
  */
 @SuppressLint("MissingPermission") // start() guards permission check itself
 class RideLocationTracker(private val context: Context) {
@@ -89,6 +90,7 @@ class RideLocationTracker(private val context: Context) {
             INTERVAL_MS,
         )
             .setMinUpdateIntervalMillis(MIN_INTERVAL_MS)
+            .setMinUpdateDistanceMeters(SMALLEST_DISPLACEMENT_M)
             .build()
         client.requestLocationUpdates(req, callback, Looper.getMainLooper())
         return true
@@ -106,9 +108,15 @@ class RideLocationTracker(private val context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
 
     private companion object {
-        /** Target sample cadence. 5 s gives smooth tracks at typical motorcycle speeds. */
-        const val INTERVAL_MS = 5_000L
-        /** Hard minimum; allows faster bursts if the fix improves between intervals. */
-        const val MIN_INTERVAL_MS = 3_000L
+        /**
+         * Distance-based sampling: emit a fix only after ~100 m of travel. At
+         * city/motorcycle speeds this yields a point every few seconds while
+         * moving and NONE while stopped. This is the real driver of cadence.
+         */
+        const val SMALLEST_DISPLACEMENT_M = 100f
+        /** Desired time cadence; the distance gate above dominates in practice. */
+        const val INTERVAL_MS = 3_000L
+        /** Hard floor between fixes. */
+        const val MIN_INTERVAL_MS = 2_000L
     }
 }
