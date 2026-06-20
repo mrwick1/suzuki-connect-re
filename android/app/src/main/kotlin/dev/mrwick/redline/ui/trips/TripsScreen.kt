@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -61,8 +62,10 @@ import dev.mrwick.redline.ui.trips.components.GapConnector
 import dev.mrwick.redline.ui.trips.components.JourneyBanner
 import dev.mrwick.redline.ui.trips.components.RideRow
 import dev.mrwick.redline.ui.trips.components.WeekSectionHeader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
@@ -100,6 +103,32 @@ fun TripsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // Whole-bike "share everything for AI" — builds the full-archive .txt and
+    // hands it to the system share sheet (mirrors the per-trip share).
+    val shareAllForAi: () -> Unit = {
+        scope.launch {
+            val text = vm.buildFullExportText(
+                zone = java.time.ZoneId.systemDefault(),
+                now = System.currentTimeMillis(),
+            )
+            val uri = withContext(Dispatchers.IO) {
+                val cache = java.io.File(context.cacheDir, "redline-full-export.txt")
+                cache.writeText(text)
+                androidx.core.content.FileProvider.getUriForFile(
+                    context, "${context.packageName}.fileprovider", cache,
+                )
+            }
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(
+                android.content.Intent.createChooser(intent, "Share all bike data for AI"),
+            )
+        }
+    }
 
     // Selection state: rideId set + whether we're in selection mode.
     val selected = remember { mutableStateListOf<Long>() }
@@ -236,6 +265,7 @@ fun TripsScreen(
                             rideCount = monthSummary.rideCount,
                             totalKm = monthSummary.totalKm,
                             onOpenRoutes = onOpenRoutes,
+                            onShareAllForAi = shareAllForAi,
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
                         )
                     }
@@ -307,6 +337,7 @@ private fun TripsScreenHeader(
     rideCount: Int,
     totalKm: Int,
     onOpenRoutes: () -> Unit,
+    onShareAllForAi: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -335,16 +366,29 @@ private fun TripsScreenHeader(
                 color = GixxerTokens.textMuted,
             )
         }
-        // Routes action — opens the route leaderboard screen.
-        IconButton(
-            onClick = onOpenRoutes,
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Route,
-                contentDescription = "Routes",
-                tint = GixxerTokens.textMuted,
-            )
+        Row {
+            // Share everything for AI — whole-bike full-archive export.
+            IconButton(
+                onClick = onShareAllForAi,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Share,
+                    contentDescription = "Share all bike data for AI",
+                    tint = GixxerTokens.textMuted,
+                )
+            }
+            // Routes action — opens the route leaderboard screen.
+            IconButton(
+                onClick = onOpenRoutes,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Route,
+                    contentDescription = "Routes",
+                    tint = GixxerTokens.textMuted,
+                )
+            }
         }
     }
 }

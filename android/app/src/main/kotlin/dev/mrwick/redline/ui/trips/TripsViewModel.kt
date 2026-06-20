@@ -17,15 +17,20 @@ import dev.mrwick.redline.analytics.MileageAnalytics
 import dev.mrwick.redline.data.FuelStore
 import dev.mrwick.redline.data.JourneyDismissStore
 import dev.mrwick.redline.data.MergeResult
+import dev.mrwick.redline.data.ServiceLogStore
 import dev.mrwick.redline.data.Settings
+import dev.mrwick.redline.export.AllBikeExporter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import kotlin.math.max
@@ -45,6 +50,42 @@ class TripsViewModel(context: Context) : ViewModel() {
     private val metaStore: RideMetaStore = AppGraph.rideMetaStore(context)
     private val dismissStore = JourneyDismissStore(context)
     private val settings = Settings(context)
+    private val serviceLogStore: ServiceLogStore =
+        ServiceLogStore(GixxerDatabase.get(context).serviceLogDao())
+
+    /**
+     * Build the whole-bike "share everything for AI" report text. Gathers all
+     * rides + telemetry + GPS + fuel + service + current config, then renders
+     * via the pure [AllBikeExporter]. All DB/IO on [Dispatchers.IO].
+     */
+    suspend fun buildFullExportText(zone: ZoneId, now: Long): String =
+        withContext(Dispatchers.IO) {
+            val rides = store.getAllRides()
+            val dataRides = rides.filter { !it.isMerged }
+            val samplesByRide = dataRides.associate { it.id to store.getSamples(it.id) }
+            val locationsByRide = store.getAllLocationsPerRide(dataRides)
+            val fills = fuelStore.all()
+            val services = serviceLogStore.all()
+            val telem = settings.lastTelemetry.first()
+            val currentOdo = telem?.odometerKm ?: store.lastKnownOdometer()
+            AllBikeExporter.build(
+                rides = rides,
+                samplesByRide = samplesByRide,
+                locationsByRide = locationsByRide,
+                fills = fills,
+                services = services,
+                currentOdoKm = currentOdo,
+                currentFuelBars = telem?.fuelBars,
+                tankCapacityL = settings.fuelCapacityL.first(),
+                serviceIntervalKm = settings.serviceIntervalKm.first(),
+                serviceSchedule = settings.serviceSchedule.first(),
+                bikeMac = settings.bikeMac.first(),
+                bikeInfo = AppGraph.bikeInfo.value,
+                riderName = settings.riderName.first(),
+                zone = zone,
+                now = now,
+            )
+        }
 
     // ── Journey suggestion ────────────────────────────────────────────────────
 
