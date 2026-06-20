@@ -60,7 +60,13 @@ class TripsViewModel(context: Context) : ViewModel() {
      */
     suspend fun buildFullExportText(zone: ZoneId, now: Long): String =
         withContext(Dispatchers.IO) {
-            val rides = store.getAllRides()
+            // getAllRides() returns only top-level rides (merged-journey children
+            // are hidden). The export needs the children too — their telemetry +
+            // GPS live on the child rows — so pull them back in explicitly.
+            val topLevelRides = store.getAllRides()
+            val children = topLevelRides.filter { it.isMerged }
+                .flatMap { store.getChildren(it.id) }
+            val rides = topLevelRides + children
             val dataRides = rides.filter { !it.isMerged }
             val samplesByRide = dataRides.associate { it.id to store.getSamples(it.id) }
             val locationsByRide = store.getAllLocationsPerRide(dataRides)
