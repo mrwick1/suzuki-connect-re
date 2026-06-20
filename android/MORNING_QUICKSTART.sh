@@ -29,16 +29,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 echo
 echo "=== pre-granting runtime permissions (silences first-launch dialogs) ==="
-adb shell pm grant dev.mrwick.gixxerbridge.debug android.permission.BLUETOOTH_CONNECT 2>/dev/null || true
-adb shell pm grant dev.mrwick.gixxerbridge.debug android.permission.BLUETOOTH_SCAN 2>/dev/null || true
-adb shell pm grant dev.mrwick.gixxerbridge.debug android.permission.POST_NOTIFICATIONS 2>/dev/null || true
-adb shell pm grant dev.mrwick.gixxerbridge.debug android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
-adb shell pm grant dev.mrwick.gixxerbridge.debug android.permission.ACCESS_COARSE_LOCATION 2>/dev/null || true
-adb shell pm grant dev.mrwick.gixxerbridge.debug android.permission.SEND_SMS 2>/dev/null || true
+adb shell pm grant dev.mrwick.redline.debug android.permission.BLUETOOTH_CONNECT 2>/dev/null || true
+adb shell pm grant dev.mrwick.redline.debug android.permission.BLUETOOTH_SCAN 2>/dev/null || true
+adb shell pm grant dev.mrwick.redline.debug android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+adb shell pm grant dev.mrwick.redline.debug android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
+adb shell pm grant dev.mrwick.redline.debug android.permission.ACCESS_COARSE_LOCATION 2>/dev/null || true
+adb shell pm grant dev.mrwick.redline.debug android.permission.SEND_SMS 2>/dev/null || true
 
 echo
 echo "=== granting notification listener access ==="
-adb shell cmd notification allow_listener dev.mrwick.gixxerbridge.debug/dev.mrwick.gixxerbridge.notifications.NotificationCaptureService 2>/dev/null || true
+adb shell cmd notification allow_listener dev.mrwick.redline.debug/dev.mrwick.redline.notifications.NotificationCaptureService 2>/dev/null || true
 
 echo
 echo "=== keeping screen on while plugged in ==="
@@ -50,12 +50,12 @@ adb shell am force-stop suzuki.com.suzuki
 
 echo
 echo "=== launching app ==="
-adb shell am start -n dev.mrwick.gixxerbridge.debug/dev.mrwick.gixxerbridge.MainActivity
+adb shell am start -n dev.mrwick.redline.debug/dev.mrwick.redline.MainActivity
 
 echo
 echo "Done. Open SMOKE_TEST.md in the project root and walk through the phases."
 echo "If the bike is on, you can also start the service via:"
-echo "  adb shell am start-foreground-service -n dev.mrwick.gixxerbridge.debug/dev.mrwick.gixxerbridge.ble.BikeBridgeService"
+echo "  adb shell am start-foreground-service -n dev.mrwick.redline.debug/dev.mrwick.redline.ble.BikeBridgeService"
 echo
 echo "Live logs:"
 echo "  adb logcat -s BikeBridge:* BleClient:* GoogleMapsParser:* ManeuverClassifier:I"

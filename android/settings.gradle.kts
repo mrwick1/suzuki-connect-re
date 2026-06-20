@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "GixxerBridge"
+rootProject.name = "REDLINE"
 include(":app")

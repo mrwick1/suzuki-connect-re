@@ -19,7 +19,7 @@ reachable from Settings → Developer.
 android/
 ├── app/build.gradle.kts          # AGP 8.10, Kotlin 2.1, Compose BOM 2024.12, Material3 1.3
 ├── gradle/libs.versions.toml     # all version pins
-├── app/src/main/kotlin/dev/mrwick/gixxerbridge/
+├── app/src/main/kotlin/dev/mrwick/redline/
 │   ├── GixxerApp.kt              # Application class — notification channel
 │   ├── MainActivity.kt           # AppCompatActivity (biometric needs this), 5-tab NavHost
 │   │
@@ -123,7 +123,7 @@ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 cd ~/coding/projects/suzuki-connect-re/android
 ./gradlew :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n dev.mrwick.gixxerbridge.debug/dev.mrwick.gixxerbridge.MainActivity
+adb shell am start -n dev.mrwick.redline.debug/dev.mrwick.redline.MainActivity
 ```
 
 Tests: `./gradlew :app:testDebugUnitTest`
@@ -142,11 +142,11 @@ If a stale Kotlin incremental cache hits: `./gradlew … --rerun-tasks` clears i
 
 ## Where the data lives
 
-- DataStore: `/data/data/dev.mrwick.gixxerbridge.debug/files/datastore/{gixxer_settings,last_parked,quick_destinations}.preferences_pb`
-- Room: `/data/data/dev.mrwick.gixxerbridge.debug/databases/gixxer.db`
+- DataStore: `/data/data/dev.mrwick.redline.debug/files/datastore/{gixxer_settings,last_parked,quick_destinations}.preferences_pb`
+- Room: `/data/data/dev.mrwick.redline.debug/databases/gixxer.db`
 - Maneuver hash table: `filesDir/maneuver_hash_table.tsv`
 
-Wipe all: `adb shell pm clear dev.mrwick.gixxerbridge.debug` (resets perms too).
+Wipe all: `adb shell pm clear dev.mrwick.redline.debug` (resets perms too).
 
 ## Known unverified assumptions
 
@@ -162,7 +162,7 @@ See `docs/superpowers/specs/2026-05-24-assumptions-log.md` for the full list. Th
 
 ## Where the protocol is decoded
 
-`tools/protocol.py` (Python) is the canonical reference. The Kotlin port in `android/app/src/main/kotlin/dev/mrwick/gixxerbridge/protocol/` mirrors it byte-for-byte; both pass the same test fixtures.
+`tools/protocol.py` (Python) is the canonical reference. The Kotlin port in `android/app/src/main/kotlin/dev/mrwick/redline/protocol/` mirrors it byte-for-byte; both pass the same test fixtures.
 
 ## Smoke test
 

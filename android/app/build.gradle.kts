@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.mrwick.gixxerbridge"
+    namespace = "dev.mrwick.redline"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.mrwick.gixxerbridge"
+        applicationId = "dev.mrwick.redline"
         minSdk = 29           // Android 10 (covers K20 Pro on LineageOS 23 + older)
         targetSdk = 35        // Android 15 behaviors; runs on Android 16 (API 36) too
         versionCode = 1
