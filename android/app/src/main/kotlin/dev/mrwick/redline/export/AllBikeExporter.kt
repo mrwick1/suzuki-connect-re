@@ -188,11 +188,14 @@ object AllBikeExporter {
             appendLine("=== HABITS ===")
             val streak = RideStreak.compute(topLevel, zone, today)
             appendLine("Streak  : current ${streak.current} day(s), longest ${streak.longest}")
+            // Cluster over dataRides (normals + children): GPS tracks live on
+            // child rides, not merged parents — clustering topLevel would drop
+            // every merged journey's route (matches the in-app Routes screen).
             val clusters = RouteClustering.cluster(
-                rides = topLevel,
+                rides = dataRides,
                 locationsForRide = { id -> locationsByRide[id].orEmpty() },
             )
-            val board = RouteLeaderboard.leaderboard(clusters, topLevel, kmPerL = avgKmPerL)
+            val board = RouteLeaderboard.leaderboard(clusters, dataRides, kmPerL = avgKmPerL)
             val tracked = board.filter { !it.isUntracked }
             if (tracked.isNotEmpty()) {
                 appendLine("Routes  : ${tracked.size} recurring route(s)")

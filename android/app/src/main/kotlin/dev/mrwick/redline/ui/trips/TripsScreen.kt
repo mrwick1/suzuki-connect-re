@@ -108,25 +108,29 @@ fun TripsScreen(
     // hands it to the system share sheet (mirrors the per-trip share).
     val shareAllForAi: () -> Unit = {
         scope.launch {
-            val text = vm.buildFullExportText(
-                zone = java.time.ZoneId.systemDefault(),
-                now = System.currentTimeMillis(),
-            )
-            val uri = withContext(Dispatchers.IO) {
-                val cache = java.io.File(context.cacheDir, "redline-full-export.txt")
-                cache.writeText(text)
-                androidx.core.content.FileProvider.getUriForFile(
-                    context, "${context.packageName}.fileprovider", cache,
+            try {
+                val text = vm.buildFullExportText(
+                    zone = java.time.ZoneId.systemDefault(),
+                    now = System.currentTimeMillis(),
                 )
+                val uri = withContext(Dispatchers.IO) {
+                    val cache = java.io.File(context.cacheDir, "redline-full-export.txt")
+                    cache.writeText(text)
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", cache,
+                    )
+                }
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(
+                    android.content.Intent.createChooser(intent, "Share all bike data for AI"),
+                )
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Couldn't export bike data: ${e.message ?: "error"}")
             }
-            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(
-                android.content.Intent.createChooser(intent, "Share all bike data for AI"),
-            )
         }
     }
 
